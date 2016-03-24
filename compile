@@ -1,0 +1,2 @@
+#!/bin/bash
+dmd *.d ./derelict/libderelict.a -gc -ofmain

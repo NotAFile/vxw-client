@@ -1,0 +1,5 @@
+#!/bin/bash
+cd derelict
+dmd -c `./derelict-files`
+ar rcs libderelict.a *.o
+rm *.o

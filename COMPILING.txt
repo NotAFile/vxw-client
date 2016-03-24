@@ -1,0 +1,22 @@
+On Linux:
+
+Create a directory called "derelict"
+From here,
+https://github.com/DerelictOrg/DerelictSDL2/tree/master/source/derelict/
+copy the directory "sdl2" into "./derelict" (so the .d files are in /derelict/sdl2)
+Do the same here
+https://github.com/DerelictOrg/DerelictENet/tree/master/source/derelict/
+with the directory "enet"
+
+Then, if you haven't installed SDL2 and/or ENet yet,
+(on Debian-based distributions)
+sudo apt-get install libsdl2-dev
+sudo apt-get install libenet-dev
+
+./compile-derelict
+to compile the derelict files into a compact .a file
+./compile
+to compile the source
+
+On windows:
+Exactly the same, but put sdl2.dll and enet.dll into the .exe directory instead of installing them via apt-get
