@@ -4,8 +4,10 @@ import gfx;
 import misc;
 import network;
 import protocol;
+import vector;
 
 string[] ChatText;
+uint[] ChatColors;
 string CurrentChatLine="";
 
 uint CurrentChatCursor;
@@ -16,7 +18,7 @@ bool QuitGame=false;
 ubyte* KeyState;
 
 void Init_UI(){
-	ChatText.length=8;
+	ChatText.length=8; ChatColors.length=8;
 	KeyState=SDL_GetKeyboardState(null);
 }
 
@@ -72,18 +74,41 @@ void Check_Input(){
 			default:{break;}
 		}
 	}
-	QuitGame|=cast(bool)KeyState[SDL_SCANCODE_ESCAPE];
+	if(!TypingChat){
+		QuitGame|=cast(bool)KeyState[SDL_SCANCODE_ESCAPE];
+		if(KeyState[SDL_SCANCODE_DOWN]){
+			CameraRot.y+=1.0;
+		}
+		if(KeyState[SDL_SCANCODE_UP]){
+			CameraRot.y-=1.0;
+		}
+		if(KeyState[SDL_SCANCODE_LEFT]){
+			CameraRot.x-=1.0;
+		}
+		if(KeyState[SDL_SCANCODE_RIGHT]){
+			CameraRot.x+=1.0;
+		}
+		if(KeyState[SDL_SCANCODE_W]){
+			CameraPos-=CameraRot.sincos().filter(1, 0, 1);
+		}
+		if(KeyState[SDL_SCANCODE_S]){
+			CameraPos+=CameraRot.sincos().filter(1, 0, 1);
+		}
+	}
 }
 
-void WriteMsg(string msg){
-	for(uint i=ChatText.length-1; i; i--)
+void WriteMsg(string msg, uint color){
+	for(uint i=ChatText.length-1; i; i--){
+		ChatColors[i]=ChatColors[i-1];
 		ChatText[i]=ChatText[i-1];
+	}
+	ChatColors[0]=color;
 	ChatText[0]=msg;
 }
 
 void Render_HUD(){
 	if(TypingChat)
-		Render_Text_Line(0, 0, CurrentChatLine~"_");
+		Render_Text_Line(0, 0, Font_SpecialColor, CurrentChatLine~"_");
 	foreach(uint i, line; ChatText)
-		Render_Text_Line(0, (i+1)*FontHeight/16, line);
+		Render_Text_Line(0, (i+1)*FontHeight/16, ChatColors[i], line);
 }

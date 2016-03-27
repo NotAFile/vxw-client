@@ -3,6 +3,9 @@ import std.stdio;
 import std.string;
 import misc;
 
+//Change this depending on your system's endianess
+bool EnableByteFlip=true;
+
 struct Connection_t{
 	ENetHost *client;
 	ENetPeer *peer;
@@ -97,8 +100,8 @@ struct Connection_t{
 	void Clean_Packet(ENetPacket *packet){
 		enet_packet_destroy(packet);
 	}
-	int Send(void *data, uint size){
-		ENetPacket *packet=enet_packet_create(data, size, ENET_PACKET_FLAG_RELIABLE);
+	int Send(ubyte[] data){
+		ENetPacket *packet=enet_packet_create(cast(void*)data.ptr, data.length, ENET_PACKET_FLAG_RELIABLE);
 		int ret=enet_peer_send(peer, 0, packet);
 		enet_host_flush(client);
 		return ret;
@@ -133,19 +136,31 @@ int Disconnect(){
 }
 
 int Send_Data(T)(T *data, uint size){
-	return connection.Send(cast(void*)data, size);
+	return connection.Send((cast(ubyte*)data)[0..size]);
+}
+
+int Send_Data(T)(T data){
+	return connection.Send(cast(ubyte[])data);
 }
 
 struct ReceivedPacket_t{
 	uint ConnectionID;
-	void *data;
-	uint DataLength;
+	ubyte[] data;
+	this(uint connect_id, void *recvdata, uint datalen){
+		data=(cast(ubyte*)recvdata)[0..datalen];
+		ConnectionID=connect_id;
+	}
+	this(bool something){
+		if(!something){
+			ConnectionID=0;
+			data.length=0;
+		}
+	}
 }
 
 ReceivedPacket_t Update_Network(){
 	ENetEvent event=connection.Update(0);
-	if(event.type==ENET_EVENT_TYPE_RECEIVE){
+	if(event.type==ENET_EVENT_TYPE_RECEIVE)
 		return ReceivedPacket_t(event.peer.connectID, event.packet.data, event.packet.dataLength);
-	}
-	return cast(ReceivedPacket_t)0;
+	return ReceivedPacket_t(0);
 }
