@@ -2,6 +2,8 @@ import derelict.sdl2.sdl;
 import renderer;
 import protocol;
 import misc;
+import world;
+import ui;
 import vector;
 
 SDL_Window *scrn_window;
@@ -15,8 +17,11 @@ uint Font_SpecialColor=0xff000000;
 
 uint ScreenXSize=800, ScreenYSize=600;
 
-Vector3_t CameraPos=Vector3_t(256.0, 32.0, 256.0), CameraRot=Vector3_t(0.0, 0.0, 0.0);
+Vector3_t CameraRot=Vector3_t(0.0, 0.0, 0.0);
 float X_FOV=90.0, Y_FOV=90.0;
+
+KV6Model_t*[] Mod_Models;
+SDL_Texture*[] Mod_Pictures;
 
 void Init_Gfx(){
 	DerelictSDL2.load();
@@ -25,10 +30,14 @@ void Init_Gfx(){
 	scrn_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, ScreenXSize, ScreenYSize);
 	{
 		SDL_Surface *font_surface=SDL_LoadBMP("./Ressources/Default/Font.bmp");
-		SDL_SetColorKey(font_surface, SDL_TRUE, SDL_MapRGB(font_surface.format, 255, 0, 255));
 		if(font_surface){
 			FontWidth=font_surface.w; FontHeight=font_surface.h;
-			font_surface=SDL_ConvertSurfaceFormat(font_surface, SDL_PIXELFORMAT_RGBA8888, 0);
+			{
+				SDL_Surface *ffont_surface=SDL_ConvertSurfaceFormat(font_surface, SDL_PIXELFORMAT_RGBA8888, 0);
+				SDL_FreeSurface(font_surface);
+				font_surface=ffont_surface;
+			}
+			SDL_SetColorKey(font_surface, SDL_TRUE, SDL_MapRGB(font_surface.format, 255, 0, 255));
 			font_texture=SDL_CreateTextureFromSurface(scrn_renderer, font_surface);
 			SDL_FreeSurface(font_surface);
 		}
@@ -70,9 +79,23 @@ void Render_Text_Line(uint xpos, uint ypos, uint color, string line){
 
 void Render_Screen(){
 	Fill_Screen(null, SDL_MapRGB(scrn_surface.format, 0, 255, 255));
-	SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, CameraPos.x, CameraPos.y, CameraPos.z);
-	if(JoinedGame)
+	if(Joined_Game()){
+		CameraRot.x+=MouseMovedX*.5; CameraRot.y+=MouseMovedY*.5;
+		//For some reason, this has to be rotated 90° right, TODO: investigate why and fix
+		Players[LocalPlayerID].dir=CameraRot.RotationAsDirection().rotate(Vector3_t(0.0, 90.0, 0.0));
+		//Limiting to 100.0°, not 90.0°, so shooting horizontally will be easier
+		if(CameraRot.y<-100.0)
+			CameraRot.y=-100.0;
+		if(CameraRot.y>100.0)
+			CameraRot.y=100.0;
+		Vector3_t pos=Players[LocalPlayerID].pos;
+		SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, pos.x, pos.y, pos.z);
+		Update_Rotation_Data();
 		Render_Voxels();
+		for(uint p=0; p<Players.length; p++)
+			Render_Player(p);
+		Render_FinishRendering();
+	}
 }
 
 void Finish_Render(){

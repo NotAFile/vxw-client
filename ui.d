@@ -4,6 +4,7 @@ import gfx;
 import misc;
 import network;
 import protocol;
+import world;
 import vector;
 
 string[] ChatText;
@@ -17,6 +18,11 @@ bool QuitGame=false;
 
 ubyte* KeyState;
 
+bool Lock_Mouse=true;
+int MouseXPos, MouseYPos;
+int MouseMovedX, MouseMovedY;
+bool MouseLeftClick, MouseRightClick;
+
 void Init_UI(){
 	ChatText.length=8; ChatColors.length=8;
 	KeyState=SDL_GetKeyboardState(null);
@@ -25,8 +31,11 @@ void Init_UI(){
 void UnInit_UI(){
 }
 
+uint PrevKeyPresses=0;
+
 void Check_Input(){
 	SDL_Event event;
+	MouseMovedX=0; MouseMovedY=0;
 	while(SDL_PollEvent(&event)){
 		switch(event.type){
 			case SDL_QUIT:{
@@ -52,7 +61,18 @@ void Check_Input(){
 						if(CurrentChatLine.length)
 							CurrentChatLine.length--;
 					}
+					case SDLK_F10:{
+						Lock_Mouse=!Lock_Mouse;
+						SDL_SetRelativeMouseMode(Lock_Mouse ? SDL_TRUE : SDL_FALSE);
+					}
 					default:{break;}
+				}
+				break;
+			}
+			case SDL_MOUSEMOTION:{
+				if(Lock_Mouse){
+					MouseMovedX=event.motion.xrel;
+					MouseMovedY=event.motion.yrel;
 				}
 				break;
 			}
@@ -76,24 +96,30 @@ void Check_Input(){
 	}
 	if(!TypingChat){
 		QuitGame|=cast(bool)KeyState[SDL_SCANCODE_ESCAPE];
-		if(KeyState[SDL_SCANCODE_DOWN]){
-			CameraRot.y+=1.0;
+		if(Joined_Game()){
+			ubyte KeyPresses=0;
+			uint[2][] KeyBits=[[SDL_SCANCODE_S, 0], [SDL_SCANCODE_W, 1], [SDL_SCANCODE_A, 2], [SDL_SCANCODE_D, 3],
+			[SDL_SCANCODE_SPACE, 4], [SDL_SCANCODE_LCTRL, 5]];
+			foreach(kb; KeyBits)
+				KeyPresses|=(1<<kb[1])*(cast(int)(cast(bool)KeyState[kb[0]]));
+			if(KeyPresses!=PrevKeyPresses){
+				Send_Key_Presses(KeyPresses);
+				PrevKeyPresses=KeyPresses;
+				Player_t *plr=&Players[LocalPlayerID];
+				plr.Go_Back=cast(bool)(KeyPresses&1);
+				plr.Go_Forwards=cast(bool)(KeyPresses&2);
+				plr.Go_Left=cast(bool)(KeyPresses&4);
+				plr.Go_Right=cast(bool)(KeyPresses&8);
+				plr.Jump=cast(bool)(KeyPresses&16);
+				plr.Crouch=cast(bool)(KeyPresses&32);
+				plr.KeysChanged=true;
+			}
 		}
-		if(KeyState[SDL_SCANCODE_UP]){
-			CameraRot.y-=1.0;
-		}
-		if(KeyState[SDL_SCANCODE_LEFT]){
-			CameraRot.x-=1.0;
-		}
-		if(KeyState[SDL_SCANCODE_RIGHT]){
-			CameraRot.x+=1.0;
-		}
-		if(KeyState[SDL_SCANCODE_W]){
-			CameraPos-=CameraRot.sincos().filter(1, 0, 1);
-		}
-		if(KeyState[SDL_SCANCODE_S]){
-			CameraPos+=CameraRot.sincos().filter(1, 0, 1);
-		}
+	}
+	if(!Lock_Mouse){
+		uint mousestate=SDL_GetMouseState(&MouseXPos, &MouseYPos);
+		MouseLeftClick=cast(bool)(mousestate&SDL_BUTTON(SDL_BUTTON_LEFT));
+		MouseRightClick=cast(bool)(mousestate&SDL_BUTTON(SDL_BUTTON_RIGHT));
 	}
 }
 

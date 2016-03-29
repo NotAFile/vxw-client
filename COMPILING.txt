@@ -1,22 +1,31 @@
+If you haven't already installed DMD, you can download the latest version here:
+https://dlang.org/download.html
+
+You need at least one renderer module.
+Probably the most reliable one is the Voxlap module, which can be downloaded here:
+https://github.com/LeComm/aofclient-voxlap-renderer
+
 On Linux:
-
-Create a directory called "derelict"
-From here,
-https://github.com/DerelictOrg/DerelictSDL2/tree/master/source/derelict/
-copy the directory "sdl2" into "./derelict" (so the .d files are in /derelict/sdl2)
-Do the same here
-https://github.com/DerelictOrg/DerelictENet/tree/master/source/derelict/
-with the directory "enet"
-
-Then, if you haven't installed SDL2 and/or ENet yet,
-(on Debian-based distributions)
+1. If you are using Debian or Ubuntu and don't have these installed already:
 sudo apt-get install libsdl2-dev
 sudo apt-get install libenet-dev
-
+sudo apt-get install git
+If not, install SDL2, ENet and git the way you would do it on your distribution.
+2. Open a terminal in this directory and write
+./configure
+to download derelict files
 ./compile-derelict
 to compile the derelict files into a compact .a file
 ./compile
 to compile the source
 
-On windows:
-Exactly the same, but put sdl2.dll and enet.dll into the .exe directory instead of installing them via apt-get
+On Windows (untested):
+1. Put SDL2.dll and ENet.dll into the .exe directory
+2. Download the contents of:
+https://github.com/DerelictOrg/DerelictSDL2
+https://github.com/DerelictOrg/DerelictENet
+https://github.com/DerelictOrg/DerelictUtil
+3. Create a directory called "derelict" here.
+4. Paste the contents of the derelict directories from the repositories from 2.
+(sdl2, enet, util)
+5. Your renderer module's ./compile file should only contain a compiler command, so try to pasting that one into your command line

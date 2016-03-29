@@ -4,6 +4,10 @@ import protocol;
 import std.conv;
 import std.meta;
 
+alias PlayerID_t=ubyte;
+alias PacketID_t=ubyte;
+alias TeamID_t=ubyte;
+
 struct ClientVersionPacketLayout{
 	uint client_version;
 	string name;
@@ -11,7 +15,7 @@ struct ClientVersionPacketLayout{
 
 struct ServerVersionPacketLayout{
 	uint server_version;
-	ubyte player_id;
+	PlayerID_t player_id;
 }
 
 struct MapChangePacketLayout{
@@ -19,39 +23,103 @@ struct MapChangePacketLayout{
 	uint datasize;
 	string mapname;
 }
-immutable ubyte MapChangePacketID=0;
+immutable PacketID_t MapChangePacketID=0;
 
 struct MapChunkPacketLayout{
 	string data; //Cast to ubyte
 }
-immutable ubyte MapChunkPacketID=1;
+immutable PacketID_t MapChunkPacketID=1;
 
 struct PlayerJoinPacketLayout{
-	ubyte player_id;
+	PlayerID_t player_id;
 	string name;
 }
-immutable ubyte PlayerJoinPacketID=2;
+immutable PacketID_t PlayerJoinPacketID=2;
 
 struct ChatMessagePacketLayout{
 	uint color;
 	string message;
 }
-immutable ubyte ChatPacketID=3;
+immutable PacketID_t ChatPacketID=3;
 
 struct PlayerDisconnectPacketLayout{
-	ubyte player_id;
+	PlayerID_t player_id;
 }
-immutable ubyte DisconnectPacketID=4;
+immutable PacketID_t DisconnectPacketID=4;
 
 struct MapEnvironmentPacketLayout{
 	uint fog_color;
 	uint visibility_range;
 }
-immutable ubyte MapEnvironmentPacketID=5;
+immutable PacketID_t MapEnvironmentPacketID=5;
 
+struct ExistingPlayerPacketLayout{
+	PlayerID_t player_id;
+	string name;
+}
+immutable PacketID_t ExistingPlayerPacketID=6;
+
+//Client behaviour: Client initializes a mod structure (necessary). A copy of that packet is sent back, with hash changed if client could calculate it
+//Server behaviour: Should send this first each time a mod is sent to the client. On receiving, server compares the hash and sends ModData when needed
+struct ModRequirementPacketLayout{
+	ubyte type;
+	ushort index;
+	uint hash;
+	uint size;
+	string path;
+}
+immutable PacketID_t ModRequirementPacketID=7;
+
+struct ModDataPacketLayout{
+	ubyte type;
+	ushort index;
+	string data;
+}
+immutable PacketID_t ModDataPacketID=8;
+
+struct PlayerSpawnPacketLayout{
+	PlayerID_t player_id;
+	TeamID_t team_id;
+	float[3] pos;
+}
+immutable PacketID_t PlayerSpawnPacketID=9;
+
+struct TeamDataPacketLayout{
+	TeamID_t team_id;
+	ubyte[3] color;
+	string name;
+}
+immutable PacketID_t TeamDataPacketID=10;
+
+struct PlayerRotationPacketLayout{
+	PlayerID_t player_id;
+	float[3] rotation;
+}
+immutable PacketID_t PlayerRotationPacketID=11;
+
+immutable PacketID_t WorldUpdatePacketID=12;
+
+//WIP and TEMPORARY-ONLY packet. This will be removed and replaced by key press handling in future.
+//This only exists for testing the physics and to quickly create a game from the engine
+struct PlayerKeyEventPacketLayout{
+	PlayerID_t player_id;
+	ubyte keys;
+}
+immutable PacketID_t PlayerKeyEventPacketID=13;
+
+struct BindModelPacketLayout{
+	PlayerID_t player_id;
+	ushort model;
+}
+immutable PacketID_t BindModelPacketID=14;
+
+struct PlayerPositionPacketLayout{
+	float[3] position;
+}
+immutable PlayerID_t PlayerPositionPacketID=15;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
-//unpack received packets into structs and reverse byte order when needed.
+//unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)
 
 union ArrayVariableAssignUnion(T){
 	T variable;
@@ -93,7 +161,7 @@ ubyte[] ConvertVariableToArray(T)(T var){
 	ubyte[] ret;
 	ret.length=T.sizeof;
 	ret[]=unionvar.array[];
-	if(EnableByteFlip && 0)
+	if(EnableByteFlip)
 		ret=ret.reverse;
 	return ret;
 }

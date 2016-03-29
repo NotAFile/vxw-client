@@ -95,6 +95,23 @@ struct Vector3_t{
 		return ret;
 	}
 	
+	Vector3_t RotationAsDirection(){
+		/*Vector3_t dir=Vector3_t(1.0);
+		dir=dir.rotate(this.cossin());
+		return dir;*/
+		float cx=degcos(this.x);
+		float sy=degsin(this.y);
+		float cz=degsin(this.x);
+		return Vector3_t(cx, sy, cz);
+	}
+	
+	Vector3_t DirectionAsRotation(){
+		float rx=atan2(this.y, this.x)*180.0/PI;
+		float ry=asin(this.y)*180.0/PI;
+		float rz=0.0;
+		return Vector3_t(rx, ry, rz);
+	}
+	
 	typeof(x) dot(T)(T arg){
 		Vector3_t vec=Vector3_t(arg);
 		return x*vec.x+y*vec.y+z*vec.z;

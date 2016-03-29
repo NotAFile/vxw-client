@@ -1,0 +1,12 @@
+#!/bin/bash
+#Using Derelict SDL 2.0.2 now, because a 2.0.3 branch doesn't exist and
+#not all systems have updated to 2.0.4 yet (especially Linux package repos)
+git clone https://github.com/DerelictOrg/DerelictSDL2 --branch 2.0.2
+mv ./DerelictSDL2/source/derelict .
+rm -r ./DerelictSDL2 --interactive=never
+git clone https://github.com/DerelictOrg/DerelictENet
+mv ./DerelictENet/source/derelict/enet ./derelict
+rm -r ./DerelictENet --interactive=never
+git clone https://github.com/DerelictOrg/DerelictUtil
+mv ./DerelictUtil/source/derelict/util ./derelict
+rm -r ./DerelictUtil --interactive=never

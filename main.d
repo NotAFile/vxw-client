@@ -10,16 +10,18 @@ import misc;
 import ui;
 import renderer;
 import vector;
+import world;
 
 void main(string[] args){
 	Init_Game();
 	ushort port; string address;
+	string requested_name;
 	if(args.length>1){
-		LocalClientName=args[2];
+		requested_name=args[2];
 		formattedRead(args[1], "vsc://%s:%u", &address, &port);
 	}
 	else{
-		LocalClientName="Deuce";
+		requested_name="Deuce";
 		address="localhost";
 		port=32887;
 	}
@@ -31,7 +33,7 @@ void main(string[] args){
 			return;
 		}
 	}
-	Send_Identification_Packet();
+	Send_Identification_Packet(requested_name);
 	while(!QuitGame){
 		Check_Input();
 		{
@@ -39,6 +41,7 @@ void main(string[] args){
 			if(ret.data.length)
 				On_Packet_Receive(ret);
 		}
+		Update_World();
 		Prepare_Render();
 		Render_Screen();
 		Render_HUD();
