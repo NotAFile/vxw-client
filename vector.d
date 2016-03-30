@@ -1,4 +1,5 @@
 import std.math;
+import misc;
 
 T degsin(T)(T val){
 	return sin(val*PI/180.0);
@@ -106,8 +107,8 @@ struct Vector3_t{
 	}
 	
 	Vector3_t DirectionAsRotation(){
-		float rx=atan2(this.y, this.x)*180.0/PI;
-		float ry=asin(this.y)*180.0/PI;
+		float rx=atan2(this.z, this.x)*180.0/PI-90.0;
+		float ry=asin(this.y)*180.0/PI+90.0;
 		float rz=0.0;
 		return Vector3_t(rx, ry, rz);
 	}

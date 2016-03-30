@@ -16,9 +16,15 @@ void main(string[] args){
 	Init_Game();
 	ushort port; string address;
 	string requested_name;
+	if(args.length>1 && args.length<3){
+		UnInit_Game();
+		writeflnlog("Usage: ./main <address:port> <nick>");
+		writeflnlog("Or ./main to connect to localhost");
+		writeflnlog("It's supposed to support DNS names, e.g. like server.com:123, but the only confirmed is localhost");
+	}
 	if(args.length>1){
 		requested_name=args[2];
-		formattedRead(args[1], "vsc://%s:%u", &address, &port);
+		formattedRead(args[1], "%s:%u", &address, &port);
 	}
 	else{
 		requested_name="Deuce";

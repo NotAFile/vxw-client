@@ -128,10 +128,9 @@ union ArrayVariableAssignUnion(T){
 
 T ConvertArrayToVariable(T)(ubyte[] array){
 	ArrayVariableAssignUnion!(T) unionvar;
+	unionvar.array[]=array[];
 	if(EnableByteFlip)
-		unionvar.array[]=array.reverse[];
-	else
-		unionvar.array[]=array[];
+		unionvar.array.reverse;
 	return unionvar.variable;
 }
 
@@ -162,7 +161,7 @@ ubyte[] ConvertVariableToArray(T)(T var){
 	ret.length=T.sizeof;
 	ret[]=unionvar.array[];
 	if(EnableByteFlip)
-		ret=ret.reverse;
+		ret.reverse;
 	return ret;
 }
 

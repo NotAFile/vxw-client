@@ -30,6 +30,7 @@ struct Player_t{
 	}
 	void Spawn(Vector3_t location, TeamID_t spteam){
 		pos=location;
+		pos=Vector3_t(256, 29, 256);
 		team=spteam;
 	}
 	void Update_Physics(){

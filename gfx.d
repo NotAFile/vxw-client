@@ -82,7 +82,9 @@ void Render_Screen(){
 	if(Joined_Game()){
 		CameraRot.x+=MouseMovedX*.5; CameraRot.y+=MouseMovedY*.5;
 		//For some reason, this has to be rotated 90° right, TODO: investigate why and fix
-		Players[LocalPlayerID].dir=CameraRot.RotationAsDirection().rotate(Vector3_t(0.0, 90.0, 0.0));
+		Vector3_t rt=CameraRot;
+		rt.x-=90.0;
+		Players[LocalPlayerID].dir=rt.RotationAsDirection;
 		//Limiting to 100.0°, not 90.0°, so shooting horizontally will be easier
 		if(CameraRot.y<-100.0)
 			CameraRot.y=-100.0;

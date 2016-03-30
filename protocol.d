@@ -231,15 +231,19 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case PlayerRotationPacketID:{
 				auto packet=UnpackPacketToStruct!(PlayerRotationPacketLayout)(PacketData);
+				//TODO: investigate why I have to do rotation.reverse here and fix
+				packet.rotation.reverse;
 				Players[packet.player_id].dir=Vector3_t(packet.rotation);
+				if(packet.player_id==LocalPlayerID)
+					CameraRot=Players[packet.player_id].dir.DirectionAsRotation;
 				break;
 			}
 			case WorldUpdatePacketID:{
 				ushort PlayersExisting;
+				ubyte[2] PlayersExistingBytes=PacketData[0..2];
 				if(EnableByteFlip)
-					PlayersExisting=*(cast(ushort*)PacketData[0..2].reverse.ptr);
-				else
-					PlayersExisting=*(cast(ushort*)PacketData.ptr);
+					PlayersExistingBytes.reverse;
+				PlayersExisting=*(cast(ushort*)PlayersExistingBytes.ptr);
 				uint PlayerArraySize=(PlayersExisting/8)+(cast(int)((PlayersExisting%8)!=0));
 				uint[] PlayerTable;
 				uint plrindex=0;
@@ -258,7 +262,8 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					float[3] pos=positiondata[p];
 					if(EnableByteFlip){
 						foreach(ref coord;pos){
-							ubyte[4] content=ConvertVariableToArray(coord).reverse;
+							ubyte[4] content=ConvertVariableToArray(coord);
+							content.reverse;
 							coord=ConvertArrayToVariable!(float)(content);
 						}
 					
@@ -330,8 +335,7 @@ void Update_Rotation_Data(){
 	float dist=(CameraRot-LastRotationDataSent).length;
 	if(dist>RotationDataSendDist){
 		PlayerRotationPacketLayout packet;
-		Vector3_t dir=CameraRot.RotationAsDirection();
-		packet.rotation=cast(float[3])dir;
+		packet.rotation=cast(float[3])Players[LocalPlayerID].dir;
 		Send_Packet(PlayerRotationPacketID, packet);
 		LastRotationDataSent=CameraRot;
 	}
@@ -340,7 +344,7 @@ void Update_Rotation_Data(){
 immutable float PositionDataSendDist=.05;
 Vector3_t LastPositionDataSent=Vector3_t(0.0);
 void Update_Position_Data(){
-	float dist=(CameraRot-LastPositionDataSent).length;
+	float dist=(Players[LocalPlayerID].pos-LastPositionDataSent).length;
 	if(dist>PositionDataSendDist){
 		PlayerPositionPacketLayout packet;
 		packet.position=cast(float[3])Players[LocalPlayerID].pos;

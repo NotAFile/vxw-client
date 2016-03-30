@@ -43,6 +43,21 @@ struct Connection_t{
 		}
 		else{
 			writeflnlog("Couldn't connect to %s:%d", addr, port);
+			if(addr!="localhost"){
+				writeflnlog("Attempting to confirm server address and name...");
+				char[256] addrbuf, namebuf;
+				bool got_addr, got_name;
+				got_addr=enet_address_get_host_ip(&address, addrbuf.ptr, addrbuf.length)>=0;
+				got_name=enet_address_get_host(&address, namebuf.ptr, namebuf.length)>=0;
+				if(got_addr || got_name){
+					writeflnlog("Found server! [%s] (%s)", got_name ? fromStringz(namebuf.ptr) : "no name",
+					got_addr ? fromStringz(addrbuf.ptr) : "no address");
+					writeflnerr("Server probably misconfigured or crashed or wrong port");
+				}
+				else{
+					writeflnerr("No such server found");
+				}
+			}
 			enet_peer_reset(peer);
 		}
 		return ret;
