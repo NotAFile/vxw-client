@@ -112,3 +112,33 @@ void UnInit_Gfx(){
 	SDL_DestroyTexture(font_texture);
 	SDL_Quit();
 }
+
+void Render_Player(uint player_id){
+	if(Players[player_id].Model<0 || player_id==LocalPlayerID)
+		return;
+	KV6Sprite_t[] sprites=Get_Player_Sprites(player_id);
+	foreach(ref spr; sprites)
+		Render_Sprite(&spr);
+}
+
+/*Documentation Note:
+ * If you want to change the way player KV6 sprites are positioned, 
+ * rotated or resized when rendering, use this function.
+ * It returns an array of all sprites that have to be rendered for this player.
+ * Mod_Models (stupid name ikr, suggestions are welcome) contains all models
+ * that the server requires.
+*/
+KV6Sprite_t[] Get_Player_Sprites(uint player_id){
+	//Keep this line and assign this rotation at least for the head
+	//(spr.rhe=rot.y, spr.rst=rot.x, spr.rti=rot.z)
+	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
+	//"Placeholder"; if you are going to change the way players look as described above,
+	//feel free to throw out the following few lines and insert your
+	//awesome-looking stuff
+	KV6Sprite_t spr;
+	spr.rhe=rot.y; spr.rst=rot.x; spr.rti=rot.z;
+	spr.xpos=Players[player_id].pos.x; spr.ypos=Players[player_id].pos.z; spr.zpos=Players[player_id].pos.y;
+	spr.xdensity=.3; spr.ydensity=.3; spr.zdensity=-.3;
+	spr.model=Mod_Models[Players[player_id].Model];
+	return [spr];
+}

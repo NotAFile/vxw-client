@@ -18,6 +18,7 @@ struct Player_t{
 	bool Go_Forwards, Go_Back, Go_Left, Go_Right;
 	bool Jump, Crouch;
 	bool KeysChanged;
+	//Remove "int Model;" if you don't need it and replaced it with something better
 	int Model;
 	void Init(string initname, PlayerID_t initplayer_id){
 		name=initname;

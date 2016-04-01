@@ -37,9 +37,10 @@ struct Connection_t{
 					break;
 				}
 				default:{
-					event.peer.data=cast(void*)toStringz("server");
+					break;
 				}
 			}
+			event.peer.data=cast(void*)toStringz("server");
 		}
 		else{
 			writeflnlog("Couldn't connect to %s:%d", addr, port);
@@ -86,7 +87,8 @@ struct Connection_t{
 	}
 	ENetEvent Update(int delay){
 		ENetEvent event;
-		if(enet_host_service(client, &event, delay)){
+		int ret=enet_host_service(client, &event, delay);
+		if(ret>0){
 			switch(event.type){
 				case ENET_EVENT_TYPE_NONE:{
 					return event;
@@ -109,6 +111,10 @@ struct Connection_t{
 					break;
 				}
 			}
+		}
+		else
+		if(ret<0){
+			writeflnlog("Error: enet_host_service returned %d", ret);
 		}
 		return cast(ENetEvent)0;
 	}
@@ -143,7 +149,7 @@ void UnInit_Netcode(){
 Connection_t connection;
 
 int Connect_To(string address, ushort port){
-	return connection.Connect(address, port, 1000, 1);
+	return connection.Connect(address, port, 1000, 69);
 }
 
 int Disconnect(){

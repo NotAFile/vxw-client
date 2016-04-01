@@ -153,6 +153,9 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 		ubyte *contentptr=(cast(ubyte*)recv_packet.data)+1;
 		uint packetlength=recv_packet.data.length;
 		ubyte[] PacketData=cast(ubyte[])recv_packet.data[1..$];
+		debug{
+			writeflnlog("Received packet with ID %s", id);
+		}
 		switch(id){
 			case MapChangePacketID:{
 				auto packet=UnpackPacketToStruct!(MapChangePacketLayout)(PacketData);
@@ -304,6 +307,9 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 		}
 	}
 	else{
+		debug{
+			writeflnlog("Received packet");
+		}
 		ubyte[] PacketData=recv_packet.data;
 		switch(JoinedGamePhase){
 			case 0:{
