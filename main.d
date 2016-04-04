@@ -42,10 +42,12 @@ void main(string[] args){
 	Send_Identification_Packet(requested_name);
 	while(!QuitGame){
 		Check_Input();
-		{
+		while(true){
 			auto ret=Update_Network();
 			if(ret.data.length)
 				On_Packet_Receive(ret);
+			else
+				break;
 		}
 		Update_World();
 		Prepare_Render();

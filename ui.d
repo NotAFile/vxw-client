@@ -6,29 +6,55 @@ import network;
 import protocol;
 import world;
 import vector;
-
-string[] ChatText;
-uint[] ChatColors;
-string CurrentChatLine="";
+import renderer;
 
 uint CurrentChatCursor;
 bool TypingChat=false;
 
 bool QuitGame=false;
 
+uint ChatBox_X=0, ChatBox_Y=0;
+
 ubyte* KeyState;
 
+bool Menu_Mode=false;
 bool Lock_Mouse=true;
 int MouseXPos, MouseYPos;
 int MouseMovedX, MouseMovedY;
 bool MouseLeftClick, MouseRightClick;
 
+struct MenuElement_t{
+	ubyte picture_index;
+	int xpos, ypos;
+	int xsize, ysize;
+	//Maybe optimize menu elements to get deleted when their picture index is 255
+	void set(ubyte picindex, float sxpos, float sypos, float sxsize, float sysize){
+		float scrnw=cast(float)scrn_surface.w, scrnh=cast(float)scrn_surface.h;
+		picture_index=picindex;
+		if(picture_index!=255){
+			xpos=cast(int)(sxpos*scrnw);
+			ypos=cast(int)(sypos*scrnh);
+			xsize=cast(int)(sxsize*scrnw);
+			ysize=cast(int)(sysize*scrnh);
+		}
+	}
+}
+
+MenuElement_t[] MenuElements;
+
 void Init_UI(){
 	ChatText.length=8; ChatColors.length=8;
 	KeyState=SDL_GetKeyboardState(null);
+	Set_Menu_Mode(false);
 }
 
 void UnInit_UI(){
+}
+
+void Set_Menu_Mode(bool mode){
+	Lock_Mouse=!mode;
+	SDL_SetRelativeMouseMode(Lock_Mouse ? SDL_TRUE : SDL_FALSE);
+	Menu_Mode=mode;
 }
 
 uint PrevKeyPresses=0;
@@ -61,9 +87,26 @@ void Check_Input(){
 						if(CurrentChatLine.length)
 							CurrentChatLine.length--;
 					}
+					//Hardcoded key handling
+					//Somebody make a GUI please so I can remove the team limits
+					/*case SDLK_1:{
+						if(!JoinedGame)
+							Join_Team(0);
+						break;
+					}
+					case SDLK_2:{
+						if(!JoinedGame)
+							Join_Team(1);
+						break;
+					}
+					case SDLK_3:{
+						if(!JoinedGame)
+							Join_Team(2);
+						break;
+					}*/
 					case SDLK_F10:{
-						Lock_Mouse=!Lock_Mouse;
-						SDL_SetRelativeMouseMode(Lock_Mouse ? SDL_TRUE : SDL_FALSE);
+						Set_Menu_Mode(!Menu_Mode);
+						break;
 					}
 					default:{break;}
 				}
@@ -116,13 +159,26 @@ void Check_Input(){
 			}
 		}
 	}
-	if(!Lock_Mouse){
+	{
 		uint mousestate=SDL_GetMouseState(&MouseXPos, &MouseYPos);
+		bool old_left_click=MouseLeftClick, old_right_click=MouseRightClick;
 		MouseLeftClick=cast(bool)(mousestate&SDL_BUTTON(SDL_BUTTON_LEFT));
 		MouseRightClick=cast(bool)(mousestate&SDL_BUTTON(SDL_BUTTON_RIGHT));
+		if(old_left_click!=MouseLeftClick || old_right_click!=MouseRightClick){
+			if(Menu_Mode){
+				Send_Mouse_Click(MouseLeftClick, MouseRightClick, MouseXPos, MouseYPos);
+			}
+		}
+		if(JoinedGame){
+			if(MouseLeftClick && Players[LocalPlayerID].spawned && !Menu_Mode)
+				Try_Shoot();
+		}
 	}
 }
 
+string[] ChatText;
+uint[] ChatColors;
+string CurrentChatLine="";
 void WriteMsg(string msg, uint color){
 	for(uint i=ChatText.length-1; i; i--){
 		ChatColors[i]=ChatColors[i-1];
@@ -132,9 +188,16 @@ void WriteMsg(string msg, uint color){
 	ChatText[0]=msg;
 }
 
+float ChatLineBlinkSpeed=5000.0;
+float ChatLineTimer=0.0;
 void Render_HUD(){
-	if(TypingChat)
-		Render_Text_Line(0, 0, Font_SpecialColor, CurrentChatLine~"_");
+	ChatLineTimer+=WorldSpeed;
+	if(TypingChat){
+		Render_Text_Line(ChatBox_X, ChatBox_Y, Font_SpecialColor, CurrentChatLine);
+		if(((cast(uint)(ChatLineTimer*ChatLineBlinkSpeed))%32)<16){
+			Render_Text_Line(ChatBox_X+CurrentChatLine.length*(FontWidth/16-LetterPadding*2), ChatBox_Y-LetterPadding*2, 0x80808080, "_");
+		}
+	}
 	foreach(uint i, line; ChatText)
-		Render_Text_Line(0, (i+1)*FontHeight/16, ChatColors[i], line);
+		Render_Text_Line(ChatBox_X, ChatBox_Y+(i+1)*(FontHeight/16), ChatColors[i], line);
 }

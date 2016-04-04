@@ -11,7 +11,7 @@ struct Connection_t{
 	ENetPeer *peer;
 	ENetAddress address;
 	this(uint channels){
-		client=enet_host_create(null, 1, 2, 0, 0);
+		client=enet_host_create(null, 1, channels, 0, 0);
 		if(!client){
 			writeflnerr("Couldn't create ENet host");
 			return;

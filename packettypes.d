@@ -32,6 +32,7 @@ immutable PacketID_t MapChunkPacketID=1;
 
 struct PlayerJoinPacketLayout{
 	PlayerID_t player_id;
+	TeamID_t team_id;
 	string name;
 }
 immutable PacketID_t PlayerJoinPacketID=2;
@@ -86,7 +87,7 @@ immutable PacketID_t PlayerSpawnPacketID=9;
 
 struct TeamDataPacketLayout{
 	TeamID_t team_id;
-	ubyte[3] color;
+	ubyte[4] color;
 	string name;
 }
 immutable PacketID_t TeamDataPacketID=10;
@@ -116,7 +117,31 @@ immutable PacketID_t BindModelPacketID=14;
 struct PlayerPositionPacketLayout{
 	float[3] position;
 }
-immutable PlayerID_t PlayerPositionPacketID=15;
+immutable PacketID_t PlayerPositionPacketID=15;
+
+struct WorldPhysicsPacketLayout{
+	float g, airfriction, groundfriction, player_jumppower, player_walkspeed, world_speed;
+}
+immutable PacketID_t WorldPhysicsPacketID=16;
+
+struct MenuElementPacketLayout{
+	ubyte elementindex;
+	ubyte picindex;
+	float xpos, ypos;
+	float xsize, ysize;
+}
+immutable PacketID_t MenuElementPacketID=17;
+
+struct ToggleMenuPacketLayout{
+	ubyte EnableMenu;
+}
+immutable PacketID_t ToggleMenuPacketID=18;
+
+struct MouseClickPacketLayout{
+	ubyte clicks;
+	ushort xpos, ypos;
+}
+immutable PacketID_t MouseClickPacketID=19;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)

@@ -64,7 +64,7 @@ struct ModFile_t{
 				SDL_Surface *fsrfc=SDL_LoadBMP(toStringz(fname));
 				if(!fsrfc){writeflnerr("Couldn't load %s", fname); return;}
 				SDL_Surface *srfc=SDL_ConvertSurfaceFormat(fsrfc, SDL_PIXELFORMAT_RGBA8888, 0);
-				SDL_SetColorKey(srfc, SDL_TRUE, SDL_MapRGB(fsrfc.format, 255, 0, 255));
+				SDL_SetColorKey(srfc, SDL_TRUE, SDL_MapRGB(srfc.format, 255, 0, 255));
 				SDL_Texture *tex=SDL_CreateTextureFromSurface(scrn_renderer, srfc);
 				SDL_FreeSurface(srfc);
 				SDL_FreeSurface(fsrfc);
@@ -163,7 +163,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				MapTargetSize=packet.datasize;
 				CurrentMapName=packet.mapname;
 				WriteMsg(format("Loading map %s of size %d and dimensions %dx%dx%d", CurrentMapName, MapTargetSize, MapXSize, MapYSize, MapZSize),
-				0x00000000);
+				Font_SpecialColor);
 				CurrentLoadingMap=[];
 				break;
 			}
@@ -173,17 +173,27 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					break;*/
 				CurrentLoadingMap~=packet.data;
 				WriteMsg(format("Received map chunk of size %d - (%d/%d)", packet.data.length, CurrentLoadingMap.length, MapTargetSize),
-				0x00000000);
+				Font_SpecialColor);
 				if(CurrentLoadingMap.length==MapTargetSize)
 					Load_Map(CurrentLoadingMap);
 				break;
 			}
 			case PlayerJoinPacketID:{
 				auto packet=UnpackPacketToStruct!(PlayerJoinPacketLayout)(PacketData);
-				writeflnlog("Player with ID %d (%s) joined", packet.player_id, packet.name);
+				writeflnlog("Player #%d %s joined %s", packet.player_id, packet.name, Teams[packet.team_id].name);
 				Init_Player(packet.name, packet.player_id);
 				if(packet.player_id==LocalPlayerID)
 					Join_Game();
+				break;
+			}
+			case TeamDataPacketID:{
+				auto packet=UnpackPacketToStruct!(TeamDataPacketLayout)(PacketData);
+				Init_Team(packet.name, packet.team_id, packet.color);
+				/*if(packet.team_id<3){
+					//Hardcoded key handling
+					//Somebody make a GUI please so I can remove the team limits
+					WriteMsg(format(">>>>>>>PRESS %d TO JOIN %s TEAM<<<<<<<<", packet.team_id+1, packet.name), Teams[packet.team_id].icolor);
+				}*/
 				break;
 			}
 			case ChatPacketID:{
@@ -215,7 +225,6 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				if(LoadingMods[packet.type].length<=packet.index)
 					LoadingMods[packet.type].length=packet.index+1;
 				LoadingMods[packet.type][packet.index]=mf;
-				writeflnlog("Mod required: %s", packet.path);
 				if(mf.LoadFromFile())
 					packet.hash=mf.hash;
 				auto packetbytes=PackStructToPacket(packet);
@@ -300,6 +309,25 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				Players[LocalPlayerID].pos=Vector3_t(packet.position);
 				break;
 			}
+			case WorldPhysicsPacketID:{
+				auto packet=UnpackPacketToStruct!(WorldPhysicsPacketLayout)(PacketData);
+				Gravity=packet.g; AirFriction=packet.airfriction; GroundFriction=packet.groundfriction;
+				PlayerJumpPower=packet.player_jumppower; PlayerWalkSpeed=packet.player_walkspeed;
+				WorldSpeedRatio=packet.world_speed*4.0;
+				break;
+			}
+			case MenuElementPacketID:{
+				auto packet=UnpackPacketToStruct!(MenuElementPacketLayout)(PacketData);
+				if(packet.elementindex>=MenuElements.length)
+					MenuElements.length=packet.elementindex+1;
+				MenuElements[packet.elementindex].set(packet.picindex, packet.xpos, packet.ypos, packet.xsize, packet.ysize);
+				break;
+			}
+			case ToggleMenuPacketID:{
+				auto packet=UnpackPacketToStruct!(ToggleMenuPacketLayout)(PacketData);
+				Set_Menu_Mode(cast(bool)packet.EnableMenu);
+				break;
+			}
 			default:{
 				writeflnlog("Invalid packet ID %d", id);
 				break;
@@ -351,12 +379,18 @@ immutable float PositionDataSendDist=.05;
 Vector3_t LastPositionDataSent=Vector3_t(0.0);
 void Update_Position_Data(){
 	float dist=(Players[LocalPlayerID].pos-LastPositionDataSent).length;
-	if(dist>PositionDataSendDist){
+	if(dist>PositionDataSendDist && 0){
 		PlayerPositionPacketLayout packet;
 		packet.position=cast(float[3])Players[LocalPlayerID].pos;
 		Send_Packet(PlayerPositionPacketID, packet);
 		LastPositionDataSent=CameraRot;
 	}
+}
+
+void Join_Team(TeamID_t team_id){
+	PlayerJoinPacketLayout packet;
+	packet.team_id=team_id;
+	Send_Packet(PlayerJoinPacketID, packet);
 }
 
 bool Joined_Game(){
@@ -374,4 +408,12 @@ void Send_Key_Presses(ubyte keypresses){
 	PlayerKeyEventPacketLayout packet;
 	packet.keys=keypresses;
 	Send_Packet(PlayerKeyEventPacketID, packet);
+}
+
+void Send_Mouse_Click(bool left_click, bool right_click, int xpos, int ypos){
+	MouseClickPacketLayout packet;
+	packet.clicks=(cast(uint)left_click)*(1<<0)+(cast(uint)right_click)*(1<<1);
+	packet.xpos=cast(ushort)(cast(float)(xpos)*65535.0/cast(float)(scrn_surface.w));
+	packet.ypos=cast(ushort)(cast(float)(ypos)*65535.0/cast(float)(scrn_surface.h));
+	Send_Packet(MouseClickPacketID, packet);
 }
