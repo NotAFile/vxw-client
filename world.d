@@ -1,6 +1,7 @@
 import derelict.sdl2.sdl;
 import std.conv;
 import std.math;
+import std.random;
 import packettypes;
 import vector;
 import renderer;
@@ -20,7 +21,7 @@ float WorldSpeedRatio=.005;
 struct Player_t{
 	PlayerID_t player_id;
 	string name;
-	bool spawned;
+	bool Spawned;
 	bool InGame;
 	Vector3_t pos, vel, acl;
 	Vector3_t dir;
@@ -29,27 +30,43 @@ struct Player_t{
 	bool Jump, Crouch;
 	bool KeysChanged;
 	bool CollidingSides[3];
-	//Remove "int Model;" if you don't need it and replaced it with something better
-	int Model;
+	//Remove the following line if you don't need it and replaced it with something better
+	int Model; int Gun_Model; int Arm_Model;
 	uint Gun_Timer;
+	Item_t[] items;
+	ubyte[] item_types;
+	uint item;
+	bool left_click, right_click;
+	bool Reloading;
+	uint color;
 	void Init(string initname, PlayerID_t initplayer_id){
 		name=initname;
 		player_id=initplayer_id;
-		spawned=false;
+		Spawned=false;
 		InGame=true;
 		KeysChanged=false;
 		pos=Vector3_t(0.0); vel=Vector3_t(0.0); acl=Vector3_t(0.0); dir=Vector3_t(1.0, 0.0, 0.0);
 		Model=-1;
 		Gun_Timer=0;
+		Reloading=false;
 	}
 	void Spawn(Vector3_t location, TeamID_t spteam){
 		pos=location;
-		pos=Vector3_t(256, 29, 256);
 		team=spteam;
-		spawned=true;
+		Spawned=true;
+		items.length=item_types.length;
+		foreach(uint i, type; item_types)
+			items[i].Init(type);
+	}
+	void Update(){
+		Update_Physics();
+		if(left_click && Spawned){
+			if(player_id!=LocalPlayerID || !Menu_Mode)
+				Try_Shoot();
+		}
 	}
 	void Update_Physics(){
-		if(!spawned)
+		if(!Spawned)
 			return;
 		acl=Vector3_t(0.0);
 		Vector3_t acdir=dir.filter(1, 0, 1);
@@ -175,6 +192,45 @@ struct Player_t{
 		}
 		return CheckCollisionReturn_t(Vector3_t(x, y, z), collsides);
 	}
+	void Try_Shoot(){
+		uint current_tick=SDL_GetTicks();
+		Item_t *current_item=&items[item];
+		if(current_tick-current_item.use_timer<ItemTypes[current_item.type].use_delay)
+			return;
+		if(Reloading || !current_item.amount1)
+			return;
+		ItemType_t *itemtype=&ItemTypes[current_item.type];
+		foreach(PlayerID_t pid, ref plr; Players){
+			if(pid==player_id)
+				continue;
+			KV6Sprite_t[] sprites=Get_Player_Sprites(pid);
+			foreach(ubyte spindex, ref spr; sprites){
+				//For future
+				Vector3_t dummy1; KV6Voxel_t *dummy2;
+				if(SpriteHitScan(&spr, pos, dir, dummy1, dummy2)){
+					if(player_id==LocalPlayerID){
+						//dummy2.color=0x00ff0000;
+						PlayerHitPacketLayout packet;
+						packet.player_id=pid;
+						packet.hit_sprite=spindex;
+						Send_Packet(PlayerHitPacketID, packet);
+					}
+				}
+			}
+		}
+		current_item.use_timer=current_tick;
+		float xrecoil=itemtype.recoil_xc+itemtype.recoil_xm*uniform01();
+		float yrecoil=itemtype.recoil_yc+itemtype.recoil_ym*uniform01();
+		if(player_id==LocalPlayerID){
+			CameraRot.y+=yrecoil;
+			CameraRot.x+=xrecoil;
+		}
+		dir.rotate(Vector3_t(0, yrecoil, xrecoil));
+		current_item.amount1--;
+	}
+	void Switch_Tool(ubyte tool_id){
+		item=tool_id;
+	}
 }
 
 struct CheckCollisionReturn_t{
@@ -219,24 +275,28 @@ void Init_Team(string name, TeamID_t team_id, ubyte[4] color){
 float WorldSpeed=1.0;
 uint Last_Tick;
 
-immutable uint Gun_Shoot_Delay=1000;
+struct ItemType_t{
+	ubyte index;
+	uint use_delay;
+	uint maxamount1, maxamount2;
+	bool is_weapon;
+	float spread_c, spread_m;
+	float recoil_xc, recoil_xm;
+	float recoil_yc, recoil_ym;
+	ubyte model_id;
+}
+ItemType_t[] ItemTypes;
 
-void Try_Shoot(){
-	if(SDL_GetTicks()-Players[LocalPlayerID].Gun_Timer<Gun_Shoot_Delay)
-		return;
-	for(uint p=0; p<Players.length; p++){
-		if(p==LocalPlayerID)
-			continue;
-		KV6Sprite_t[] sprites=Get_Player_Sprites(p);
-		foreach(ref spr; sprites){
-			Vector3_t asd; KV6Voxel_t *asd2;
-			if(Vox_SpriteHitScan(&spr, Players[LocalPlayerID].pos, Players[LocalPlayerID].dir, asd, asd2)){
-				WriteMsg("You hit player #"~to!string(p), 0x00ff0000);
-			}
-		}
+struct Item_t{
+	ubyte type;
+	uint amount1, amount2;
+	uint use_timer;
+	void Init(ubyte inittype){
+		type=inittype;
+		use_timer=0;
+		amount1=ItemTypes[type].maxamount1;
+		amount2=ItemTypes[type].maxamount2;
 	}
-	Players[LocalPlayerID].Gun_Timer=SDL_GetTicks();
-	CameraRot.y-=10.0;
 }
 
 void Update_World(){
@@ -249,5 +309,53 @@ void Update_World(){
 		WorldSpeed=(1.0/30.0)*WorldSpeedRatio;
 	}
 	foreach(ref p; Players)
-		p.Update_Physics();
+		p.Update();
+}
+
+struct RayCastResult_t{
+	int x, y, z;
+	float colldist;
+	uint collside;
+}
+
+RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
+	Vector3_t dst=pos+dir*length;
+	int x=cast(int)pos.x, y=cast(int)pos.y, z=cast(int)pos.z;
+	int dstx=cast(int)dst.x, dsty=cast(int)dst.y, dstz=cast(int)dst.z;
+	int opxd=cast(int)(dir.x>0.0), opyd=cast(int)(dir.y>0.0), opzd=cast(int)(dir.z>0.0);
+	float invxd=dir.x ? 1.0/dir.x : (10e99), invyd=dir.y ? 1.0/dir.y : (10e99), invzd=dir.z ? 1.0/dir.z : (10e99);
+	int xdsgn=cast(int)sgn(dir.x), ydsgn=cast(int)sgn(dir.y), zdsgn=cast(int)sgn(dir.z);
+	uint collside=0; float colldist=0.0;
+	while(x!=dstx || y!=dsty || z!=dstz){
+		if(Voxel_IsSolid(x, y, z))
+			break;
+		float xdist=(cast(float)(x+opxd)-pos.x)*invxd;
+		float ydist=(cast(float)(y+opyd)-pos.y)*invyd;
+		float zdist=(cast(float)(z+opzd)-pos.z)*invzd;
+		if(xdist<ydist){
+			if(xdist<zdist){
+				collside=1;
+				colldist=xdist;
+				x+=xdsgn;
+			}
+			else{
+				collside=3;
+				colldist=zdist;
+				z+=zdsgn;
+			}
+		}
+		else{
+			if(ydist<zdist){
+				collside=2;
+				colldist=ydist;
+				y+=ydsgn;
+			}
+			else{
+				collside=3;
+				colldist=zdist;
+				z+=zdsgn;
+			}
+		}
+	}
+	return RayCastResult_t(x, y, z, colldist, collside);
 }

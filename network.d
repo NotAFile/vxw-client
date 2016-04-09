@@ -149,7 +149,7 @@ void UnInit_Netcode(){
 Connection_t connection;
 
 int Connect_To(string address, ushort port){
-	return connection.Connect(address, port, 1000, 69);
+	return connection.Connect(address, port, 5000, 69);
 }
 
 int Disconnect(){

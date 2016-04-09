@@ -97,17 +97,15 @@ struct Vector3_t{
 	}
 	
 	Vector3_t RotationAsDirection(){
-		/*Vector3_t dir=Vector3_t(1.0);
-		dir=dir.rotate(this.cossin());
-		return dir;*/
 		float cx=degcos(this.x);
 		float sy=degsin(this.y);
 		float cz=degsin(this.x);
-		return Vector3_t(cx, sy, cz);
+		cx*=1.0-sy; cz*=1.0-sy;
+		return Vector3_t(cx, sy, cz).abs;
 	}
 	
 	Vector3_t DirectionAsRotation(){
-		float rx=atan2(this.z, this.x)*180.0/PI-90.0;
+		float rx=90.0-atan2(this.z, this.x)*180.0/PI;
 		float ry=asin(this.y)*180.0/PI+90.0;
 		float rz=0.0;
 		return Vector3_t(rx, ry, rz);

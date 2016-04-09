@@ -7,6 +7,7 @@ import protocol;
 import world;
 import vector;
 import renderer;
+import packettypes;
 
 uint CurrentChatCursor;
 bool TypingChat=false;
@@ -22,6 +23,10 @@ bool Lock_Mouse=true;
 int MouseXPos, MouseYPos;
 int MouseMovedX, MouseMovedY;
 bool MouseLeftClick, MouseRightClick;
+
+bool Render_MiniMap;
+
+string LastSentLine="";
 
 struct MenuElement_t{
 	ubyte picture_index;
@@ -69,46 +74,93 @@ void Check_Input(){
 				break;
 			}
 			case SDL_KEYDOWN:{
+				byte number_key_pressed=0;
 				switch(event.key.keysym.sym){
 					case SDLK_RETURN:{
 						TypingChat=!TypingChat;
 						if(TypingChat){
 							SDL_StartTextInput();
 							CurrentChatLine="";
+							CurrentChatCursor=0;
 						}
 						else{
 							SDL_StopTextInput();
-							if(CurrentChatLine.length)
+							if(CurrentChatLine.length){
+								LastSentLine=CurrentChatLine;
 								Send_Chat_Packet(CurrentChatLine);
+							}
 							CurrentChatLine="";
+							CurrentChatCursor=0;
 						}
 					}
 					case SDLK_BACKSPACE:{
-						if(CurrentChatLine.length)
-							CurrentChatLine.length--;
-					}
-					//Hardcoded key handling
-					//Somebody make a GUI please so I can remove the team limits
-					/*case SDLK_1:{
-						if(!JoinedGame)
-							Join_Team(0);
+						if(TypingChat && CurrentChatCursor){
+							CurrentChatLine=CurrentChatLine[0..CurrentChatCursor-1]~CurrentChatLine[CurrentChatCursor..$];
+							CurrentChatCursor--;
+						}
 						break;
 					}
-					case SDLK_2:{
-						if(!JoinedGame)
-							Join_Team(1);
+					case SDLK_r:{
+						if(Joined_Game){
+							if(!Players[LocalPlayerID].Reloading){
+								ItemReloadPacketLayout packet;
+								Send_Packet(ItemReloadPacketID, packet);
+								Players[LocalPlayerID].Reloading=true;
+							}
+						}
 						break;
 					}
-					case SDLK_3:{
-						if(!JoinedGame)
-							Join_Team(2);
-						break;
-					}*/
+					case SDLK_1:number_key_pressed=1; break;
+					case SDLK_2:number_key_pressed=2; break;
+					case SDLK_3:number_key_pressed=3; break;
+					case SDLK_4:number_key_pressed=4; break;
+					case SDLK_5:number_key_pressed=5; break;
+					case SDLK_6:number_key_pressed=6; break;
+					case SDLK_7:number_key_pressed=7; break;
+					case SDLK_8:number_key_pressed=8; break;
+					case SDLK_9:number_key_pressed=9; break;
+					case SDLK_0:number_key_pressed=10; break;
 					case SDLK_F10:{
-						Set_Menu_Mode(!Menu_Mode);
+						Lock_Mouse=!Lock_Mouse;
+						if(Menu_Mode)
+							Lock_Mouse=false;
+						SDL_SetRelativeMouseMode(Lock_Mouse ? SDL_TRUE : SDL_FALSE);
+						break;
+					}
+					case SDLK_LEFT:{
+						if(TypingChat && CurrentChatCursor){
+							CurrentChatCursor--;
+						}
+						break;
+					}
+					case SDLK_RIGHT:{
+						if(TypingChat && CurrentChatCursor<CurrentChatLine.length){
+							CurrentChatCursor++;
+						}
+						break;
+					}
+					case SDLK_UP:{
+						if(TypingChat && LastSentLine){
+							CurrentChatLine=LastSentLine;
+							CurrentChatCursor=CurrentChatLine.length;
+						}
+						break;
+					}
+					case SDLK_m:{
+						if(!TypingChat){
+							Render_MiniMap=!Render_MiniMap;
+							if(Render_MiniMap)
+								Update_MiniMap();
+						}
 						break;
 					}
 					default:{break;}
+				}
+				if(number_key_pressed>0){
+					ToolSwitchPacketLayout packet;
+					number_key_pressed--;
+					packet.tool_id=number_key_pressed;
+					Send_Packet(ToolSwitchPacketID, packet);
 				}
 				break;
 			}
@@ -119,10 +171,36 @@ void Check_Input(){
 				}
 				break;
 			}
+			case SDL_MOUSEBUTTONDOWN:{
+				if(Menu_Mode || Lock_Mouse){
+					bool old_left_click=MouseLeftClick, old_right_click=MouseRightClick;
+					/*MouseLeftClick=cast(bool)(event.button.button&SDL_BUTTON_LEFT);
+					MouseRightClick=cast(bool)(event.button.button&SDL_BUTTON_RIGHT);*/
+					//Weird functionality (I mean, why the fuck is SDL_BUTTON_LEFT 1 and SDL_BUTTON_RIGHT 3)
+					MouseLeftClick=event.button.button<3;
+					MouseRightClick=event.button.button>1;
+					if(old_left_click!=MouseLeftClick || old_right_click!=MouseRightClick){
+						Send_Mouse_Click(MouseLeftClick, MouseRightClick, event.button.x, event.button.y);
+					}
+				}
+				break;
+			}
+			case SDL_MOUSEBUTTONUP:{
+				if(Menu_Mode || Lock_Mouse){
+					bool old_left_click=MouseLeftClick, old_right_click=MouseRightClick;
+					MouseLeftClick=!(cast(bool)(event.button.button&SDL_BUTTON_LEFT));
+					MouseRightClick=!(cast(bool)(event.button.button&SDL_BUTTON_RIGHT));
+					if(old_left_click!=MouseLeftClick || old_right_click!=MouseRightClick){
+						Send_Mouse_Click(MouseLeftClick, MouseRightClick, event.button.x, event.button.y);
+					}
+				}
+				break;
+			}
 			case SDL_TEXTINPUT:{
 				if(TypingChat){
 					string input=cast(string)fromStringz(event.text.text.ptr);
-					CurrentChatLine~=input;
+					CurrentChatLine=CurrentChatLine[0..CurrentChatCursor]~input~CurrentChatLine[CurrentChatCursor..$];
+					CurrentChatCursor+=input.length;
 				}
 				break;
 			}
@@ -161,18 +239,12 @@ void Check_Input(){
 	}
 	{
 		uint mousestate=SDL_GetMouseState(&MouseXPos, &MouseYPos);
-		bool old_left_click=MouseLeftClick, old_right_click=MouseRightClick;
+		/*bool old_left_click=MouseLeftClick, old_right_click=MouseRightClick;
 		MouseLeftClick=cast(bool)(mousestate&SDL_BUTTON(SDL_BUTTON_LEFT));
 		MouseRightClick=cast(bool)(mousestate&SDL_BUTTON(SDL_BUTTON_RIGHT));
 		if(old_left_click!=MouseLeftClick || old_right_click!=MouseRightClick){
-			if(Menu_Mode){
-				Send_Mouse_Click(MouseLeftClick, MouseRightClick, MouseXPos, MouseYPos);
-			}
-		}
-		if(JoinedGame){
-			if(MouseLeftClick && Players[LocalPlayerID].spawned && !Menu_Mode)
-				Try_Shoot();
-		}
+			Send_Mouse_Click(MouseLeftClick, MouseRightClick, MouseXPos, MouseYPos);
+		}*/
 	}
 }
 
@@ -195,7 +267,7 @@ void Render_HUD(){
 	if(TypingChat){
 		Render_Text_Line(ChatBox_X, ChatBox_Y, Font_SpecialColor, CurrentChatLine);
 		if(((cast(uint)(ChatLineTimer*ChatLineBlinkSpeed))%32)<16){
-			Render_Text_Line(ChatBox_X+CurrentChatLine.length*(FontWidth/16-LetterPadding*2), ChatBox_Y-LetterPadding*2, 0x80808080, "_");
+			Render_Text_Line(ChatBox_X+CurrentChatCursor*(FontWidth/16-LetterPadding*2), ChatBox_Y-LetterPadding*2, 0x80808080, "_");
 		}
 	}
 	foreach(uint i, line; ChatText)

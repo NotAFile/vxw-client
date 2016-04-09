@@ -174,8 +174,10 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				CurrentLoadingMap~=packet.data;
 				WriteMsg(format("Received map chunk of size %d - (%d/%d)", packet.data.length, CurrentLoadingMap.length, MapTargetSize),
 				Font_SpecialColor);
-				if(CurrentLoadingMap.length==MapTargetSize)
+				if(CurrentLoadingMap.length==MapTargetSize){
+					Set_MiniMap_Size(MapXSize, MapZSize);
 					Load_Map(CurrentLoadingMap);
+				}
 				break;
 			}
 			case PlayerJoinPacketID:{
@@ -302,6 +304,8 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case BindModelPacketID:{
 				auto packet=UnpackPacketToStruct!(BindModelPacketLayout)(PacketData);
 				Players[packet.player_id].Model=packet.model;
+				Players[packet.player_id].Arm_Model=packet.arm_model;
+				Players[packet.player_id].Gun_Model=packet.gun_model;
 				break;
 			}
 			case PlayerPositionPacketID:{
@@ -326,6 +330,59 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case ToggleMenuPacketID:{
 				auto packet=UnpackPacketToStruct!(ToggleMenuPacketLayout)(PacketData);
 				Set_Menu_Mode(cast(bool)packet.EnableMenu);
+				break;
+			}
+			case ItemTypePacketID:{
+				auto packet=UnpackPacketToStruct!(ItemTypePacketLayout)(PacketData);
+				ItemType_t type;
+				type.index=packet.weapon_id;
+				type.use_delay=packet.use_delay;
+				type.maxamount1=packet.maxamount1;
+				type.maxamount2=packet.maxamount2;
+				type.spread_c=packet.spread_c;
+				type.spread_m=packet.spread_m;
+				type.recoil_xc=packet.recoil_xc;
+				type.recoil_xm=packet.recoil_xm;
+				type.recoil_yc=packet.recoil_yc;
+				type.recoil_ym=packet.recoil_ym;
+				type.is_weapon=cast(bool)packet.typeflags;
+				type.model_id=packet.model_id;
+				if(type.index>=ItemTypes.length)
+					ItemTypes.length=type.index+1;
+				ItemTypes[type.index]=type;
+				break;
+			}
+			case ItemReloadPacketID:{
+				auto packet=UnpackPacketToStruct!(ItemReloadPacketLayout)(PacketData);
+				Player_t *plr=&Players[LocalPlayerID];
+				plr.items[plr.item].amount1=packet.amount1;
+				plr.items[plr.item].amount2=packet.amount2;
+				Players[LocalPlayerID].Reloading=false;
+				break;
+			}
+			case ToolSwitchPacketID:{
+				auto packet=UnpackPacketToStruct!(ToolSwitchPacketLayout)(PacketData);
+				Players[packet.player_id].Switch_Tool(packet.tool_id);
+				break;
+			}
+			case BlockBreakPacketID:{
+				auto packet=UnpackPacketToStruct!(BlockBreakPacketLayout)(PacketData);
+				Voxel_Remove(packet.x, packet.y, packet.z);
+				break;
+			}
+			case SetPlayerColorPacketID:{
+				auto packet=UnpackPacketToStruct!(SetPlayerColorPacketLayout)(PacketData);
+				Players[packet.player_id].color=packet.color;
+				break;
+			}
+			case BlockBuildPacketID:{
+				auto packet=UnpackPacketToStruct!(BlockBuildPacketLayout)(PacketData);
+				Voxel_SetColor(packet.x, packet.y, packet.z, Players[packet.player_id].color);
+				break;
+			}
+			case PlayerItemsPacketID:{
+				Player_t *plr=&Players[PacketData[0]];
+				plr.item_types=PacketData[1..$];
 				break;
 			}
 			default:{
@@ -379,7 +436,7 @@ immutable float PositionDataSendDist=.05;
 Vector3_t LastPositionDataSent=Vector3_t(0.0);
 void Update_Position_Data(){
 	float dist=(Players[LocalPlayerID].pos-LastPositionDataSent).length;
-	if(dist>PositionDataSendDist && 0){
+	if(dist>PositionDataSendDist){
 		PlayerPositionPacketLayout packet;
 		packet.position=cast(float[3])Players[LocalPlayerID].pos;
 		Send_Packet(PlayerPositionPacketID, packet);
@@ -416,4 +473,6 @@ void Send_Mouse_Click(bool left_click, bool right_click, int xpos, int ypos){
 	packet.xpos=cast(ushort)(cast(float)(xpos)*65535.0/cast(float)(scrn_surface.w));
 	packet.ypos=cast(ushort)(cast(float)(ypos)*65535.0/cast(float)(scrn_surface.h));
 	Send_Packet(MouseClickPacketID, packet);
+	if(Joined_Game && !Menu_Mode)
+		Players[LocalPlayerID].left_click=left_click;
 }

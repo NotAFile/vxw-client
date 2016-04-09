@@ -18,6 +18,7 @@ struct ServerVersionPacketLayout{
 	PlayerID_t player_id;
 }
 
+//TODO: Make an array out of this; D can do lots of wonderful things in that directoin
 struct MapChangePacketLayout{
 	uint xsize, ysize, zsize;
 	uint datasize;
@@ -111,6 +112,8 @@ immutable PacketID_t PlayerKeyEventPacketID=13;
 struct BindModelPacketLayout{
 	PlayerID_t player_id;
 	ushort model;
+	ushort arm_model;
+	ushort gun_model;
 }
 immutable PacketID_t BindModelPacketID=14;
 
@@ -142,6 +145,57 @@ struct MouseClickPacketLayout{
 	ushort xpos, ypos;
 }
 immutable PacketID_t MouseClickPacketID=19;
+
+struct PlayerHitPacketLayout{
+	PlayerID_t player_id;
+	ubyte hit_sprite;
+}
+immutable PacketID_t PlayerHitPacketID=20;
+
+struct ItemTypePacketLayout{
+	ubyte weapon_id;
+	ushort use_delay;
+	uint maxamount1, maxamount2;
+	float spread_c, spread_m;
+	float recoil_xc, recoil_xm;
+	float recoil_yc, recoil_ym;
+	ubyte typeflags;
+	ubyte model_id;
+}
+immutable PacketID_t ItemTypePacketID=21;
+
+struct ItemReloadPacketLayout{
+	uint amount1, amount2;
+}
+immutable PacketID_t ItemReloadPacketID=22;
+
+struct ToolSwitchPacketLayout{
+	PlayerID_t player_id;
+	ubyte tool_id;
+}
+immutable PacketID_t ToolSwitchPacketID=23;
+
+struct BlockBreakPacketLayout{
+	PlayerID_t player_id;
+	ubyte break_type;
+	ushort x, y, z;
+}
+immutable PacketID_t BlockBreakPacketID=24;
+
+struct SetPlayerColorPacketLayout{
+	PlayerID_t player_id;
+	uint color;
+}
+immutable PacketID_t SetPlayerColorPacketID=25;
+
+struct BlockBuildPacketLayout{
+	PlayerID_t player_id;
+	ubyte build_type;
+	ushort x, y, z;
+}
+immutable PacketID_t BlockBuildPacketID=26;
+
+immutable PacketID_t PlayerItemsPacketID=27;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)

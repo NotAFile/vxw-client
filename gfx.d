@@ -17,6 +17,9 @@ SDL_Texture *font_texture;
 SDL_Texture *borderless_font_texture;
 uint FontWidth, FontHeight;
 
+SDL_Texture *minimap_texture;
+SDL_Surface *minimap_srfc;
+
 uint Font_SpecialColor=0xff000000;
 
 uint ScreenXSize=800, ScreenYSize=600;
@@ -57,6 +60,38 @@ void Init_Gfx(){
 		}
 	}
 	Init_Renderer();
+}
+
+void Set_MiniMap_Size(uint xsize, uint ysize){
+	if(minimap_srfc){
+		if(xsize==minimap_srfc.w && ysize==minimap_srfc.h)
+			return;
+	}
+	if(minimap_srfc)
+		SDL_FreeSurface(minimap_srfc);
+	if(minimap_texture)
+		SDL_DestroyTexture(minimap_texture);
+	SDL_Surface *tmp=SDL_CreateRGBSurface(0, xsize, ysize, 32, 0, 0, 0, 0);
+	minimap_srfc=SDL_ConvertSurfaceFormat(tmp, SDL_PIXELFORMAT_ARGB8888, 0);
+	SDL_FreeSurface(tmp);
+	minimap_texture=SDL_CreateTextureFromSurface(scrn_renderer, minimap_srfc);
+}
+
+void Update_MiniMap(){
+	uint x, y, z;
+	for(x=0; x<MapXSize; x++){
+		for(z=0; z<MapZSize; z++){
+			uint col=0x00000000;
+			for(y=0; y<MapYSize; y++){
+				if(Voxel_IsSolid(x, y, z)){
+					col=Voxel_GetColor(x, y, z);
+					break;
+				}
+			}
+			*Pixel_Pointer(minimap_srfc, x, z)=col;
+		}
+	}
+	SDL_UpdateTexture(minimap_texture, null, minimap_srfc.pixels, minimap_srfc.pitch);
 }
 
 uint *Pixel_Pointer(SDL_Surface *s, int x, int y){
@@ -156,7 +191,8 @@ void Render_Screen(){
 	Fill_Screen(null, SDL_MapRGB(scrn_surface.format, 0, 255, 255));
 	if(Joined_Game()){
 		CameraRot.x+=MouseMovedX*.5; CameraRot.y+=MouseMovedY*.5;
-		//For some reason, this has to be rotated 90° right, TODO: investigate why and fix
+		//For some reason, camera with 0 x angle is looking up on the minimap (though it should look right)
+		//TODO: fix (might need a complete change of client-side coord system, maybe not)
 		Vector3_t rt=CameraRot;
 		rt.x-=90.0;
 		Players[LocalPlayerID].dir=rt.RotationAsDirection;
@@ -182,6 +218,23 @@ void Render_Screen(){
 		r.x=e.xpos; r.y=e.ypos; r.w=e.xsize; r.h=e.ysize;
 		SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
 	}
+	if(Render_MiniMap && Joined_Game()){
+		SDL_Rect minimap_rect;
+		Team_t *team=&Teams[Players[LocalPlayerID].team];
+		minimap_rect.x=0; minimap_rect.y=0; minimap_rect.w=scrn_surface.w; minimap_rect.h=scrn_surface.h;
+		SDL_RenderCopy(scrn_renderer, minimap_texture, null, null);
+		SDL_SetRenderDrawColor(scrn_renderer, team.color[2], team.color[1], team.color[0], 255);
+		foreach(ref plr; Players){
+			if(!plr.Spawned || !plr.InGame || plr.team!=Players[LocalPlayerID].team)
+				continue;
+			int xpos=cast(int)(plr.pos.x*cast(float)(minimap_rect.w)/cast(float)(MapXSize))+minimap_rect.x;
+			int zpos=cast(int)(plr.pos.z*cast(float)(minimap_rect.h)/cast(float)(MapZSize))+minimap_rect.y;
+			SDL_Rect prct;
+			prct.w=4; prct.h=4;
+			prct.x=xpos-prct.w/2; prct.y=zpos-prct.h/2;
+			SDL_RenderFillRect(scrn_renderer, &prct);
+		}
+	}
 }
 
 void Finish_Render(){
@@ -199,21 +252,30 @@ void UnInit_Gfx(){
 }
 
 void Render_Player(uint player_id){
-	if(Players[player_id].Model<0 || player_id==LocalPlayerID)
+	if(Players[player_id].Model<0 || !Players[player_id].Spawned)
 		return;
 	KV6Sprite_t[] sprites=Get_Player_Sprites(player_id);
+	sprites~=Get_Player_Attached_Sprites(player_id);
 	foreach(ref spr; sprites){
 		Render_Sprite(&spr);
 	}
 }
 
+//Other note: this system is only WIP and will be replaced with server-side stuff someday
+//but not too soon, so it's worth working a bit on this (if you get this right, you won't
+//have to test/debug on the server and just port to python)
+
 /*Documentation Note:
  * If you want to change the way player KV6 sprites are positioned, 
- * rotated or resized when rendering, use this function.
- * It returns an array of all sprites that have to be rendered for this player.
+ * rotated or resized when rendering, use this function and Get_Player_Attached_Sprites.
+ * They return an array of all sprites that have to be rendered for this player.
  * Mod_Models (stupid name ikr, suggestions are welcome) contains all models
- * that the server requires.
+ * that the server tells the client to load.
 */
+//Get_Player_Sprites returns sprites that are rendered AND checked for hits when shooting
+//Use it for any body parts
+//Get_Player_Attached_Sprites returns sprites that are ONLY rendered and NOT checked for hits
+//Use it for things like weapons/items and miscellaneous attachments
 KV6Sprite_t[] Get_Player_Sprites(uint player_id){
 	//Keep this line and assign this rotation at least for the head
 	//(spr.rhe=rot.y, spr.rst=rot.x, spr.rti=rot.z)
@@ -221,12 +283,37 @@ KV6Sprite_t[] Get_Player_Sprites(uint player_id){
 	//"Placeholder"; if you are going to change the way players look as described above,
 	//feel free to throw out the following few lines and insert your
 	//awesome-looking stuff
+	KV6Sprite_t[] sprarr;
 	KV6Sprite_t spr;
+	if(player_id!=LocalPlayerID){
+		spr.rst=rot.z; spr.rhe=rot.y+90.0; spr.rti=rot.x+180.0;
+		spr.xpos=Players[player_id].pos.x; spr.ypos=Players[player_id].pos.y; spr.zpos=Players[player_id].pos.z;
+		spr.xdensity=.2; spr.ydensity=.2; spr.zdensity=.2;
+		spr.model=Mod_Models[Players[player_id].Model];
+		sprarr~=spr;
+	}
+	Vector3_t arm_offset=Vector3_t(.5, 0.0, 0.0);
+	spr.rst=rot.z; spr.rhe=rot.y; spr.rti=rot.x+180.0;
+	Vector3_t armpos=Players[player_id].pos+arm_offset.rotate(Vector3_t(rot.x, rot.y, 360.0-rot.z));
+	spr.xpos=armpos.x; spr.ypos=armpos.y; spr.zpos=armpos.z;
+	spr.xdensity=.01; spr.ydensity=.01; spr.zdensity=.01;
+	spr.model=Mod_Models[Players[player_id].Arm_Model];
+	sprarr~=spr;
+	return sprarr;
+}
+
+KV6Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
+	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
+	KV6Sprite_t[] sprarr;
+	KV6Sprite_t spr;
+	Vector3_t item_offset=Vector3_t(.5, -.3, 0.0);
 	spr.rst=rot.z; spr.rhe=rot.y+90.0; spr.rti=rot.x+180.0;
-	spr.xpos=Players[player_id].pos.x; spr.ypos=Players[player_id].pos.y; spr.zpos=Players[player_id].pos.z;
-	spr.xdensity=.3; spr.ydensity=.3; spr.zdensity=.3;
-	spr.model=Mod_Models[Players[player_id].Model];
-	return [spr];
+	Vector3_t itempos=Players[player_id].pos+item_offset.rotate(Vector3_t(rot.x, rot.y, 360.0-rot.z));
+	spr.xpos=itempos.x; spr.ypos=itempos.y; spr.zpos=itempos.z;
+	spr.xdensity=.05; spr.ydensity=.05; spr.zdensity=.05;
+	spr.model=Mod_Models[ItemTypes[Players[player_id].items[Players[player_id].item].type].model_id];
+	sprarr~=spr;
+	return sprarr;
 }
 
 uint Count_KV6Blocks(KV6Model_t *model, uint dstx, uint dsty){
@@ -239,7 +326,7 @@ uint Count_KV6Blocks(KV6Model_t *model, uint dstx, uint dsty){
 	return index;
 }
 
-int Vox_SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out KV6Voxel_t *voxptr){
+int SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out KV6Voxel_t *voxptr){
 	uint x, y;
 	KV6Voxel_t *sblk, blk, eblk;
 	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
@@ -266,9 +353,11 @@ int Vox_SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector
 				fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
 				fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
 				Vector3_t vpos=Vector3_t(fnx, fny, fnz);
-				Vector3_t vdist=(vpos-pos).abs;
 				float dist=(vpos-pos).length;
 				Vector3_t lookpos=pos+dir*dist;
+				/*if(x==spr.model.xsize/2 && y==spr.model.ysize/2 && blk==sblk){
+					writeflnlog("%s %s", lookpos, vpos);
+				}*/
 				Vector3_t cdist=(lookpos-vpos).vecabs;
 				if(cdist.x<voxxsize && cdist.y<voxxsize && cdist.z<voxzsize){
 					voxpos=vpos;
