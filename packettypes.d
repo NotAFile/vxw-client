@@ -123,13 +123,15 @@ struct PlayerPositionPacketLayout{
 immutable PacketID_t PlayerPositionPacketID=15;
 
 struct WorldPhysicsPacketLayout{
-	float g, airfriction, groundfriction, player_jumppower, player_walkspeed, world_speed;
+	float g, airfriction, groundfriction, crouchfriction, player_jumppower, player_walkspeed, world_speed;
 }
 immutable PacketID_t WorldPhysicsPacketID=16;
 
 struct MenuElementPacketLayout{
 	ubyte elementindex;
 	ubyte picindex;
+	ubyte zval;
+	ubyte transparency;
 	float xpos, ypos;
 	float xsize, ysize;
 }
@@ -151,6 +153,10 @@ struct PlayerHitPacketLayout{
 	ubyte hit_sprite;
 }
 immutable PacketID_t PlayerHitPacketID=20;
+
+enum{
+	ITEMTYPE_FLAGS_DAMAGEBLOCKS=(1<<0), ITEMTYPE_FLAGS_REPEATEDUSE=(1<<1)
+};
 
 struct ItemTypePacketLayout{
 	ubyte weapon_id;
@@ -196,6 +202,77 @@ struct BlockBuildPacketLayout{
 immutable PacketID_t BlockBuildPacketID=26;
 
 immutable PacketID_t PlayerItemsPacketID=27;
+
+enum{
+	TEXTBOX_FLAG_WRAP=(1<<0), TEXTBOX_FLAG_MOVELINESDOWN=(1<<1), TEXTBOX_FLAG_MOVELINESUP=(1<<2)
+};
+
+struct SetTextBoxPacketLayout{
+	ubyte box_id;
+	float xpos, ypos;
+	float xsize, ysize;
+	float xsizeratio, ysizeratio;
+	ubyte fontpic;
+	ubyte flags;
+}
+immutable PacketID_t SetTextBoxPacketID=28;
+
+struct SetTextBoxTextPacketLayout{
+	ubyte box_id;
+	uint color;
+	ubyte line;
+	string text;
+}
+immutable PacketID_t SetTextBoxTextPacketID=29;
+
+struct SetObjectPacketLayout{
+	ushort obj_id;
+	ubyte model_id;
+	ubyte minimap_img;
+	float weightfactor;
+	float bouncefactor;
+	float frictionfactor;
+}
+immutable PacketID_t SetObjectPacketID=30;
+
+struct SetObjectPosPacketLayout{
+	ushort obj_id;
+	float x, y, z;
+}
+immutable PacketID_t SetObjectPosPacketID=31;
+
+struct SetObjectVelPacketLayout{
+	ushort obj_id;
+	float x, y, z;
+}
+immutable PacketID_t SetObjectVelPacketID=32;
+
+struct SetObjectRotPacketLayout{
+	ushort obj_id;
+	float x, y, z;
+}
+immutable PacketID_t SetObjectRotPacketID=33;
+
+struct SetObjectDensityPacketLayout{
+	ushort obj_id;
+	float x, y, z;
+}
+immutable PacketID_t SetObjectDensityPacketID=34;
+
+struct ExplosionEffectPacketLayout{
+	float xpos, ypos, zpos;
+	float xvel, yvel, zvel;
+	float radius;
+	float spread;
+	uint amount;
+	uint col;
+}
+immutable PacketID_t ExplosionEffectPacketID=35;
+
+struct ChangeFOVPacketLayout{
+	float xfov, yfov;
+}
+immutable PacketID_t ChangeFOVPacketID=36;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)

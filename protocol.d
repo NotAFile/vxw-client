@@ -5,6 +5,8 @@ import std.format;
 import std.digest.crc;
 import std.stdio;
 import std.file;
+import std.path;
+import std.array;
 import std.exception;
 import std.math;
 import std.string;
@@ -23,6 +25,10 @@ string CurrentMapName;
 bool LoadingMap=false;
 uint MapLoadingSize=0;
 uint MapTargetSize=0;
+
+bool LoadedCompleteMap=false;
+
+uint ModFileBytes=0;
 
 ubyte[] CurrentLoadingMap;
 
@@ -48,36 +54,47 @@ struct ModFile_t{
 	}
 	void Loading_Finished(){
 		receiving_data=false;
+		string current_path=getcwd();
 		string fname="./Ressources/"~name;
-		try{
+		string[] dirs=["./Ressources/"]~pathSplitter(name).array;
+		dirs=dirs[0..$-1];
+		foreach(ref dir; dirs){
+			if(!exists(dir))
+				mkdir(dir);
+			chdir(dir);
+		}
+		chdir(current_path);
+		{
 			File f=File(fname, "wb+");
 			f.rawWrite(data);
 			f.close();
-		}
-		catch(ErrnoException){
-			writeflnerr("Couldn't open file %s for writing mod", fname);
 		}
 		data=[];
 		switch(type){
 			//On Linux, I probably could have used virtual files in RAM instead of physically re-loading them :d
 			case 0:{
 				SDL_Surface *fsrfc=SDL_LoadBMP(toStringz(fname));
-				if(!fsrfc){writeflnerr("Couldn't load %s", fname); return;}
-				SDL_Surface *srfc=SDL_ConvertSurfaceFormat(fsrfc, SDL_PIXELFORMAT_RGBA8888, 0);
-				SDL_SetColorKey(srfc, SDL_TRUE, SDL_MapRGB(srfc.format, 255, 0, 255));
+				if(!fsrfc){writeflnerr("Couldn't load %s", fname); break;}
+				SDL_SetColorKey(fsrfc, SDL_TRUE, SDL_MapRGB(fsrfc.format, 255, 0, 255));
+				SDL_Surface *srfc=SDL_ConvertSurfaceFormat(fsrfc, SDL_PIXELFORMAT_ARGB8888, 0);
+				if(!index)
+					Set_Font(srfc);
 				SDL_Texture *tex=SDL_CreateTextureFromSurface(scrn_renderer, srfc);
+				if(Mod_Pictures.length<=index){
+					Mod_Pictures.length=index+1;
+					Mod_Picture_Sizes.length=index+1;
+				}
+				Mod_Pictures[index]=tex;
+				Mod_Picture_Sizes[index]=[srfc.w, srfc.h];
 				SDL_FreeSurface(srfc);
 				SDL_FreeSurface(fsrfc);
-				if(Mod_Pictures.length<=index)
-					Mod_Pictures.length=index+1;
-				Mod_Pictures[index]=tex;
 				break;
 			}
 			case 1:{
 				KV6Model_t *model=Load_KV6(fname);
 				if(!model){
 					writeflnerr("Couldn't load %s", fname);
-					return;
+					break;
 				}
 				if(Mod_Models.length<=index)
 					Mod_Models.length=index+1;
@@ -162,9 +179,10 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				MapXSize=packet.xsize; MapYSize=packet.ysize; MapZSize=packet.zsize;
 				MapTargetSize=packet.datasize;
 				CurrentMapName=packet.mapname;
-				WriteMsg(format("Loading map %s of size %d and dimensions %dx%dx%d", CurrentMapName, MapTargetSize, MapXSize, MapYSize, MapZSize),
-				Font_SpecialColor);
-				CurrentLoadingMap=[];
+				writeflnlog("Loading map %s of size %d and dimensions %dx%dx%d", CurrentMapName, MapTargetSize, MapXSize, MapYSize, MapZSize);
+				LoadingMap=true;
+				LoadedCompleteMap=false;
+				JoinedGame=0;
 				break;
 			}
 			case MapChunkPacketID:{
@@ -172,11 +190,13 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				/*if(!packet.data.length)
 					break;*/
 				CurrentLoadingMap~=packet.data;
-				WriteMsg(format("Received map chunk of size %d - (%d/%d)", packet.data.length, CurrentLoadingMap.length, MapTargetSize),
-				Font_SpecialColor);
+				writeflnlog("Received map chunk of size %s (%s/%s)", packet.data.length, CurrentLoadingMap.length, MapTargetSize);
 				if(CurrentLoadingMap.length==MapTargetSize){
 					Set_MiniMap_Size(MapXSize, MapZSize);
 					Load_Map(CurrentLoadingMap);
+					LoadingMap=false;
+					LoadedCompleteMap=true;
+					CurrentLoadingMap=[];
 				}
 				break;
 			}
@@ -236,6 +256,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case ModDataPacketID:{
 				auto packet=UnpackPacketToStruct!(ModDataPacketLayout)(PacketData);
 				LoadingMods[packet.type][packet.index].Append_Data(cast(ubyte[])packet.data);
+				ModFileBytes+=packet.data.length;
 				break;
 			}
 			case PlayerSpawnPacketID:{
@@ -298,6 +319,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				plr.Go_Right=cast(bool)(keys&8);
 				plr.Jump=cast(bool)(keys&16);
 				plr.Crouch=cast(bool)(keys&32);
+				plr.Use_Object=cast(bool)(keys&64);
 				plr.KeysChanged=true;
 				break;
 			}
@@ -316,15 +338,17 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case WorldPhysicsPacketID:{
 				auto packet=UnpackPacketToStruct!(WorldPhysicsPacketLayout)(PacketData);
 				Gravity=packet.g; AirFriction=packet.airfriction; GroundFriction=packet.groundfriction;
+				CrouchFriction=packet.crouchfriction;
 				PlayerJumpPower=packet.player_jumppower; PlayerWalkSpeed=packet.player_walkspeed;
-				WorldSpeedRatio=packet.world_speed*4.0;
+				WorldSpeedRatio=packet.world_speed;
 				break;
 			}
 			case MenuElementPacketID:{
 				auto packet=UnpackPacketToStruct!(MenuElementPacketLayout)(PacketData);
 				if(packet.elementindex>=MenuElements.length)
 					MenuElements.length=packet.elementindex+1;
-				MenuElements[packet.elementindex].set(packet.picindex, packet.xpos, packet.ypos, packet.xsize, packet.ysize);
+				MenuElements[packet.elementindex].set(packet.elementindex, packet.picindex, packet.zval, packet.xpos, packet.ypos, packet.xsize, 
+				packet.ysize, packet.transparency);
 				break;
 			}
 			case ToggleMenuPacketID:{
@@ -345,7 +369,9 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				type.recoil_xm=packet.recoil_xm;
 				type.recoil_yc=packet.recoil_yc;
 				type.recoil_ym=packet.recoil_ym;
-				type.is_weapon=cast(bool)packet.typeflags;
+				type.damage_blocks=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_DAMAGEBLOCKS);
+				type.repeated_use=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_REPEATEDUSE);
+				type.is_weapon=type.damage_blocks;
 				type.model_id=packet.model_id;
 				if(type.index>=ItemTypes.length)
 					ItemTypes.length=type.index+1;
@@ -383,6 +409,63 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case PlayerItemsPacketID:{
 				Player_t *plr=&Players[PacketData[0]];
 				plr.item_types=PacketData[1..$];
+				break;
+			}
+			case SetTextBoxPacketID:{
+				auto packet=UnpackPacketToStruct!(SetTextBoxPacketLayout)(PacketData);
+				if(packet.box_id>=TextBoxes.length)
+					TextBoxes.length=packet.box_id+1;
+				TextBoxes[packet.box_id].set(packet.fontpic, packet.xpos, packet.ypos, packet.xsize, packet.ysize, packet.xsizeratio, packet.ysizeratio, packet.flags);
+				break;
+			}
+			case SetTextBoxTextPacketID:{
+				auto packet=UnpackPacketToStruct!(SetTextBoxTextPacketLayout)(PacketData);
+				TextBoxes[packet.box_id].set_line(packet.line, packet.color, packet.text);
+				break;
+			}
+			case SetObjectPacketID:{
+				auto packet=UnpackPacketToStruct!(SetObjectPacketLayout)(PacketData);
+				if(packet.obj_id>=Objects.length)
+					Objects.length=packet.obj_id+1;
+				Object_t *obj=&Objects[packet.obj_id];
+				obj.model_id=packet.model_id;
+				obj.minimap_img=packet.minimap_img;
+				obj.weightfactor=packet.weightfactor;
+				obj.bouncefactor=packet.bouncefactor;
+				obj.frictionfactor=packet.frictionfactor;
+				obj.Check_Visibility();
+				break;
+			}
+			case SetObjectPosPacketID:{
+				auto packet=UnpackPacketToStruct!(SetObjectPosPacketLayout)(PacketData);
+				Objects[packet.obj_id].pos=Vector3_t(packet.x, packet.y, packet.z);
+				break;
+			}
+			case SetObjectVelPacketID:{
+				auto packet=UnpackPacketToStruct!(SetObjectVelPacketLayout)(PacketData);
+				Objects[packet.obj_id].vel=Vector3_t(packet.x, packet.y, packet.z);
+				break;
+			}
+			case SetObjectRotPacketID:{
+				auto packet=UnpackPacketToStruct!(SetObjectRotPacketLayout)(PacketData);
+				Objects[packet.obj_id].rot=Vector3_t(packet.x, packet.y, packet.z);
+				break;
+			}
+			case SetObjectDensityPacketID:{
+				auto packet=UnpackPacketToStruct!(SetObjectDensityPacketLayout)(PacketData);
+				Objects[packet.obj_id].density=Vector3_t(packet.x, packet.y, packet.z);
+				Objects[packet.obj_id].Check_Visibility();
+				break;
+			}
+			case ExplosionEffectPacketID:{
+				auto packet=UnpackPacketToStruct!(ExplosionEffectPacketLayout)(PacketData);
+				Create_Particles(Vector3_t(packet.xpos, packet.ypos, packet.zpos), Vector3_t(packet.xvel, packet.yvel, packet.zvel),
+				packet.radius, packet.spread, packet.amount, packet.col);
+				break;
+			}
+			case ChangeFOVPacketID:{
+				auto packet=UnpackPacketToStruct!(ChangeFOVPacketLayout)(PacketData);
+				X_FOV=packet.xfov; Y_FOV=packet.yfov;
 				break;
 			}
 			default:{
@@ -459,6 +542,7 @@ bool Joined_Game(){
 void Join_Game(){
 	JoinedGame=true;
 	Players[LocalPlayerID].InGame=true;
+	writeflnlog("Loaded %s K bytes of mod files", tofloat(ModFileBytes)/1024.0);
 }
 
 void Send_Key_Presses(ubyte keypresses){

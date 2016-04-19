@@ -19,8 +19,9 @@ void main(string[] args){
 	if(args.length>1 && args.length<3){
 		UnInit_Game();
 		writeflnlog("Usage: ./main <address:port> <nick>");
-		writeflnlog("Or ./main to connect to localhost");
-		writeflnlog("It's supposed to support DNS names, e.g. like server.com:123, but the only confirmed is localhost");
+		writeflnlog("Or ./main to connect to localhost as Deuce");
+		writeflnlog("You can use DNS names without protocol identifiers (without \"http://\" or \"https://\")");
+		return;
 	}
 	if(args.length>1){
 		requested_name=args[2];
@@ -41,6 +42,7 @@ void main(string[] args){
 	}
 	Send_Identification_Packet(requested_name);
 	while(!QuitGame){
+		uint t1=SDL_GetTicks(), t2;
 		Check_Input();
 		while(true){
 			auto ret=Update_Network();
@@ -52,8 +54,11 @@ void main(string[] args){
 		Update_World();
 		Prepare_Render();
 		Render_Screen();
-		Render_HUD();
 		Finish_Render();
+		t2=SDL_GetTicks();
+		uint tdiff=t2-t1;
+		if(tdiff<16)
+			SDL_Delay(16-tdiff);
 	}
 	Send_Disconnect_Packet();
 	UnInit_Game();

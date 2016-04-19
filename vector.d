@@ -97,15 +97,19 @@ struct Vector3_t{
 	}
 	
 	Vector3_t RotationAsDirection(){
-		float cx=degcos(this.x);
+		/*float cx=degcos(this.x);
 		float sy=degsin(this.y);
 		float cz=degsin(this.x);
-		cx*=1.0-sy; cz*=1.0-sy;
-		return Vector3_t(cx, sy, cz).abs;
+		float xzr=1.0-fabs(this.y)/90.0;
+		cx*=xzr; cz*=xzr;
+		return Vector3_t(cx, sy, cz);*/
+		Vector3_t dir=Vector3_t(1.0, 0.0, 0.0);
+		dir=dir.rotate(this);
+		return Vector3_t(dir.x, -dir.z, dir.y);
 	}
 	
 	Vector3_t DirectionAsRotation(){
-		float rx=90.0-atan2(this.z, this.x)*180.0/PI;
+		float rx=atan2(this.x, this.z)*180.0/PI;
 		float ry=asin(this.y)*180.0/PI+90.0;
 		float rz=0.0;
 		return Vector3_t(rx, ry, rz);
@@ -132,4 +136,16 @@ struct Vector3_t{
 	Vector3_t filter(alias filterx, alias filtery, alias filterz)(){
 		mixin("return Vector3_t("~(filterx ? "x," : "0,")~(filtery ? "y," : "0,")~(filterz ? "z," : "0,")~");");
 	}
+}
+
+float tofloat(T)(T var){
+	return cast(float)var;
+}
+
+int toint(T)(T var){
+	return cast(int)var;
+}
+
+uint touint(T)(T var){
+	return cast(uint)var;
 }
