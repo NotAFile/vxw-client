@@ -2,6 +2,9 @@ import derelict.enet.enet;
 import std.stdio;
 import std.string;
 import misc;
+version(LDC){
+	import ldc_stdlib;
+}
 
 //Change this depending on your system's endianess
 bool EnableByteFlip=true;
@@ -29,7 +32,10 @@ struct Connection_t{
 		if(ret>0){
 			switch(event.type){
 				case ENET_EVENT_TYPE_CONNECT:{
-					writeflnlog("ENet returned %d when trying to connect", ret);
+					if(ret==1)
+						writeflnlog("Connected to server!");
+					else
+						writeflnlog("[WARNING] ENet returned %d when trying to connect", ret);
 					break;
 				}
 				case ENET_EVENT_TYPE_DISCONNECT:{

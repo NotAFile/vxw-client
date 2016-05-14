@@ -1,4 +1,5 @@
 import derelict.sdl2.sdl;
+import derelict.sdl2.image;
 import std.conv;
 import std.algorithm;
 import std.format;
@@ -18,6 +19,15 @@ import misc;
 import vector;
 import world;
 import gfx;
+version(LDC){
+	import ldc_stdlib;
+}
+
+uint Server_Ping_Delay=0;
+uint Ping_Overall_Delay=0;
+uint Ping_LastSent=0;
+uint Pings_Sent=0;
+
 
 PlayerID_t LocalPlayerID;
 
@@ -34,11 +44,20 @@ ubyte[] CurrentLoadingMap;
 
 uint MapXSize, MapYSize, MapZSize;
 
-uint Client_Version=1;
+uint Client_Version=3;
 
 uint JoinedGameMaxPhases=4;
 uint JoinedGamePhase=0;
 bool JoinedGame;
+
+immutable bool Freeze_Mod_Directories[string];
+
+static this(){
+	Freeze_Mod_Directories=[
+		"Default":true,
+	];
+}
+
 
 struct ModFile_t{
 	ubyte type;
@@ -48,15 +67,17 @@ struct ModFile_t{
 	ubyte[] data;
 	uint hash;
 	bool receiving_data;
+	bool no_file;
 	this(string initname, uint initsize, ushort initindex, ubyte inittype){
 		name=initname; size=initsize; index=initindex; type=inittype;
-		hash=0; receiving_data=false;
+		hash=0; receiving_data=false; no_file=false;
 	}
 	void Loading_Finished(){
 		receiving_data=false;
 		string current_path=getcwd();
 		string fname="./Ressources/"~name;
-		string[] dirs=["./Ressources/"]~pathSplitter(name).array;
+		string[] nmdirs=cast(string[])pathSplitter(name).array;
+		string[] dirs=["./Ressources/"]~nmdirs;
 		dirs=dirs[0..$-1];
 		foreach(ref dir; dirs){
 			if(!exists(dir))
@@ -64,7 +85,11 @@ struct ModFile_t{
 			chdir(dir);
 		}
 		chdir(current_path);
-		{
+		bool preserve_file=false;
+		if(dirs[1] in Freeze_Mod_Directories)
+			if(Freeze_Mod_Directories[dirs[1]])
+				preserve_file=true;
+		if(!preserve_file || !no_file){
 			File f=File(fname, "wb+");
 			f.rawWrite(data);
 			f.close();
@@ -73,8 +98,28 @@ struct ModFile_t{
 		switch(type){
 			//On Linux, I probably could have used virtual files in RAM instead of physically re-loading them :d
 			case 0:{
-				SDL_Surface *fsrfc=SDL_LoadBMP(toStringz(fname));
-				if(!fsrfc){writeflnerr("Couldn't load %s", fname); break;}
+				SDL_Surface *fsrfc;
+				string error;
+				switch(fname[$-4..$]){
+					case ".bmp":{
+						fsrfc=SDL_LoadBMP(toStringz(fname));
+						if(!fsrfc)
+							error=cast(string)fromStringz(SDL_GetError());
+						break;
+					}
+					case ".png":{
+						fsrfc=IMG_Load(toStringz(fname));
+						if(!fsrfc)
+							error=cast(string)fromStringz(IMG_GetError());
+						break;
+					}
+					default:{
+						fsrfc=null;
+						error="Unknown image file format"~fname[$-4..$];
+						break;
+					}
+				}
+				if(!fsrfc){writeflnerr("Couldn't load %s: %s", fname, error); break;}
 				SDL_SetColorKey(fsrfc, SDL_TRUE, SDL_MapRGB(fsrfc.format, 255, 0, 255));
 				SDL_Surface *srfc=SDL_ConvertSurfaceFormat(fsrfc, SDL_PIXELFORMAT_ARGB8888, 0);
 				if(!index)
@@ -114,11 +159,14 @@ struct ModFile_t{
 				if(lfsize<int.max){
 					data.length=cast(uint)lfsize;
 					f.rawRead(data);
-					ubyte[4] hashbuf=crc32Of(data);
+					CRC32 context=makeDigest!CRC32();
+					context.put(data);
+					ubyte[4] hashbuf=context.finish();
+					//RIP crc32Of() (used to work, great random number generator now)
+					//ubyte[4] hashbuf=crc32Of(data);
 					hash=*(cast(uint*)hashbuf.ptr);
-					loaded_file=true;
 					Loading_Finished();
-					writeflnlog("Loaded %s from disk", fname);
+					loaded_file=true;
 				}
 				else{
 					writeflnerr("File %s is too large (%s)", fname, lfsize);
@@ -126,6 +174,7 @@ struct ModFile_t{
 				f.close();
 			}
 		}
+		no_file=!loaded_file;
 		receiving_data=false;
 		return loaded_file;
 	}
@@ -144,9 +193,37 @@ struct ModFile_t{
 			return;
 		}
 	}
+	SDL_Surface *LoadToSurface(){
+		string fname="./Ressources/"~name, error;
+		SDL_Surface *fsrfc;
+		switch(fname[$-4..$]){
+			case ".bmp":{
+				fsrfc=SDL_LoadBMP(toStringz(fname));
+				if(!fsrfc)
+					error=cast(string)fromStringz(SDL_GetError());
+				break;
+			}
+			case ".png":{
+				fsrfc=IMG_Load(toStringz(fname));
+				if(!fsrfc)
+					error=cast(string)fromStringz(IMG_GetError());
+				break;
+			}
+			default:{
+				fsrfc=null;
+				error="Unknown image file format"~fname[$-4..$];
+				break;
+			}
+		}
+		if(!fsrfc)
+			writeflnerr("Couldn't load %s: %s", fname, error);
+		return fsrfc;
+	}
 }
 
 ModFile_t[][] LoadingMods;
+
+uint NonPlayerColor=0;
 
 void Send_Identification_Packet(string requested_name){
 	ClientVersionPacketLayout packet;
@@ -194,6 +271,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				if(CurrentLoadingMap.length==MapTargetSize){
 					Set_MiniMap_Size(MapXSize, MapZSize);
 					Load_Map(CurrentLoadingMap);
+					TerrainOverview=Vector3_t(MapXSize/2, 0.0, MapZSize/2);
 					LoadingMap=false;
 					LoadedCompleteMap=true;
 					CurrentLoadingMap=[];
@@ -210,7 +288,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case TeamDataPacketID:{
 				auto packet=UnpackPacketToStruct!(TeamDataPacketLayout)(PacketData);
-				Init_Team(packet.name, packet.team_id, packet.color);
+				Init_Team(packet.name, packet.team_id, packet.col);
 				/*if(packet.team_id<3){
 					//Hardcoded key handling
 					//Somebody make a GUI please so I can remove the team limits
@@ -261,14 +339,12 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case PlayerSpawnPacketID:{
 				auto packet=UnpackPacketToStruct!(PlayerSpawnPacketLayout)(PacketData);
-				Players[packet.player_id].Spawn(Vector3_t(packet.pos), packet.team_id);
+				Players[packet.player_id].Spawn(Vector3_t(packet.xpos, packet.ypos, packet.zpos), packet.team_id);
 				break;
 			}
 			case PlayerRotationPacketID:{
 				auto packet=UnpackPacketToStruct!(PlayerRotationPacketLayout)(PacketData);
-				//TODO: investigate why I have to do rotation.reverse here and fix
-				packet.rotation.reverse;
-				Players[packet.player_id].dir=Vector3_t(packet.rotation);
+				Players[packet.player_id].dir=Vector3_t(packet.xrot, packet.yrot, packet.zrot);
 				if(packet.player_id==LocalPlayerID)
 					CameraRot=Players[packet.player_id].dir.DirectionAsRotation;
 				break;
@@ -286,7 +362,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					for(uint nbit=0; nbit<8; nbit++){
 						uint bit=1<<nbit;
 						if(PacketData[bytenum+2]&bit){
-							PlayerTable~=bytenum*8+nbit-1;
+							PlayerTable~=bytenum*8+nbit;
 							plrindex++;
 						}
 					}
@@ -304,14 +380,14 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					
 					}
 					uint player_id=PlayerTable[p];
-					if(Players[player_id].player_id!=LocalPlayerID)
+					if(player_id!=LocalPlayerID)
 						Players[player_id].pos=Vector3_t(pos);
 				}
 				break;
 			}
 			case PlayerKeyEventPacketID:{
 				auto packet=UnpackPacketToStruct!(PlayerKeyEventPacketLayout)(PacketData);
-				ubyte keys=packet.keys;
+				ushort keys=packet.keys;
 				Player_t *plr=&Players[packet.player_id];
 				plr.Go_Back=cast(bool)(keys&1);
 				plr.Go_Forwards=cast(bool)(keys&2);
@@ -332,12 +408,12 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case PlayerPositionPacketID:{
 				auto packet=UnpackPacketToStruct!(PlayerPositionPacketLayout)(PacketData);
-				Players[LocalPlayerID].pos=Vector3_t(packet.position);
+				Players[LocalPlayerID].pos=Vector3_t(packet.xpos, packet.ypos, packet.zpos);
 				break;
 			}
 			case WorldPhysicsPacketID:{
 				auto packet=UnpackPacketToStruct!(WorldPhysicsPacketLayout)(PacketData);
-				Gravity=packet.g; AirFriction=packet.airfriction; GroundFriction=packet.groundfriction;
+				Gravity=packet.g; AirFriction=packet.airfriction; GroundFriction=packet.groundfriction; WaterFriction=packet.waterfriction;
 				CrouchFriction=packet.crouchfriction;
 				PlayerJumpPower=packet.player_jumppower; PlayerWalkSpeed=packet.player_walkspeed;
 				WorldSpeedRatio=packet.world_speed;
@@ -369,9 +445,11 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				type.recoil_xm=packet.recoil_xm;
 				type.recoil_yc=packet.recoil_yc;
 				type.recoil_ym=packet.recoil_ym;
-				type.damage_blocks=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_DAMAGEBLOCKS);
+				type.block_damage=packet.block_damage;
+				type.block_damage_range=packet.block_damage_range;
+				type.is_weapon=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_WEAPON);
 				type.repeated_use=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_REPEATEDUSE);
-				type.is_weapon=type.damage_blocks;
+				type.show_palette=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_SHOWPALETTE);
 				type.model_id=packet.model_id;
 				if(type.index>=ItemTypes.length)
 					ItemTypes.length=type.index+1;
@@ -381,9 +459,14 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case ItemReloadPacketID:{
 				auto packet=UnpackPacketToStruct!(ItemReloadPacketLayout)(PacketData);
 				Player_t *plr=&Players[LocalPlayerID];
-				plr.items[plr.item].amount1=packet.amount1;
-				plr.items[plr.item].amount2=packet.amount2;
-				Players[LocalPlayerID].Reloading=false;
+				if(packet.amount1!=0xffffffff || packet.amount2!=0xffffffff){
+					plr.items[packet.item_id].amount1=packet.amount1;
+					plr.items[packet.item_id].amount2=packet.amount2;
+					plr.items[packet.item_id].Reloading=false;
+				}
+				else{
+					plr.items[packet.item_id].Reloading=true;
+				}
 				break;
 			}
 			case ToolSwitchPacketID:{
@@ -393,22 +476,32 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case BlockBreakPacketID:{
 				auto packet=UnpackPacketToStruct!(BlockBreakPacketLayout)(PacketData);
-				Voxel_Remove(packet.x, packet.y, packet.z);
+				Break_Block(packet.player_id, packet.break_type, packet.x, packet.y, packet.z);
 				break;
 			}
 			case SetPlayerColorPacketID:{
 				auto packet=UnpackPacketToStruct!(SetPlayerColorPacketLayout)(PacketData);
-				Players[packet.player_id].color=packet.color;
+				if(packet.player_id!=255)
+					Players[packet.player_id].color=packet.color;
+				else
+					NonPlayerColor=packet.color;
 				break;
 			}
 			case BlockBuildPacketID:{
 				auto packet=UnpackPacketToStruct!(BlockBuildPacketLayout)(PacketData);
-				Voxel_SetColor(packet.x, packet.y, packet.z, Players[packet.player_id].color);
+				if(packet.player_id!=255)
+					Voxel_SetColor(packet.x, packet.y, packet.z, Players[packet.player_id].color);
+				else
+					Voxel_SetColor(packet.x, packet.y, packet.z, NonPlayerColor);
 				break;
 			}
 			case PlayerItemsPacketID:{
 				Player_t *plr=&Players[PacketData[0]];
-				plr.item_types=PacketData[1..$];
+				if(PacketData.length){
+					plr.item_types=PacketData[1..$];
+				}
+				else
+					plr.item_types.length=0;
 				break;
 			}
 			case SetTextBoxPacketID:{
@@ -425,20 +518,53 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case SetObjectPacketID:{
 				auto packet=UnpackPacketToStruct!(SetObjectPacketLayout)(PacketData);
-				if(packet.obj_id>=Objects.length)
+				if(packet.obj_id>=Objects.length){
+					uint oldlength=Objects.length;
 					Objects.length=packet.obj_id+1;
+					for(uint i=oldlength; i<Objects.length; i++)
+						Objects[i].Init(i);
+				}
 				Object_t *obj=&Objects[packet.obj_id];
-				obj.model_id=packet.model_id;
 				obj.minimap_img=packet.minimap_img;
 				obj.weightfactor=packet.weightfactor;
 				obj.bouncefactor=packet.bouncefactor;
 				obj.frictionfactor=packet.frictionfactor;
-				obj.Check_Visibility();
+				bool was_solid=Solid_Objects.canFind(packet.obj_id);
+				obj.Is_Solid=cast(bool)(packet.flags&SetObjectFlags.Solid);
+				if(was_solid && !obj.Is_Solid)
+					Solid_Objects.remove(Solid_Objects.countUntil(packet.obj_id));
+				if(!was_solid && obj.Is_Solid)
+					Solid_Objects~=packet.obj_id;
+				obj.enable_bullet_holes=cast(bool)(packet.flags&SetObjectFlags.BulletHoles);
+				if(obj.enable_bullet_holes){
+					if(!Hittable_Objects.canFind(packet.obj_id))
+						Hittable_Objects~=packet.obj_id;
+				}
+				else{
+					if(Hittable_Objects.canFind(packet.obj_id))
+						Hittable_Objects.remove(packet.obj_id);
+				}
+				obj.modify_model=cast(bool)(packet.flags&SetObjectFlags.ModelModification);
+				if(packet.model_id==255)
+					obj.visible=false;
+				else
+					obj.visible=true;
+				if(obj.visible){
+					if(Enable_Object_Model_Modification && obj.modify_model){
+						obj.model=Mod_Models[packet.model_id].copy();
+					}
+					else{
+						obj.model=Mod_Models[packet.model_id];
+					}
+				}
+				else{
+					obj.model=null;
+				}
 				break;
 			}
 			case SetObjectPosPacketID:{
 				auto packet=UnpackPacketToStruct!(SetObjectPosPacketLayout)(PacketData);
-				Objects[packet.obj_id].pos=Vector3_t(packet.x, packet.y, packet.z);
+				Objects[packet.obj_id].pos=Vector3_t(packet.x, packet.y, packet.z)+Objects[packet.obj_id].vel*tofloat(Get_Ping())/1000.0;
 				break;
 			}
 			case SetObjectVelPacketID:{
@@ -454,18 +580,126 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case SetObjectDensityPacketID:{
 				auto packet=UnpackPacketToStruct!(SetObjectDensityPacketLayout)(PacketData);
 				Objects[packet.obj_id].density=Vector3_t(packet.x, packet.y, packet.z);
-				Objects[packet.obj_id].Check_Visibility();
 				break;
 			}
 			case ExplosionEffectPacketID:{
 				auto packet=UnpackPacketToStruct!(ExplosionEffectPacketLayout)(PacketData);
 				Create_Particles(Vector3_t(packet.xpos, packet.ypos, packet.zpos), Vector3_t(packet.xvel, packet.yvel, packet.zvel),
 				packet.radius, packet.spread, packet.amount, packet.col);
+				Create_Explosion(Vector3_t(packet.xpos, packet.ypos, packet.zpos), Vector3_t(packet.xvel, packet.yvel, packet.zvel),
+				packet.radius, packet.spread, packet.amount, packet.col);
 				break;
 			}
 			case ChangeFOVPacketID:{
 				auto packet=UnpackPacketToStruct!(ChangeFOVPacketLayout)(PacketData);
 				X_FOV=packet.xfov; Y_FOV=packet.yfov;
+				break;
+			}
+			case AssignBuiltinPacketID:{
+				auto packet=UnpackPacketToStruct!(AssignBuiltinPacketLayout)(PacketData);
+				switch(packet.type){
+					case AssignBuiltinTypes.Picture:{
+						SDL_Texture *dstpic=Mod_Pictures[packet.index];
+						uint xsize=Mod_Picture_Sizes[packet.index][0], ysize=Mod_Picture_Sizes[packet.index][1];
+						switch(packet.target){
+							case AssignBuiltinPictureTypes.Font:{
+								font_texture=dstpic;
+								FontWidth=xsize; FontHeight=ysize;
+								break;
+							}
+							default:break;
+						}
+					}
+					case AssignBuiltinTypes.Sent_Image:{
+						MenuElement_t *element=&MenuElements[packet.index];
+						switch(packet.target){
+							case AssignBuiltinSentImageTypes.AmmoCounterBG:{
+								AmmoCounterBG=element;
+								break;
+							}
+							case AssignBuiltinSentImageTypes.AmmoCounterBullet:{
+								AmmoCounterBullet=element;
+								break;
+							}
+							case AssignBuiltinSentImageTypes.Palette_HFG:{
+								ProtocolBuiltin_PaletteHFG=element;
+								Palette_H_Colors=LoadingMods[0][element.picture_index].LoadToSurface();
+								Palette_Color_HIndex=ProtocolBuiltin_PaletteHFG.xsize/2;
+								Palette_Color_HPos=tofloat(Palette_Color_HIndex);
+								break;
+							}
+							case AssignBuiltinSentImageTypes.Palette_VFG:{
+								ProtocolBuiltin_PaletteVFG=element;
+								Palette_V_Colors=LoadingMods[0][element.picture_index].LoadToSurface();
+								Palette_Color_VIndex=ProtocolBuiltin_PaletteVFG.ysize/2;
+								Palette_Color_VPos=tofloat(Palette_Color_VIndex);
+								break;
+							}
+							case AssignBuiltinSentImageTypes.ScopeGfx:{
+								ProtocolBuiltin_ScopePicture=element;
+								break;
+							}
+							default:break;
+						}
+					}
+					default:{
+						break;
+					}
+				}
+				break;
+			}
+			case SetObjectVerticesPacketID:{
+				ushort obj_id;
+				ubyte[2] obj_id_bytes=PacketData[0..2];
+				if(EnableByteFlip)
+					obj_id_bytes.reverse;
+				obj_id=*(cast(ushort*)obj_id_bytes.ptr);
+				uint vertices_count=(PacketData.length-2)/12;
+				Vector3_t[] vertices;
+				vertices.length=vertices_count;
+				ubyte *xptr=&PacketData[2], yptr=&PacketData[2+4], zptr=&PacketData[2+8];
+				for(uint v=0; v<vertices_count; v++){
+					float xv=ConvertArrayToVariable!(float)(xptr[0..4]);
+					float yv=ConvertArrayToVariable!(float)(yptr[0..4]);
+					float zv=ConvertArrayToVariable!(float)(zptr[0..4]);
+					vertices[v]=Vector3_t(xv, yv, zv);
+					xptr+=4*3; yptr+=4*3; zptr+=4*3;
+				}
+				Objects[obj_id].Vertices=vertices;
+				break;
+			}
+			case SetPlayerModelPacketID:{
+				auto packet=UnpackPacketToStruct!(SetPlayerModelPacketLayout)(PacketData);
+				Player_t *plr=&Players[packet.player_id];
+				if(packet.playermodelindex>=plr.models.length)
+					plr.models.length=packet.playermodelindex+1;
+				PlayerModel_t *model=&plr.models[packet.playermodelindex];
+				model.model_id=packet.modelfileindex;
+				model.size=Vector3_t(packet.xsize, packet.ysize, packet.zsize);
+				model.offset=Vector3_t(packet.xoffset, packet.yoffset, packet.zoffset);
+				model.rotation=Vector3_t(packet.xrot, packet.yrot, packet.zrot);
+				model.FirstPersonModel=!cast(bool)(packet.flags&SetPlayerModelPacketFlags.NonFirstPersonModel);
+				model.Rotate=cast(bool)(packet.flags&SetPlayerModelPacketFlags.RotateModel);
+				break;
+			}
+			case PingPacketID:{
+				ubyte packet_id=PingPacketID;
+				Send_Data(&packet_id, 1);
+				uint last_ping_t=Ping_LastSent;
+				uint current_t=SDL_GetTicks();
+				Ping_LastSent=current_t;
+				if(Pings_Sent)
+					Ping_Overall_Delay+=(current_t-last_ping_t)-Server_Ping_Delay;
+				Pings_Sent++;
+				if(Pings_Sent>30){
+					Ping_Overall_Delay=(current_t-last_ping_t)-Server_Ping_Delay;
+					Pings_Sent=0;
+				}
+				break;
+			}
+			case SetPlayerModePacketID:{
+				auto packet=UnpackPacketToStruct!(SetPlayerModePacketLayout)(PacketData);
+				Players[packet.player_id].InGame=Players[packet.player_id].Spawned=cast(bool)packet.mode;
 				break;
 			}
 			default:{
@@ -485,6 +719,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				LocalPlayerID=packet.player_id;
 				writeflnlog("Server version: %d, Player ID: %d", packet.server_version, LocalPlayerID);
 				JoinedGamePhase=JoinedGameMaxPhases-1;
+				Server_Ping_Delay=packet.ping_delay;
 				break;
 			}
 			default:{break;}
@@ -503,27 +738,32 @@ void Send_Packet(T)(PacketID_t id, T packet){
 	Send_Data(id~packetbytes);
 }
 
-immutable float RotationDataSendDist=.01;
+immutable float RotationDataSendDist=.1;
 Vector3_t LastRotationDataSent=Vector3_t(0.0);
 void Update_Rotation_Data(){
 	float dist=(CameraRot-LastRotationDataSent).length;
 	if(dist>RotationDataSendDist){
 		PlayerRotationPacketLayout packet;
-		packet.rotation=cast(float[3])Players[LocalPlayerID].dir;
+		Vector3_t dir=Players[LocalPlayerID].dir;
+		packet.xrot=dir.x; packet.yrot=dir.y; packet.zrot=dir.z;
 		Send_Packet(PlayerRotationPacketID, packet);
+		uint data=Convert_Unit_Vec_To_NetFP(dir);
+		/*writeflnlog("%s", dir);
+		writeflnlog("%s", Convert_NetFP_To_Unit_Vec(data));*/
 		LastRotationDataSent=CameraRot;
 	}
 }
 
-immutable float PositionDataSendDist=.05;
+immutable float PositionDataSendDist=2.0;
 Vector3_t LastPositionDataSent=Vector3_t(0.0);
 void Update_Position_Data(){
 	float dist=(Players[LocalPlayerID].pos-LastPositionDataSent).length;
 	if(dist>PositionDataSendDist){
 		PlayerPositionPacketLayout packet;
-		packet.position=cast(float[3])Players[LocalPlayerID].pos;
+		Vector3_t pos=Players[LocalPlayerID].pos;
+		packet.xpos=pos.x; packet.ypos=pos.y; packet.zpos=pos.z;
 		Send_Packet(PlayerPositionPacketID, packet);
-		LastPositionDataSent=CameraRot;
+		LastPositionDataSent=pos;
 	}
 }
 
@@ -542,10 +782,11 @@ bool Joined_Game(){
 void Join_Game(){
 	JoinedGame=true;
 	Players[LocalPlayerID].InGame=true;
+	CameraRot=Vector3_t(0.0);
 	writeflnlog("Loaded %s K bytes of mod files", tofloat(ModFileBytes)/1024.0);
 }
 
-void Send_Key_Presses(ubyte keypresses){
+void Send_Key_Presses(ushort keypresses){
 	PlayerKeyEventPacketLayout packet;
 	packet.keys=keypresses;
 	Send_Packet(PlayerKeyEventPacketID, packet);
@@ -559,4 +800,30 @@ void Send_Mouse_Click(bool left_click, bool right_click, int xpos, int ypos){
 	Send_Packet(MouseClickPacketID, packet);
 	if(Joined_Game && !Menu_Mode)
 		Players[LocalPlayerID].left_click=left_click;
+}
+
+uint Get_Ping(){
+	return Ping_Overall_Delay/(Pings_Sent+1);
+}
+
+//We're using a packet format here. I think that 3 numbers after the comma is enough for orientation data transfer
+//However, if I want to transfer signs, I'd have to use 11 bit variables. Since I can transfer 32 but not 33 bits,
+//the poor Y coordinate will only have 10 bits
+uint Convert_Unit_Vec_To_NetFP(Vector3_t vec){
+	short x=(cast(short)(fabs(vec.x)*1024.0));
+	short y=(cast(short)(fabs(vec.y)*512.0));
+	short z=(cast(short)(fabs(vec.z)*1024.0));
+	if(vec.x<0.0)
+		x|=1<<10;
+	if(vec.y<0.0)
+		y|=1<<9;
+	if(vec.z<0.0)
+		z|=1<<10;
+	return (x) | (y<<11) | (z<<22);
+}
+
+Vector3_t Convert_NetFP_To_Unit_Vec(uint fpvec){
+	short x=cast(short)(fpvec&((1<<10)-1)), y=cast(short)((fpvec>>11)&((1<<9)-1)), z=cast(short)((fpvec>>22)&((1<<10)-1));
+	uint xsign=fpvec&(1<<10), ysign=(fpvec>>11)&(1<<9), zsign=fpvec&(1<<31);
+	return Vector3_t(tofloat(x)/1024.0*(xsign ? -1.0 : 1.0), tofloat(y)/512.0*(ysign ? -1.0 : 1.0), tofloat(z)/1024.0*(zsign ? -1.0 : 1.0));
 }

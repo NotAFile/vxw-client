@@ -76,7 +76,7 @@ struct Vector3_t{
 	
 	Vector3_t rotdir(){return Vector3_t(degcos(x), degsin(x), degcos(y));}
 	
-	Vector3_t abs(){return (this/this.length);}
+	Vector3_t abs(){if(this.length)return (this/this.length); return Vector3_t(0.0, 0.0, 0.0);}
 	Vector3_t vecabs(){return Vector3_t(fabs(x), fabs(y), fabs(z));}
 	
 	Vector3_t rotate(Vector3_t rot){
@@ -96,6 +96,7 @@ struct Vector3_t{
 		return ret;
 	}
 	
+	//This function is correct (lecom approved) (except for maybe negligible precision loss)
 	Vector3_t RotationAsDirection(){
 		/*float cx=degcos(this.x);
 		float sy=degsin(this.y);
@@ -104,15 +105,44 @@ struct Vector3_t{
 		cx*=xzr; cz*=xzr;
 		return Vector3_t(cx, sy, cz);*/
 		Vector3_t dir=Vector3_t(1.0, 0.0, 0.0);
-		dir=dir.rotate(this);
-		return Vector3_t(dir.x, -dir.z, dir.y);
+		dir=dir.rotate(Vector3_t(this.y, this.x, this.z));
+		auto result=Vector3_t(dir.x, -dir.z, dir.y);
+		return result;
 	}
 	
 	Vector3_t DirectionAsRotation(){
-		float rx=atan2(this.x, this.z)*180.0/PI;
-		float ry=asin(this.y)*180.0/PI+90.0;
+		float ry=atan2(this.z, this.x)*180.0/PI;
+		float rx=asin(this.y)*180.0/PI;
 		float rz=0.0;
 		return Vector3_t(rx, ry, rz);
+	}
+	
+	Vector3_t rotate_asd(Vector3_t rot){
+		return RotateAroundX(rot.x).RotateAroundY(rot.y).RotateAroundZ(rot.z);
+	}
+	
+	Vector3_t RotateAroundX(float rot){
+		Vector3_t ret;
+		ret.y=y*degcos(rot)-z*degsin(rot);
+		ret.z=y*degsin(rot)+z*degcos(rot);
+		ret.x=x;
+		return ret;
+	}
+	
+	Vector3_t RotateAroundY(float rot){
+		Vector3_t ret;
+		ret.z=z*degcos(rot)-z*degsin(rot);
+		ret.y=y;
+		ret.x=x*degcos(rot)-x*degcos(rot);
+		return ret;
+	}
+	
+	Vector3_t RotateAroundZ(float rot){
+		Vector3_t ret;
+		ret.x=x*degcos(rot)-y*degsin(rot);
+		ret.y=x*degsin(rot)+y*degcos(rot);
+		ret.z=z;
+		return ret;
 	}
 	
 	typeof(x) dot(T)(T arg){

@@ -2,6 +2,7 @@ import derelict.sdl2.sdl;
 import std.conv;
 import std.math;
 import std.random;
+import std.algorithm;
 import packettypes;
 import vector;
 import renderer;
@@ -9,21 +10,39 @@ import misc;
 import gfx;
 import ui;
 import protocol;
+version(LDC){
+	import ldc_stdlib;
+}
 
-float Gravity=5.0;
+float Gravity=9.81;
 float AirFriction=.24;
 float GroundFriction=2.0;
+float WaterFriction=2.5;
 float CrouchFriction=5.0;
 //Inb4 SMB
 float PlayerJumpPower=6.0;
 float PlayerWalkSpeed=1.0;
-float WorldSpeedRatio=.5;
+float WorldSpeedRatio=2.0;
+
+uint Visibility_Range=128, Fog_Color=0x0000ffff;
+
+immutable float Player_Stand_Size=2.5;
+immutable float Player_Crouch_Size=1.5;
+
+struct PlayerModel_t{
+	ubyte model_id;
+	Vector3_t size, offset, rotation;
+	bool FirstPersonModel, Rotate;
+}
 
 struct Player_t{
 	PlayerID_t player_id;
 	string name;
 	bool Spawned;
 	bool InGame;
+	
+	PlayerModel_t[] models;
+	
 	Vector3_t pos, vel, acl;
 	Vector3_t dir;
 	TeamID_t team;
@@ -39,8 +58,8 @@ struct Player_t{
 	ubyte[] item_types;
 	uint item;
 	bool left_click, right_click;
-	bool Reloading;
 	uint color;
+	Object_t *standing_on_obj, stood_on_obj;
 	void Init(string initname, PlayerID_t initplayer_id){
 		name=initname;
 		player_id=initplayer_id;
@@ -50,15 +69,17 @@ struct Player_t{
 		pos=Vector3_t(0.0); vel=Vector3_t(0.0); acl=Vector3_t(0.0); dir=Vector3_t(1.0, 0.0, 0.0);
 		Model=-1;
 		Gun_Timer=0;
-		Reloading=false;
 	}
 	void Spawn(Vector3_t location, TeamID_t spteam){
 		pos=location;
 		team=spteam;
 		Spawned=true;
+		InGame=true;
 		items.length=item_types.length;
-		foreach(uint i, type; item_types)
-			items[i].Init(type);
+		if(items.length){
+			foreach(uint i, type; item_types)
+				items[i].Init(type);
+		}
 	}
 	void Update(){
 		Update_Physics();
@@ -89,6 +110,8 @@ struct Player_t{
 			acl.y+=WorldSpeed*Gravity;
 			friction*=AirFriction;
 		}
+		if(In_Water)
+			friction*=WaterFriction;
 		if(Crouch){
 			friction*=CrouchFriction;
 		}
@@ -105,17 +128,41 @@ struct Player_t{
 		bool Climbed=false;
 		if(coll.Collision){
 			if((coll.Sides[0] || coll.Sides[2]) && !Crouch){
-				Vector3_t climbpos=newpos; climbpos.y-=1.0;
+				Vector3_t climbpos=newpos;
+				if(In_Water() && !Crouch)
+					climbpos.y-=1.0;
+				climbpos.y-=1.0;
 				auto climbcoll=Check_Collisions_norc(climbpos);
 				if(!climbcoll.Collision){
-					pos.y=tofloat(toint(pos.y))-.01;
+					//pos.y=tofloat(toint(pos.y+height))-Player_Stand_Size-.01;
+					float y=CollidingVoxel_GetMinY(newpos.x, newpos.y+height, newpos.z);
+					if(!isNaN(y))
+						pos.y=y-Player_Stand_Size-.01-tofloat(In_Water())*1.5;
+					else
+						writeflnlog("Error when climbing: new y is NaN!");
+					//pos.y=climbpos.y;
 					Climbed=true;
 				}
 			}
-			if(!Climbed)
+			if(!Climbed){
 				vel=vel.filter(!coll.Sides[0], !coll.Sides[1], !coll.Sides[2]);
+				if(coll.Sides[1]){
+					//pos.y=coll.collpos.y-height-.01;
+				}
+			}
 		}
 		pos+=vel*WorldSpeed;
+		//Note: I'm using a "dirty" trick here. Of course, the optimal way would be using something like a property
+		//But these are such scrap on D :S (damn it D devs, when will you make proper properties at last!)
+		stood_on_obj=standing_on_obj;
+		standing_on_obj=Standing_On_Object();
+		if(standing_on_obj){
+			pos+=standing_on_obj.vel*WorldSpeed;
+		}
+		else{
+			if(stood_on_obj)
+				vel+=stood_on_obj.vel;
+		}
 		if(Climbed)
 			vel*=.1;
 		CollidingSides=coll.Sides;
@@ -124,46 +171,42 @@ struct Player_t{
 	}
 	bool Collides_At(T1, T2, T3)(T1 x, T2 y, T3 z){
 		bool coll=false;
-		int upx=cast(int)(x-.45), upz=cast(int)(z-.45);
-		int lpx=cast(int)(x+.45), lpz=cast(int)(z+.45);
-		for(uint py=cast(uint)y; py<(cast(uint)y)+3; py++){
-			if(Voxel_IsSolid(cast(uint)x, py, cast(uint)z))
+		/*int upx=(x-.45), upz=(z-.45);
+		int lpx=(x+.45), lpz=(z+.45);*/
+		immutable stepsize=.25;
+		for(float py=y; py<y+height; py+=stepsize){
+			if(Voxel_Collides(x, py, z)){
 				return true;
-			/*if(Voxel_IsSolid(upx, py, upz))
-				return true;
-			if(Voxel_IsSolid(upx, py, lpz))
-				return true;
-			if(Voxel_IsSolid(lpx, py, upz))
-				return true;
-			if(Voxel_IsSolid(lpx, py, lpz))
-				return true;*/
+			}
 		}
 		return false;
 	}
-	uint Collides_Pos(T1, T2, T3)(T1 x, T2 y, T3 z){
-		for(uint py=cast(uint)y; py<(cast(uint)y)+3; py++){
-			if(Voxel_IsSolid(cast(uint)x, py, cast(uint)z))
-				return py;
+	float Get_Collision_MinY(T1, T2, T3)(T1 x, T2 y, T3 z){
+		bool coll=false;
+		immutable stepsize=.25;
+		for(float py=y; py<y+height; py+=stepsize){
+			if(Voxel_Collides(x, py, z)){
+				return CollidingVoxel_GetMinY(x, py, z);
+			}
 		}
-		return 0;
+		return false;
 	}
 	//Works more or less
 	CheckCollisionReturn_t Check_Collisions_norc(Vector3_t newpos){
 		if(!Collides_At(newpos.x, newpos.y, newpos.z))
 			return CheckCollisionReturn_t(Vector3_t(0.0), 0);
 		bool[3] collsides=[false, false, false];
-		int cx=cast(int)pos.x, cy=cast(int)pos.y, cz=cast(int)pos.z;
-		int nx=cast(uint)newpos.x, ny=cast(uint)newpos.y, nz=cast(uint)newpos.z;
 		Vector3_t collpos=pos;
-		if(Collides_At(nx, cy, cz)){
+		if(Collides_At(newpos.x, pos.y, pos.z)){
 			collsides[0]=true;
 			collpos.x=pos.x+(cast(float)(vel.x>0.0));
 		}
-		if(Collides_At(cx, ny, cz)){
+		if(Collides_At(pos.x, newpos.y, pos.z)){
 			collsides[1]=true;
-			collpos.y=pos.y+(cast(float)(vel.y>0.0));
+			//collpos.y=pos.y+(cast(float)(vel.y>0.0));
+			collpos.y=Get_Collision_MinY(pos.x, newpos.y, pos.z);
 		}
-		if(Collides_At(cx, cy, nz)){
+		if(Collides_At(pos.x, pos.y, newpos.z)){
 			collsides[2]=true;
 			collpos.z=pos.z+(cast(float)(vel.z>0.0));
 		}
@@ -203,61 +246,245 @@ struct Player_t{
 					collsides[2]=true;
 				}
 			}
-			for(uint py=y; py<=y+3; y++)
+			for(uint py=y; py<=y; y++)
 				if(Voxel_IsSolid(x, py, z))
 					break;
 		}
 		return CheckCollisionReturn_t(Vector3_t(x, y, z), collsides);
 	}
 	void Use_Item(){
+		if(!item_types.length)
+			return;
 		uint current_tick=SDL_GetTicks();
 		Item_t *current_item=&items[item];
 		if(current_tick-current_item.use_timer<ItemTypes[current_item.type].use_delay)
 			return;
 		current_item.use_timer=current_tick;
-		if(!ItemTypes[current_item.type].is_weapon)
-			return;
-		if(Reloading || !current_item.amount1)
+		if(current_item.Reloading || !current_item.amount1)
 			return;
 		ItemType_t *itemtype=&ItemTypes[current_item.type];
-		foreach(PlayerID_t pid, ref plr; Players){
-			if(pid==player_id)
-				continue;
-			KV6Sprite_t[] sprites=Get_Player_Sprites(pid);
-			foreach(ubyte spindex, ref spr; sprites){
-				//For future
-				Vector3_t dummy1; KV6Voxel_t *dummy2;
-				if(SpriteHitScan(&spr, pos, dir, dummy1, dummy2)){
-					if(player_id==LocalPlayerID){
-						//dummy2.color=0x00ff0000;
-						PlayerHitPacketLayout packet;
-						packet.player_id=pid;
-						packet.hit_sprite=spindex;
-						Send_Packet(PlayerHitPacketID, packet);
+		
+		Vector3_t usepos=pos;
+		Vector3_t spreadeddir;
+		float spreadfactor=itemtype.spread_c+itemtype.spread_m*uniform01();
+		spreadeddir=dir*(1.0-spreadfactor)+Vector3_t(uniform01(), uniform01(), uniform01())*spreadfactor;
+
+		float block_hit_dist=10e99;
+		Vector3_t block_hit_pos;
+		if(itemtype.block_damage){
+			short range=itemtype.block_damage_range;
+			if(range<0)
+				range=cast(short)Visibility_Range;
+			auto rcp=RayCast(usepos, spreadeddir, range);
+			if(rcp.collside){
+				block_hit_dist=rcp.colldist;
+				block_hit_pos=Vector3_t(rcp.x, rcp.y, rcp.z);
+			}
+		}
+		float player_hit_dist=10e99;
+		PlayerID_t player_hit_id;
+		ubyte player_hit_sprite;
+		if(itemtype.is_weapon){
+			bool hit_player=false;
+			Vector3_t LastHitPos;
+			ubyte LastHitSpriteIndex;
+			PlayerID_t LastHitPlayer;
+			float LastHitDist=10e99;
+			foreach(PlayerID_t pid, ref plr; Players){
+				if(pid==player_id)
+					continue;
+				if((plr.pos-pos).length>min(Visibility_Range+5, block_hit_dist+5))
+					continue;
+				KV6Sprite_t[] sprites=Get_Player_Sprites(pid);
+				foreach(ubyte spindex, ref spr; sprites){
+					Vector3_t vxpos; KV6Voxel_t *vx;
+					if(SpriteHitScan(&spr, usepos, spreadeddir, vxpos, vx)){
+						//vx.color=0x00ff0000;
+						if(player_id==LocalPlayerID){
+							hit_player=true;
+							float hitdist=(vxpos-usepos).length;
+							if(hitdist<LastHitDist){
+								LastHitPos=vxpos;
+								LastHitSpriteIndex=spindex;
+								LastHitPlayer=pid;
+								LastHitDist=hitdist;
+							}
+						}
 					}
 				}
 			}
-		}
-		if(ItemTypes[current_item.type].damage_blocks){
-			auto rcp=RayCast(pos, dir, 128.0);
-			if(rcp.collside){
-				Damage_Block(rcp.x, rcp.y, rcp.z, .1);
+			if(hit_player){
+				player_hit_dist=LastHitDist;
+				player_hit_id=LastHitPlayer;
+				player_hit_sprite=LastHitSpriteIndex;
 			}
+		}
+		float object_hit_dist=10e99;
+		ushort object_hit_id;
+		KV6Voxel_t *object_hit_vx;
+		Vector3_t object_hit_pos;
+		if(itemtype.is_weapon){
+			bool hit_object=false;
+			float LastHitDist=10e99;
+			ushort LastHitID;
+			foreach(obj_id; Hittable_Objects){
+				Object_t *obj=&Objects[obj_id];
+				KV6Sprite_t objspr=Get_Object_Sprite(obj_id);
+				KV6Voxel_t *vx;
+				Vector3_t hit_pos;
+				if(SpriteHitScan(&objspr, usepos, spreadeddir, hit_pos, vx)){
+					float vxdist=(hit_pos-usepos).length;
+					if(vxdist<LastHitDist){
+						hit_object=true;
+						object_hit_pos=hit_pos;
+						LastHitDist=vxdist;
+						LastHitID=cast(ushort)obj_id;
+						object_hit_vx=vx;
+					}
+				}
+			}
+			if(hit_object){
+				object_hit_dist=LastHitDist;
+				object_hit_id=LastHitID;
+			}
+		}
+		if(block_hit_dist<player_hit_dist && block_hit_dist<object_hit_dist){
+			uint dmgx=touint(block_hit_pos.x), dmgy=touint(block_hit_pos.y), dmgz=touint(block_hit_pos.z);
+			if(itemtype.is_weapon){
+				Vector3_t particle_pos=usepos+spreadeddir*block_hit_dist;
+				Damage_Block(player_id, dmgx, dmgy, dmgz, itemtype.block_damage, &particle_pos);
+			}
+			else{
+				Damage_Block(player_id, dmgx, dmgy, dmgz, itemtype.block_damage, null);
+			}
+		}
+		if(player_hit_dist<block_hit_dist && player_hit_dist<object_hit_dist){
+			PlayerHitPacketLayout packet;
+			packet.player_id=player_hit_id;
+			packet.hit_sprite=player_hit_sprite;
+			Send_Packet(PlayerHitPacketID, packet);
+		}
+		if(object_hit_dist<player_hit_dist && object_hit_dist<block_hit_dist){
+			if(Objects[object_hit_id].enable_bullet_holes)
+				Objects[object_hit_id].Damage(usepos+spreadeddir*(object_hit_dist-.1));
+			else
+			if(Objects[object_hit_id].modify_model)
+				object_hit_vx.color=0;
 		}
 		if(ItemTypes[current_item.type].repeated_use)
 			current_item.use_timer=current_tick;
-		float xrecoil=itemtype.recoil_xc+itemtype.recoil_xm*uniform01();
-		float yrecoil=itemtype.recoil_yc+itemtype.recoil_ym*uniform01();
+		float xrecoil=itemtype.recoil_xc+itemtype.recoil_xm*uniform01()*(uniform(0, 2)*2-1);
+		float yrecoil=itemtype.recoil_yc+itemtype.recoil_ym*uniform01()*(uniform(0, 2)*2-1);
 		if(player_id==LocalPlayerID){
 			CameraRot.y+=yrecoil;
 			CameraRot.x+=xrecoil;
 		}
+		current_item.last_recoil=yrecoil;
 		dir.rotate(Vector3_t(0, yrecoil, xrecoil));
-		current_item.amount1--;
+		if(itemtype.is_weapon)
+			current_item.amount1--;
 	}
 	void Switch_Tool(ubyte tool_id){
 		item=tool_id;
 	}
+	bool In_Water(){
+		return Voxel_IsWater(pos.x, pos.y+height(), pos.z);
+	}
+	Object_t *Standing_On_Object(){
+		Vector3_t floorpos=pos;
+		floorpos.y+=height;
+		foreach(index; Solid_Objects){
+			if(Objects[index].Solid_At(floorpos.x, floorpos.y, floorpos.z))
+				return &Objects[index];
+		}
+		return null;
+	}
+	float height(){
+		if(!Crouch)
+			return Player_Stand_Size;
+		return Player_Crouch_Size;
+	}
+	bool HalfDiving(){
+		return Voxel_IsWater(pos.x, pos.y+Player_Crouch_Size, pos.z);
+	}
+	void Set_Crouch(bool cr){
+		if(Crouch && !cr){
+			pos.y=pos.y+Player_Crouch_Size-Player_Stand_Size;
+		}
+		else
+		if(!Crouch && cr){
+			pos.y=pos.y+Player_Stand_Size-Player_Crouch_Size;
+		}
+		Crouch=cr;
+	}
+}
+
+bool Voxel_IsWater(T1, T2, T3)(T1 x, T2 y, T3 z){
+	return y>=MapYSize-1;
+}
+
+uint[] Solid_Objects;
+uint[] Hittable_Objects;
+
+bool Voxel_Collides(XT, YT, ZT)(XT x, YT y, ZT z, int exclude_obj_index=-1){
+	if(x<0 || x>=MapXSize || z<0 || z>=MapZSize || y>=MapYSize)
+		return true;
+	if(y<0)
+		return false;
+	if(Voxel_IsWater(x, y, z))
+		return false;
+	if(Voxel_IsSolid(cast(uint)x, cast(uint)y, cast(uint)z))
+		return true;
+	foreach(index; Solid_Objects){
+		if(index==exclude_obj_index)
+			continue;
+		if(Objects[index].Solid_At(x, y, z))
+			return true;
+	}
+	return false;
+}
+
+float CollidingVoxel_GetMinY(TX, TY, TZ)(TX x, TY y, TZ z, int exclude_obj_index=-1){
+	if(Voxel_Collides(cast(uint)x, cast(uint)y, cast(uint)z))
+		return tofloat(touint(y));
+	foreach(index; Solid_Objects){
+		if(index==exclude_obj_index)
+			continue;
+		if(Objects[index].Solid_At(x, y, z)){
+			return Objects[index].Collision_GetMinY(x, y, z)-.5;
+		}
+	}
+	return NaN(0);
+}
+
+bool Voxel_IsSurface(int x, int y, int z){
+	if(!y)
+		return true;
+	if(Valid_Coord(x-1, y, z)){
+		if(!Voxel_IsSolid(x-1, y, z))
+			return true;
+	}
+	if(Valid_Coord(x+1, y, z)){
+		if(!Voxel_IsSolid(x+1, y, z))
+			return true;
+	}
+	if(Valid_Coord(x, y-1, z)){
+		if(!Voxel_IsSolid(x, y-1, z))
+			return true;
+	}
+	if(Valid_Coord(x, y+1, z)){
+		if(!Voxel_IsSolid(x, y+1, z))
+			return true;
+	}
+	if(Valid_Coord(x, y, z-1)){
+		if(!Voxel_IsSolid(x, y, z-1))
+			return true;
+	}
+	if(Valid_Coord(x, y, z+1)){
+		if(!Voxel_IsSolid(x, y, z+1))
+			return true;
+	}
+	return false;
 }
 
 struct CheckCollisionReturn_t{
@@ -282,16 +509,16 @@ struct Team_t{
 		ubyte[4] color;
 		uint icolor;
 	}
-	void Init(string initname, TeamID_t team_id, ubyte[4] initcolor){
+	void Init(string initname, TeamID_t team_id, uint initcolor){
 		id=team_id;
 		name=initname;
-		color=initcolor;
+		icolor=initcolor;
 	}
 }
 
 Team_t[] Teams;
 
-void Init_Team(string name, TeamID_t team_id, ubyte[4] color){
+void Init_Team(string name, TeamID_t team_id, uint color){
 	if(team_id>=Teams.length){
 		Teams.length=team_id+1;
 	}
@@ -306,9 +533,9 @@ struct ItemType_t{
 	ubyte index;
 	uint use_delay;
 	uint maxamount1, maxamount2;
-	bool is_weapon;
-	bool damage_blocks;
-	bool repeated_use;
+	bool is_weapon, repeated_use, show_palette;
+	ubyte block_damage;
+	short block_damage_range;
 	float spread_c, spread_m;
 	float recoil_xc, recoil_xm;
 	float recoil_yc, recoil_ym;
@@ -320,19 +547,24 @@ struct Item_t{
 	ubyte type;
 	uint amount1, amount2;
 	uint use_timer;
+	bool Reloading;
+	float last_recoil;
 	void Init(ubyte inittype){
 		type=inittype;
 		use_timer=0;
 		amount1=ItemTypes[type].maxamount1;
 		amount2=ItemTypes[type].maxamount2;
+		Reloading=false;
+		last_recoil=0.0;
 	}
 }
 
+float delta_time;
 void Update_World(){
 	uint Current_Tick=SDL_GetTicks();
 	if(Last_Tick){
-		float delta_t=tofloat(Current_Tick-Last_Tick)/1000.0;
-		WorldSpeed=delta_t*WorldSpeedRatio;
+		delta_time=tofloat(Current_Tick-Last_Tick)/1000.0;
+		WorldSpeed=delta_time*WorldSpeedRatio;
 	}
 	else{
 		WorldSpeed=(1.0/30.0)*WorldSpeedRatio;
@@ -349,57 +581,135 @@ uint Hash_Coordinates(uint x, uint y, uint z){
 }
 
 //immutable uint MaxDamageParticlesPerBlock=65536;
-immutable uint MaxDamageParticlesPerBlock=4096;
+immutable uint MaxDamageParticlesPerBlock=1024;
 
-struct BlockDamageParticle_t{
+struct DamageParticle_t{
 	float x, y, z;
-	void Init(uint ix, uint iy, uint iz){
+	uint col;
+	void Init(uint ix, uint iy, uint iz, uint col, uint[] free_sides){
 		float vx=tofloat(ix)+.5, vy=tofloat(iy)+.5, vz=tofloat(iz)+.5;
-		uint side=uniform(0, 3);
-		float sidesgn=tofloat(toint(uniform(0, 2))*2-1)*.5;
+		/*uint side=uniform(0, 3);
+		float sidesgn=tofloat(toint(uniform(0, 2))*2-1)*.5;*/
+		uint side=free_sides[uniform(0, free_sides.length)];
 		x=vx+uniform01()-.5;
 		y=vy+uniform01()-.5;
 		z=vz+uniform01()-.5;
 		switch(side){
-			case 0: x=vx+sidesgn; break;
-			case 1: y=vy+sidesgn; break;
-			case 2: z=vz+sidesgn; break;
+			case 0: x=vx+.5; break;
+			case 1: x=vx-.5; break;
+			case 2: y=vy+.5; break;
+			case 3: y=vy-.5; break;
+			case 4: z=vz+.5; break;
+			case 5: z=vz-.5; break;
 			default:break;
 		}
 	}
 }
 
 struct BlockDamage_t{
-	uint x, y, z;
-	float damage;
-	BlockDamageParticle_t[] particles;
+	int x, y, z;
+	ubyte damage;
+	bool broken;
+	uint orig_color;
+	DamageParticle_t[] particles;
 	this(uint ix, uint iy, uint iz){
 		x=ix; y=iy; z=iz;
-		damage=0.0;
+		orig_color=Voxel_GetColor(ix, iy, iz);
+		damage=0;
 	}
-	void Damage(float val){
-		damage+=val;
-		uint newc=touint(damage*tofloat(MaxDamageParticlesPerBlock));
-		if(newc!=particles.length){
-			uint oldlen=particles.length;
-			particles.length=newc;
-			for(uint i=oldlen; i<newc; i++){
-				particles[i].Init(x, y, z);
+	void Damage(ubyte val, Vector3_t *particle_pos){
+		uint[] free_sides;
+		{
+			for(uint side=0; side<6; side++){
+				if(Valid_Coord(x+toint(side==0)-toint(side==1), y+toint(side==2)-toint(side==3), z+toint(side==4)-toint(side==5)))
+					if(!Voxel_IsSolid(x+toint(side==0)-toint(side==1), y+toint(side==2)-toint(side==3), z+toint(side==4)-toint(side==5)))
+						free_sides~=side;
 			}
 		}
+		if(255-val<=damage){
+			broken=true;
+		}
+		else{
+			damage+=val;
+		}
+		if(!particle_pos){
+			uint newc=touint(tofloat(damage)*tofloat(MaxDamageParticlesPerBlock)/255.0);
+			if(newc!=particles.length){
+				uint oldlen=particles.length;
+				particles.length=newc;
+				for(uint i=oldlen; i<newc; i++){
+					particles[i].Init(x, y, z, 0, free_sides);
+				}
+			}
+		}
+		else{
+			particles.length++;
+			particles[$-1].x=particle_pos.x;
+			particles[$-1].y=particle_pos.y;
+			particles[$-1].z=particle_pos.z;
+		}
+		Voxel_SetShade(x, y, z, (255-damage));
 	}
 }
 
 BlockDamage_t[uint] BlockDamage;
 
-void Damage_Block(uint x, uint y, uint z, float val){
-	uint hash=Hash_Coordinates(x, y, z);
+void Damage_Block(PlayerID_t player_id, uint xpos, uint ypos, uint zpos, ubyte val, Vector3_t *particle_pos){
+	uint col=Voxel_GetColor(xpos, ypos, zpos);
+	uint hash=Hash_Coordinates(xpos, ypos, zpos);
+	if(Voxel_IsWater(xpos, ypos, zpos)){
+		for(uint side=0; side<4; side++){
+			Create_Particles(Vector3_t(xpos+toint(cast(bool)(side&1)), ypos, zpos+toint(cast(bool)(side&2)))
+			, Vector3_t(0.0), 1.0, .1, 1, col, 25);
+		}
+		return;
+	}
 	BlockDamage_t *dmg=hash in BlockDamage;
 	if(!dmg){
-		BlockDamage[hash]=BlockDamage_t(x, y, z);
+		BlockDamage[hash]=BlockDamage_t(xpos, ypos, zpos);
 		dmg=hash in BlockDamage;
 	}
-	dmg.Damage(val);
+	uint old_dmg=dmg.damage;
+	dmg.Damage(val, particle_pos);
+	uint dmgdiff=dmg.damage-old_dmg;
+	for(uint side=0; side<6; side++){
+		Create_Particles(Vector3_t(xpos+toint(cast(bool)(side&1)), ypos+toint(cast(bool)(side&2)), zpos+toint(cast(bool)(side&4)))
+		, Vector3_t(0.0), 1.0, .1, dmgdiff/3/6, col);
+	}
+	if(dmg.broken){
+		if(player_id==LocalPlayerID){
+			BlockBreakPacketLayout packet;
+			packet.player_id=LocalPlayerID;
+			packet.break_type=0;
+			packet.x=cast(ushort)xpos; packet.y=cast(ushort)ypos; packet.z=cast(ushort)zpos;
+			Send_Packet(BlockBreakPacketID, packet);
+		}
+	}
+}
+
+void Break_Block(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, uint zpos){
+	uint col=Voxel_GetColor(xpos, ypos, zpos);
+	Voxel_Remove(xpos, ypos, zpos);
+	//Create_Particles(Vector3_t(tofloat(xpos)+.5, tofloat(ypos)+.5, tofloat(zpos)+.5), Vector3_t(0.0,), 1.0, .1, 16, col);
+	uint x, y, z;
+	uint particle_amount=touint(1.0/BlockBreakParticleSize)+1;
+	for(x=0; x<particle_amount; x++){
+		for(y=0; y<particle_amount; y++){
+			for(z=0; z<particle_amount; z++){
+				BlockBreakParticles.length++;
+				Particle_t *p=&BlockBreakParticles[$-1];
+				p.vel=Vector3_t(uniform01()*(uniform(0, 2)?1.0:-1.0)*.02, 0.0, uniform01()*(uniform(0, 2)?1.0:-1.0)*.02);
+				p.pos=Vector3_t(tofloat(xpos)+tofloat(x)*BlockBreakParticleSize,
+				tofloat(ypos)+tofloat(y)*BlockBreakParticleSize,
+				tofloat(zpos)+tofloat(z)*BlockBreakParticleSize);
+				p.col=col;
+				p.timer=uniform(550, 650);
+			}
+		}
+	}
+	uint hash=Hash_Coordinates(xpos, ypos, zpos);
+	if(hash in BlockDamage)
+		BlockDamage.remove(hash);
 }
 
 struct RayCastResult_t{
@@ -424,10 +734,13 @@ RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
 	float invxd=dir.x ? 1.0/dir.x : (10e10), invyd=dir.y ? 1.0/dir.y : (10e10), invzd=dir.z ? 1.0/dir.z : (10e10);
 	int xdsgn=cast(int)rcsgn(dir.x), ydsgn=cast(int)rcsgn(dir.y), zdsgn=cast(int)rcsgn(dir.z);
 	uint collside=0; float colldist=0.0;
-	uint loops=0;
+	bool hit_voxel=false;
+	uint loops=cast(uint)(length*5.0);
 	while(x!=dstx || y!=dsty || z!=dstz){
-		if(Voxel_IsSolid(x, y, z))
+		if(Voxel_IsSolid(x, y, z)){
+			hit_voxel=true;
 			break;
+		}
 		float xdist=(cast(float)(x+opxd)-pos.x)*invxd;
 		float ydist=(cast(float)(y+opyd)-pos.y)*invyd;
 		float zdist=(cast(float)(z+opzd)-pos.z)*invzd;
@@ -455,70 +768,165 @@ RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
 				z+=zdsgn;
 			}
 		}
-		loops++;
-		if(loops>10000){
+		if(!loops){
 			writeflnlog("Warning: DDA raycasting results in an infinite loop (%s, %s)", dir, length);
 			break;
 		}
+		loops--;
 	}
+	if(!hit_voxel)
+		collside=0;
 	return RayCastResult_t(x, y, z, colldist, collside);
 }
 
 struct Object_t{
-	ubyte model_id;
+	uint index;
+	KV6Model_t *model;
 	ubyte minimap_img;
+	bool modify_model, enable_bullet_holes;
 	bool visible;
+	bool Is_Solid;
 	float weightfactor, bouncefactor, frictionfactor;
 	Vector3_t pos, vel, rot, density;
+	//Maybe move this in its own struct - I'm planning even more advanced vertex stuff
+	Vector3_t[] Vertices;
+	bool[3][] Vertex_Collisions;
+	bool[3] Collision;
+
+	DamageParticle_t[] particles;
+	
+	void Init(uint initindex){
+		index=initindex;
+		Vertices=[Vector3_t(0.0, 0.0, 0.0)];
+		Vertex_Collisions.length=1;
+		if(DamagedObjects.canFind(index))
+			DamagedObjects.remove(index);
+		if(Solid_Objects.canFind(index))
+			Solid_Objects.remove(index);
+		if(Hittable_Objects.canFind(index))
+			Hittable_Objects.remove(index);
+	}
 	
 	void Update(){
-		vel.y+=Gravity*WorldSpeed*weightfactor;
-		vel/=1.0+AirFriction*frictionfactor;
-		Vector3_t newpos=pos+vel*WorldSpeed;
-		auto coll=Check_Collisions_norc(newpos);
-		if(coll.Sides[0] || coll.Sides[1] || coll.Sides[2]){
-			if(coll.Sides[0])
-				vel.x=-vel.x;
-			if(coll.Sides[1])
-				vel.y=-vel.y;
-			if(coll.Sides[2])
-				vel.z=-vel.z;
-			vel*=bouncefactor;
-		}
-		pos+=vel*WorldSpeed;
-	}
-	CheckCollisionReturn_t Check_Collisions_norc(Vector3_t newpos){
-		if(!Collides_At(newpos.x, newpos.y, newpos.z))
-			return CheckCollisionReturn_t(Vector3_t(0.0), 0);
-		bool[3] collsides=[false, false, false];
-		int cx=cast(int)pos.x, cy=cast(int)pos.y, cz=cast(int)pos.z;
-		int nx=cast(uint)newpos.x, ny=cast(uint)newpos.y, nz=cast(uint)newpos.z;
-		Vector3_t collpos=pos;
-		if(Collides_At(nx, cy, cz)){
-			collsides[0]=true;
-			collpos.x=pos.x+(cast(float)(vel.x>0.0));
-		}
-		if(Collides_At(cx, ny, cz)){
-			collsides[1]=true;
-			collpos.y=pos.y+(cast(float)(vel.y>0.0));
-		}
-		if(Collides_At(cx, cy, nz)){
-			collsides[2]=true;
-			collpos.z=pos.z+(cast(float)(vel.z>0.0));
-		}
-		return CheckCollisionReturn_t(collpos, collsides, collsides[0] || collsides[1] || collsides[2]);
-	}
-	bool Collides_At(T1, T2, T3)(T1 x, T2 y, T3 z){
-		return Voxel_IsSolid(touint(x), touint(y), touint(z));
+		if(Vertex_Collisions.length!=Vertices.length)
+			Vertex_Collisions.length=Vertices.length;
+		Vector3_t deltapos=Check_Vertex_Collisions();
+		Update_Position(deltapos);
 	}
 	
-	void Check_Visibility(){
-		visible=(model_id!=255) && (density.length);
+	void Update_Position(Vector3_t deltapos){
+		bool collision=false;
+		if(!Collision[0]){
+			pos.x+=deltapos.x;
+		}
+		else{
+			vel.x*=-bouncefactor;
+			collision=true;
+		}
+		if(!Collision[1]){
+			pos.y+=deltapos.y;
+			vel.y+=weightfactor*WorldSpeed*Gravity;
+		}
+		else{
+			vel.y*=-bouncefactor;
+			collision=true;
+		}
+		if(!Collision[2]){
+			pos.z+=deltapos.z;
+		}
+		else{
+			vel.z*=-bouncefactor;
+			collision=true;
+		}
+		if(collision)
+			vel*=bouncefactor;
+	}
+	
+	Vector3_t Check_Vertex_Collisions(){
+		Vector3_t deltapos=vel*WorldSpeed;
+		bool[3] collision=[false, false, false];
+		foreach(uint i, ref model_vertex; Vertices){
+			Vector3_t worldvertex=model_vertex.rotate_raw(rot)+pos;
+			Vector3_t vertexdelta=deltapos;
+			Vertex_Collisions[i]=Check_Vertex_Collision(worldvertex, &vertexdelta);
+			bool[3] coll=Vertex_Collisions[i];
+			if(vertexdelta.length<deltapos.length)
+				deltapos=vertexdelta;
+			collision[0]|=coll[0];
+			collision[1]|=coll[1];
+			collision[2]|=coll[2];
+		}
+		Collision=collision;
+		return deltapos;
+	}
+	
+	bool[3] Check_Vertex_Collision(Vector3_t vertex, Vector3_t *deltapos){
+		Vector3_t vpos=vertex;
+		float poslen=deltapos.length;
+		Vector3_t deltadir=deltapos.abs();
+		Vector3_t npos=vertex;
+		for(uint i=0; i<max(toint(poslen), 1); i++){
+			if(poslen<1.0)
+				deltadir*=poslen;
+			npos=vpos+deltadir;
+			bool[3] coll=Check_Lowv_Vertex_Collision(vpos, npos);
+			if(coll[0] || coll[1] || coll[2]){
+				*deltapos=vpos-vertex;
+				return coll;
+			}
+			vpos=npos;
+		}
+		*deltapos=npos-vertex;
+		return [false, false, false];
+	}
+	
+	bool[3] Check_Lowv_Vertex_Collision(Vector3_t oldpos, Vector3_t newpos){
+		if(!Collides_At(newpos.x, newpos.y, newpos.z))
+			return [false, false, false];
+		bool[3] collsides=[false, false, false];
+		int cx=toint(oldpos.x), cy=toint(oldpos.y), cz=toint(oldpos.z);
+		int nx=toint(newpos.x), ny=toint(newpos.y), nz=toint(newpos.z);
+		collsides[0]|=Collides_At(nx, cy, cz);
+		collsides[1]|=Collides_At(cx, ny, cz);
+		collsides[2]|=Collides_At(cx, cy, nz);
+		return collsides;
+	}
+
+	bool Collides_At(T1, T2, T3)(T1 x, T2 y, T3 z){
+		return Voxel_Collides(touint(x), touint(y), touint(z), index);
+	}
+	bool Solid_At(XT, YT, ZT)(XT x, YT y, ZT z){
+		return Contains(x, y, z);
+	}
+	bool Contains(XT, YT, ZT)(XT x, YT y, ZT z){
+		if(!visible)
+			return false;
+		Vector3_t size=density*Vector3_t(model.xsize, model.ysize, model.zsize);
+		Vector3_t startpos=pos-size/2.0, endpos=pos+size/2.0;
+		return x>=startpos.x && x<endpos.x && y>=startpos.y && y<endpos.y && z>=startpos.z && z<endpos.z;
+	}
+	void Damage(Vector3_t particle_pos){
+		particles.length++;
+		DamageParticle_t *prtcl=&particles[$-1];
+		prtcl.x=particle_pos.x; prtcl.y=particle_pos.y; prtcl.z=particle_pos.z; prtcl.col=0;
+		if(!DamagedObjects.canFind(index))
+			DamagedObjects~=index;
+	}
+	
+	float Collision_GetMinY(TX, TY, TZ)(TX x, TY y, TZ z){
+		return pos.y-density.y*tofloat(model.ysize)/2.0;
 	}
 }
 
 Object_t[] Objects;
+uint[] DamagedObjects;
 
 bool Valid_Coord(T)(T x, T y, T z){
 	return x>=0 && x<MapXSize && y>=0 && y<MapYSize && z>=0 && z<MapZSize;
+}
+
+void Set_Fog(uint fogcol, uint fogrange){
+	Visibility_Range=fogrange;
+	Fog_Color=fogcol;
+	Set_Renderer_Fog(fogcol, fogrange);
 }

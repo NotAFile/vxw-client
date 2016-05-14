@@ -1,4 +1,5 @@
 import derelict.sdl2.sdl;
+import derelict.sdl2.image;
 import std.math;
 import std.format;
 import std.algorithm;
@@ -10,6 +11,9 @@ import misc;
 import world;
 import ui;
 import vector;
+version(LDC){
+	import ldc_stdlib;
+}
 
 SDL_Window *scrn_window;
 SDL_Renderer *scrn_renderer;
@@ -22,11 +26,14 @@ uint FontWidth, FontHeight;
 SDL_Texture *minimap_texture;
 SDL_Surface *minimap_srfc;
 
+MenuElement_t *ProtocolBuiltin_ScopePicture;
+
 uint Font_SpecialColor=0xff000000;
 
 uint ScreenXSize=800, ScreenYSize=600;
 
 Vector3_t CameraRot=Vector3_t(0.0, 0.0, 0.0);
+Vector3_t CameraPos=Vector3_t(0.0, 0.0, 0.0);
 float X_FOV=90.0, Y_FOV=90.0;
 
 KV6Model_t*[] Mod_Models;
@@ -39,8 +46,17 @@ immutable bool Dank_Text=false;
 
 bool Software_Renderer=false;
 
+Vector3_t TerrainOverview;
+
+immutable bool Enable_Object_Model_Modification=true;
+
 void Init_Gfx(){
 	DerelictSDL2.load();
+	DerelictSDL2Image.load();
+	if(SDL_Init(SDL_INIT_EVERYTHING))
+		writeflnlog("[WARNING] SDL2 didn't initialize properly: %s", SDL_GetError());
+	if(IMG_Init(IMG_INIT_PNG)!=IMG_INIT_PNG)
+		writeflnlog("[WARNING] IMG for PNG didn't initialize properly: %s", IMG_GetError());
 	scrn_window=SDL_CreateWindow("Voxel game client", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ScreenXSize, ScreenYSize, 0);
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
 	Software_Renderer=false;
@@ -205,96 +221,188 @@ void Render_Text_Line(uint xpos, uint ypos, uint color, string line, SDL_Texture
 	SDL_SetTextureBlendMode(font, old_blend_mode);
 }
 
-void Render_Screen(){
-	//Fill_Screen(null, SDL_MapRGB(scrn_surface.format, 0, 255, 255));
-	bool Render_Local_Player=Joined_Game();
-	if(LoadedCompleteMap){
-		CameraRot.x+=MouseMovedX*.5; CameraRot.y+=MouseMovedY*.5;
-		//For some reason, camera with 0 x angle is looking up on the minimap (though it should look right)
-		//TODO: fix (might need a complete change of client-side coord system, maybe not)
-		Vector3_t rt=CameraRot;
-		rt.x-=90.0;
-		if(Render_Local_Player)
-			Players[LocalPlayerID].dir=rt.RotationAsDirection;
-		//Limiting to 100.0°, not 90.0°, so shooting vertically will be easier
-		if(CameraRot.y<-100.0)
-			CameraRot.y=-100.0;
-		if(CameraRot.y>100.0)
-			CameraRot.y=100.0;
-		Vector3_t pos;
-		if(Render_Local_Player){
-			pos=Players[LocalPlayerID].pos;
-			pos.y+=float(Players[LocalPlayerID].Crouch);
-		}
-		else{
-			pos.x=256.0; pos.y=0.0; pos.z=256.0;
-			CameraRot.x=0.0; CameraRot.y=45.0; CameraRot.z=0.0;
-		}
-		SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, pos.x, pos.y, pos.z);
-		if(Render_Local_Player)
-			Update_Rotation_Data();
-		Render_Voxels();
-		for(uint p=0; p<Players.length; p++)
-			Render_Player(p);
-		foreach(ref bdmg; BlockDamage){
-			foreach(ref prtcl; bdmg.particles){
-				float dst; int scrx, scry;
-				if(!Project2D(prtcl.x, prtcl.y, prtcl.z, &dst, scrx, scry))
-					continue;
-				if(dst<0.0)
-					continue;
-				/*Vector3_t dist=Vector3_t(prtcl.x, prtcl.y, prtcl.z)-pos;
-				dist.x=tofloat(toint(dist.x));
-				dist.y=tofloat(toint(dist.y));
-				dist.z=tofloat(toint(dist.z));
-				dst=dist.length;*/
-				Render_Rectangle(scrx, scry, cast(int)(20.0/(dst+1.0))+1, cast(int)(20.0/(dst+1.0))+1, 0, dst);
-			}
-		}
-		foreach(ref p; Particles){
-			if(p.timer)
-				p.timer--;
-			Vector3_t newpos=p.pos+p.vel;
-			bool y_coll=false;
-			if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
-				if(Voxel_IsSolid(toint(newpos.x), toint(p.pos.y), toint(p.pos.z)))
-					p.vel.x=-p.vel.x;
-				if(Voxel_IsSolid(toint(pos.x), toint(newpos.y), toint(p.pos.z))){
-					y_coll=true;
-					p.vel.y=-p.vel.y;
-				}
-				if(Voxel_IsSolid(toint(pos.x), toint(p.pos.y), toint(newpos.z)))
-					p.vel.z=-p.vel.z;
-				p.vel*=.8;
-			}
-			p.pos+=p.vel;
-			p.vel.y+=.01;
-			float dst;
-			int scrx, scry;
-			if(!Project2D(p.pos.x, p.pos.y, p.pos.z, &dst, scrx, scry))
+uint[][] Player_List_Table;
+
+void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
+	Render_Voxels();
+	for(uint p=0; p<Players.length; p++)
+		Render_Player(p);
+	foreach(ref bdmg; BlockDamage){
+		foreach(ref prtcl; bdmg.particles){
+			float dst; int scrx, scry;
+			if(!Project2D(prtcl.x, prtcl.y, prtcl.z, &dst, scrx, scry))
 				continue;
 			if(dst<0.0)
 				continue;
-			Render_Rectangle(scrx, scry, cast(int)(20.0/(dst+1.0))+1, cast(int)(20.0/(dst+1.0))+1, p.col, tofloat(toint(dst)));
+			/*Vector3_t dist=Vector3_t(prtcl.x, prtcl.y, prtcl.z)-pos;
+			dist.x=tofloat(toint(dist.x));
+			dist.y=tofloat(toint(dist.y));
+			dist.z=tofloat(toint(dist.z));
+			dst=dist.length;*/
+			Render_Rectangle(scrx, scry, cast(int)(20.0/(dst+1.0))+1, cast(int)(20.0/(dst+1.0))+1, prtcl.col, dst);
 		}
-		while(Particles.length){
-			if(!Particles[$-1].timer)
-				Particles.length--;
-			else
-				break;
-		}
-		for(uint o=0; o<Objects.length; o++){
-			if(!Objects[o].visible)
+	}
+	foreach(ref dmgobj_id; DamagedObjects){
+		Object_t *dmgobj=&Objects[dmgobj_id];
+		foreach(ref prtcl; dmgobj.particles){
+			float dst; int scrx, scry;
+			if(!Project2D(prtcl.x, prtcl.y, prtcl.z, &dst, scrx, scry))
 				continue;
-			Render_Object(o);
+			if(dst<0.0)
+				continue;
+			Render_Rectangle(scrx, scry, cast(int)(20.0/(dst+1.0))+1, cast(int)(20.0/(dst+1.0))+1, prtcl.col, dst);
 		}
-		*Pixel_Pointer(scrn_surface, scrn_surface.w/2, scrn_surface.h/2)=0xffffff^*Pixel_Pointer(scrn_surface, scrn_surface.w/2, scrn_surface.h/2);
+	}
+	foreach(ref p; Particles){
+		if(!p.timer)
+			continue;
+		if(p.timer)
+			p.timer--;
+		bool in_solid=Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(p.pos.z));
+		Vector3_t newpos=p.pos+p.vel;
+		bool y_coll=false;
+		if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
+			if(Voxel_IsSolid(toint(newpos.x), toint(p.pos.y), toint(p.pos.z)))
+				p.vel.x=-p.vel.x;
+			if(Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(newpos.z)))
+				p.vel.z=-p.vel.z;
+			if(Voxel_IsSolid(toint(p.pos.x), toint(newpos.y), toint(p.pos.z))){
+				y_coll=true;
+				p.vel.y=-p.vel.y*.9;
+				p.vel*=.7;
+			}
+			else{
+				p.vel*=.7;
+			}
+			if(in_solid){
+				p.timer=0;
+				continue;
+			}
+		}
+		else{
+			p.pos+=p.vel;
+		}
+		p.vel.y+=.005;
+		float dst;
+		int scrx, scry;
+		if(!Project2D(p.pos.x, p.pos.y, p.pos.z, &dst, scrx, scry))
+			continue;
+		if(dst<0.0)
+			continue;
+		Render_Rectangle(scrx, scry, cast(int)(20.0/(dst+1.0))+1, cast(int)(20.0/(dst+1.0))+1, p.col, tofloat(toint(dst)));
+	}
+	float particle_size=BlockBreakParticleSize*dst_srfc.w;
+	foreach(ref p; BlockBreakParticles){
+		if(!p.timer)
+			continue;
+		if(p.timer)
+			p.timer--;
+		Vector3_t newpos=p.pos+p.vel;
+		bool y_coll=false;
+		if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
+			if(Voxel_IsSolid(toint(newpos.x), toint(p.pos.y), toint(p.pos.z)))
+				p.vel.x=-p.vel.x;
+			if(Voxel_IsSolid(toint(p.pos.x), toint(newpos.y), toint(p.pos.z))){
+				y_coll=true;
+				p.vel.y=-p.vel.y;
+			}
+			if(Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(newpos.z)))
+				p.vel.z=-p.vel.z;
+			p.vel*=.3;
+		}
+		else{
+			p.pos+=p.vel;
+		}
+		p.vel.y+=.005;
+		float dst;
+		int scrx, scry;
+		if(!Project2D(p.pos.x, p.pos.y, p.pos.z, &dst, scrx, scry))
+			continue;
+		if(dst<0.0)
+			continue;
+		Render_Rectangle(scrx, scry, cast(int)(50.0/(dst+1.0))+1, cast(int)(50.0/(dst+1.0))+1, p.col, tofloat(toint(dst)));
+	}
+	while(Particles.length){
+		if(!Particles[$-1].timer)
+			Particles.length--;
+		else
+			break;
+	}
+	while(BlockBreakParticles.length){
+		if(!BlockBreakParticles[$-1].timer)
+			BlockBreakParticles.length--;
+		else
+			break;
+	}
+	for(uint o=0; o<Objects.length; o++){
+		if(!Objects[o].visible)
+			continue;
+		Render_Object(o);
+	}
+	if(Render_Cursor)
+		*Pixel_Pointer(dst_srfc, dst_srfc.w/2, dst_srfc.h/2)=0xffffff^*Pixel_Pointer(dst_srfc, dst_srfc.w/2, dst_srfc.h/2);
+}
+
+
+void Render_Screen(){
+	//Fill_Screen(null, SDL_MapRGB(scrn_surface.format, 0, 255, 255));
+	bool Render_Local_Player=false;
+	if(Joined_Game()){
+		Render_Local_Player|=Players[LocalPlayerID].Spawned && Players[LocalPlayerID].InGame;
+	}
+	if(LoadedCompleteMap){
+		Set_Frame_Buffer(scrn_surface);
+		Vector3_t pos;
+		if(Render_Local_Player || JoinedGame){
+			if(!Menu_Mode)
+				CameraRot.x+=MouseMovedX*.5; CameraRot.y+=MouseMovedY*.5;
+			Vector3_t rt;
+			rt.x=CameraRot.y;
+			rt.y=CameraRot.x;
+			rt.z=CameraRot.z;
+			if(Render_Local_Player)
+				Players[LocalPlayerID].dir=rt.RotationAsDirection;
+			//Limiting to 100.0°, not 90.0°, so shooting vertically will be easier
+			if(CameraRot.y<-100.0)
+				CameraRot.y=-100.0;
+			if(CameraRot.y>100.0)
+				CameraRot.y=100.0;
+			pos=Players[LocalPlayerID].pos;
+			CameraPos=pos;
+			SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, pos.x, pos.y, pos.z);
+		}
+		else{
+			CameraRot.x+=MouseMovedX*.7; CameraRot.y+=MouseMovedY*.5;
+			TerrainOverview.y+=uniform01()*.5;
+			TerrainOverview.x+=cos(TerrainOverview.y*PI/180.0)*.3;
+			TerrainOverview.z+=sin(TerrainOverview.y*PI/180.0)*.3;
+			pos=TerrainOverview;
+			pos.y=-15.0;
+			Vector3_t crot=CameraRot*.05+Vector3_t(0.0, 45.0, 0.0);
+			CameraPos=pos;
+			SetCamera(crot.x, crot.y, crot.z, X_FOV, Y_FOV, pos.x, pos.y, pos.z);
+		}
+		if(Render_Local_Player)
+			Update_Rotation_Data();
+		Prepare_Render();
+		Render_World(scrn_surface, false);
+		{
+			if(Render_Local_Player){
+				if(Players[LocalPlayerID].item_types.length)
+					if(ItemTypes[Players[LocalPlayerID].item_types[Players[LocalPlayerID].item]].is_weapon
+					&& !Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading&& MouseRightClick){
+						if(ProtocolBuiltin_ScopePicture)
+							Render_Round_ZoomedIn(400, 300, Mod_Picture_Sizes[ProtocolBuiltin_ScopePicture.picture_index][0]/2, 1.1, 1.1);
+					}
+						
+			}
+		}
 		Render_FinishRendering();
 	}
 	SDL_SetRenderTarget(scrn_renderer, scrn_texture);
 	{
 		SDL_Rect r;
-		foreach(ref elements; Z_MenuElements){
+		foreach(ref elements; Z_MenuElements[1..$]){
 			foreach(e_index; elements){
 				MenuElement_t *e=&MenuElements[e_index];
 				if(e.picture_index==255)
@@ -309,7 +417,7 @@ void Render_Screen(){
 		}
 	}
 	Render_HUD();
-	ubyte minimap_alpha=210;
+	immutable ubyte minimap_alpha=210;
 	if(Render_MiniMap && Joined_Game()){
 		SDL_Rect minimap_rect;
 		Team_t *team=&Teams[Players[LocalPlayerID].team];
@@ -329,7 +437,7 @@ void Render_Screen(){
 			SDL_RenderFillRect(scrn_renderer, &prct);
 		}
 		foreach(ref obj; Objects){
-			if(obj.model_id==255 || obj.minimap_img==255)
+			if(!obj.visible || obj.minimap_img==255)
 				continue;
 			SDL_Rect orct;
 			orct.w=Mod_Picture_Sizes[obj.minimap_img][0]*minimap_rect.w/MapXSize;
@@ -341,33 +449,63 @@ void Render_Screen(){
 		}
 	}
 	if(List_Players){
+		//Some random optimization cause I don't want to have to allocate the same stuff on each frame
+		uint[] list_player_amount;
+		list_player_amount.length=Teams.length;
+		if(Player_List_Table.length!=Teams.length)
+			Player_List_Table.length=Teams.length;
+		foreach(ref arr; Player_List_Table){
+			if(arr.length!=Players.length)
+				arr.length=Players.length;
+		}
+		foreach(ref p; Players){
+			list_player_amount[p.team]++;
+			Player_List_Table[p.team][list_player_amount[p.team]-1]=p.player_id;
+		}
 		uint teamlist_w=scrn_surface.w/Teams.length;
-		Player_t*[][] plrtable;
-		plrtable.length=Teams.length;
-		foreach(ref arr; plrtable)
-			arr.length=Players.length;
-		foreach(ref p; Players)
-			plrtable[p.team][p.player_id]=&p;
 		for(uint t=0; t<Teams.length; t++){
-			for(uint p=0; p<plrtable[t].length; p++){
-				Player_t *plr=plrtable[t][p];
-				if(!plr)
-					break;
+			for(uint plist_index=0; plist_index<list_player_amount[t]; plist_index++){
+				Player_t *plr=&Players[Player_List_Table[t][plist_index]];
 				string plrentry=format("%s [#%s]", plr.name, plr.player_id);
-				Render_Text_Line(t*teamlist_w, p*FontHeight/16, Teams[t].icolor, plrentry, font_texture, FontWidth, FontHeight, LetterPadding);
+				Render_Text_Line(t*teamlist_w, plist_index*FontHeight/16, Teams[t].icolor, plrentry, font_texture, FontWidth, FontHeight, LetterPadding);
 			}
 		}
 	}
 }
 
-void Render_Object(uint obj_id){
+KV6Sprite_t Get_Object_Sprite(uint obj_id){
 	Object_t *obj=&Objects[obj_id];
 	KV6Sprite_t spr;
-	spr.xpos=obj.pos.x; spr.ypos=obj.pos.y; spr.zpos=obj.pos.z;
-	spr.rti=obj.rot.x; spr.rhe=obj.rot.y; spr.rst=obj.rot.z;
+	spr.xpos=obj.pos.x+obj.density.x; spr.ypos=obj.pos.y; spr.zpos=obj.pos.z;
+	float xrot=obj.rot.x, yrot=obj.rot.y, zrot=obj.rot.z;
+	spr.rti=yrot; spr.rhe=xrot; spr.rst=zrot;
 	spr.xdensity=obj.density.x; spr.ydensity=obj.density.y; spr.zdensity=obj.density.z;
-	spr.model=Mod_Models[obj.model_id];
+	spr.model=obj.model;
+	return spr;
+	
+}
+
+void Render_Object(uint obj_id){
+	Object_t *obj=&Objects[obj_id];
+	KV6Sprite_t spr=Get_Object_Sprite(obj_id);
 	Render_Sprite(&spr);
+	if(false){
+		foreach(uint vi, ref model_vertex; obj.Vertices){
+			float dst;
+			int scrx, scry;
+			Vector3_t worldvertex=model_vertex.rotate_raw(obj.rot)+obj.pos;
+			if(!Project2D(worldvertex.x, worldvertex.y, worldvertex.z, &dst, scrx, scry))
+				continue;
+			if(dst<0.0)
+				continue;
+			int rect_w=cast(int)(50.0/(dst+1.0))+1, rect_h=rect_w;
+			scrx-=rect_w/2; scry-=rect_h/2;
+			if(obj.Vertex_Collisions[vi][0] || obj.Vertex_Collisions[vi][1] || obj.Vertex_Collisions[vi][2])
+				Render_Rectangle(scrx, scry, rect_w, rect_h, 0x00ff8000, 0.0);
+			else
+				Render_Rectangle(scrx, scry, rect_w, rect_h, 0x00ffff00, 0.0);
+		}
+	}
 }
 
 void Finish_Render(){
@@ -381,17 +519,53 @@ void UnInit_Gfx(){
 	SDL_DestroyTexture(scrn_texture);
 	SDL_DestroyTexture(font_texture);
 	SDL_DestroyTexture(borderless_font_texture);
+	IMG_Quit();
 	SDL_Quit();
 }
 
 void Render_Player(uint player_id){
-	if(Players[player_id].Model<0 || !Players[player_id].Spawned)
+	if(!Players[player_id].Spawned)
 		return;
 	KV6Sprite_t[] sprites=Get_Player_Sprites(player_id);
 	sprites~=Get_Player_Attached_Sprites(player_id);
 	foreach(ref spr; sprites){
+		spr.replace_black=Teams[Players[player_id].team].icolor;
 		Render_Sprite(&spr);
 	}
+}
+
+SDL_Surface* ScopeSurface;
+void Render_Round_ZoomedIn(int scrx, int scry, int radius, float xzoom, float yzoom){
+	{
+		bool new_srfc=false;
+		if(!ScopeSurface)
+			new_srfc=true;
+		else
+			new_srfc=ScopeSurface.w!=radius*2 || ScopeSurface.h!=radius*2;
+		if(new_srfc){
+			if(ScopeSurface){
+				SDL_FreeSurface(ScopeSurface);
+				ScopeSurface=null;
+			}
+			ScopeSurface=SDL_CreateRGBSurface(0, radius*2, radius*2, 32, 0, 0, 0, 0);
+		}
+	}
+	Set_Frame_Buffer(ScopeSurface);
+	SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV/xzoom/tofloat(scrn_surface.w/radius), Y_FOV/yzoom/tofloat(scrn_surface.h/radius), CameraPos.x, CameraPos.y, CameraPos.z);
+	Render_World(ScopeSurface, true);
+	int pow_radius=radius*radius;
+	SDL_Rect src, dst;
+	src.h=dst.h=1;
+	src.y=0;
+	for(int y=scry-radius; y<scry+radius; y++){
+		int pow_y=(scry-y)*(scry-y);
+		src.w=dst.w=(cast(uint)sqrt(tofloat(pow_radius-pow_y)))<<1;
+		dst.y=y; src.y=y-(scry-radius);
+		src.x=radius-(src.w>>1);
+		dst.x=src.x+scrx-radius;
+		SDL_BlitSurface(ScopeSurface, &src, scrn_surface, &dst);
+	}
+	//SDL_BlitSurface(ScopeSurface, null, scrn_surface, &screen_rect);
 }
 
 //Other note: this system is only WIP and will be replaced with server-side stuff someday
@@ -407,19 +581,18 @@ void Render_Player(uint player_id){
 //Use it for any body parts
 //Get_Player_Attached_Sprites returns sprites that are ONLY rendered and NOT checked for hits
 //Use it for things like weapons/items and miscellaneous attachments
-KV6Sprite_t[] Get_Player_Sprites(uint player_id){
+/*KV6Sprite_t[] Get_Player_Sprites(uint player_id){
 	//Keep this line and assign this rotation at least for the head
 	//(spr.rhe=rot.y, spr.rst=rot.x, spr.rti=rot.z)
 	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
 	Vector3_t pos=Players[player_id].pos;
-	pos.y+=tofloat(Players[player_id].Crouch);
 	//"Placeholder"; if you are going to change the way players look as described above,
 	//feel free to throw out the following few lines and insert your
 	//awesome-looking stuff
 	KV6Sprite_t[] sprarr;
 	KV6Sprite_t spr;
 	if(player_id!=LocalPlayerID){
-		spr.rst=rot.z; spr.rhe=rot.y+90.0; spr.rti=rot.x+180.0;
+		spr.rst=rot.z; spr.rti=rot.y; spr.rhe=rot.x;
 		spr.xpos=pos.x; spr.ypos=pos.y; spr.zpos=pos.z;
 		spr.xdensity=.2; spr.ydensity=.2; spr.zdensity=.2;
 		if(Players[player_id].Model!=-1){
@@ -430,40 +603,74 @@ KV6Sprite_t[] Get_Player_Sprites(uint player_id){
 	float player_offset=tofloat(player_id==LocalPlayerID)*1.0;
 	//offset coords: forwards, y-wards, sidewards
 	Vector3_t arm_offset=Vector3_t(player_offset, -.4, .4);
-	spr.rst=rot.z; spr.rhe=rot.y; spr.rti=rot.x+180.0;
-	Vector3_t armpos=pos+arm_offset.rotate_raw(Vector3_t(0.0, 180.0-rot.y, 90.0)).rotate_raw(Vector3_t(0.0, rot.x+180.0, 0.0));
+	spr.rst=rot.z; spr.rhe=rot.x; spr.rti=rot.y;
+	Vector3_t armpos=pos+arm_offset.rotate_raw(Vector3_t(0.0, 90.0-rot.x, 90.0)).rotate_raw(Vector3_t(0.0, 270.0-rot.y, 0.0));
 	spr.xpos=armpos.x; spr.ypos=armpos.y; spr.zpos=armpos.z;
 	spr.xdensity=.05; spr.ydensity=.05; spr.zdensity=.05;
 	spr.model=Mod_Models[Players[player_id].Arm_Model];
 	sprarr~=spr;
 	return sprarr;
+}*/
+
+KV6Sprite_t[] Get_Player_Sprites(uint player_id){
+	Player_t *plr=&Players[player_id];
+	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
+	Vector3_t pos=Players[player_id].pos;
+	KV6Sprite_t[] sprarr;
+	KV6Sprite_t spr;
+	foreach(ref model; plr.models){
+		if(player_id==LocalPlayerID && !model.FirstPersonModel)
+			continue;
+		Vector3_t mrot=rot;
+		spr.rst=model.rotation.z; spr.rti=mrot.y+model.rotation.y; spr.rhe=model.rotation.x;
+		if(model.Rotate){
+			spr.rst+=mrot.z; spr.rhe+=mrot.x;
+		}
+		KV6Model_t *modelfile=Mod_Models[model.model_id];
+		spr.xdensity=model.size.x/tofloat(modelfile.xsize);
+		spr.ydensity=model.size.y/tofloat(modelfile.ysize); spr.zdensity=model.size.z/tofloat(modelfile.zsize);
+		spr.model=modelfile;
+		Vector3_t mpos=pos;
+		Vector3_t offsetrot=mrot;
+		offsetrot.x=0.0; offsetrot.z=0.0; offsetrot.y=rot.y;
+		Vector3_t offset=model.offset.rotate_raw(offsetrot);
+		mpos-=offset;
+		spr.xpos=mpos.x; spr.ypos=mpos.y; spr.zpos=mpos.z;
+		sprarr~=spr;
+		Sprite_Visible(&spr);
+	}
+	return sprarr;
 }
 
 KV6Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
+	if(!Players[player_id].item_types.length || !Players[player_id].Spawned)
+		return [];
 	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
 	Vector3_t pos=Players[player_id].pos;
-	pos.y+=tofloat(Players[player_id].Crouch);
 	KV6Sprite_t[] sprarr;
 	KV6Sprite_t spr;
-	float player_offset=tofloat(player_id==LocalPlayerID)*1.0;
-	Vector3_t item_offset=Vector3_t(1.0+player_offset, -.4, .4);
-	spr.rst=rot.z; spr.rhe=rot.y+90.0; spr.rti=rot.x+180.0;
+	Vector3_t item_offset;
+	if(player_id==LocalPlayerID)
+		item_offset=Vector3_t(2.0, -.4, .4);
+	else
+		item_offset=Vector3_t(.8, 0.0, .4);
 	//I have no idea what I'm rotating around which axis or idk, actually I am only supposed to need one single rotation
 	//But this works (makes the item appear in front of the player with an offset of item_offset, considering his rotation)
-	Vector3_t itempos=pos+item_offset.rotate_raw(Vector3_t(0.0, 180.0-rot.y, 90.0)).rotate_raw(Vector3_t(0.0, rot.x+180.0, 0.0));
+	spr.rst=rot.z; spr.rhe=rot.x; spr.rti=rot.y;
+	Vector3_t itempos=pos+item_offset.rotate_raw(Vector3_t(0.0, 90.0-rot.x, 90.0)).rotate_raw(Vector3_t(0.0, 90.0-rot.y+180.0, 0.0));
 	spr.xpos=itempos.x; spr.ypos=itempos.y; spr.zpos=itempos.z;
 	spr.xdensity=.04; spr.ydensity=.04; spr.zdensity=.04;
 	//BIG WIP
 	uint current_tick=SDL_GetTicks();
 	Item_t *item=&Players[player_id].items[Players[player_id].item];
-	if(Players[player_id].item==2){
-		if(!Players[player_id].Reloading && item.amount1){
+	if(ItemTypes[item.type].is_weapon){
+		if(!item.Reloading && item.amount1){
 			if(current_tick-item.use_timer<ItemTypes[item.type].use_delay)
-				spr.rhe-=45.0-tofloat(current_tick-item.use_timer)*45.0/tofloat(ItemTypes[item.type].use_delay);
+				spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*-item.last_recoil*7.5;
 		}
 	}
 	else
-	if(Players[player_id].left_click && !Players[player_id].Reloading){
+	if(Players[player_id].left_click && !item.Reloading){
 		if(current_tick-item.use_timer<ItemTypes[item.type].use_delay){
 			spr.rhe+=tofloat(current_tick-item.use_timer)*45.0/tofloat(ItemTypes[item.type].use_delay);
 		}
@@ -485,25 +692,29 @@ uint Count_KV6Blocks(KV6Model_t *model, uint dstx, uint dsty){
 	return index;
 }
 
-int SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out KV6Voxel_t *voxptr){
-	uint x, y;
+int SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out KV6Voxel_t *outvoxptr){
+	uint x, z;
 	KV6Voxel_t *sblk, blk, eblk;
 	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
-	rot_sx=sin(spr.rhe*PI/180.0); rot_cx=cos(spr.rhe*PI/180.0);
-	rot_sy=sin(spr.rti*PI/180.0); rot_cy=cos(spr.rti*PI/180.0);
-	rot_sz=sin(spr.rst*PI/180.0); rot_cz=cos(spr.rst*PI/180.0);
-	float voxxsize=fabs(spr.xdensity)*2.0, voxysize=fabs(spr.ydensity)*2.0, voxzsize=fabs(spr.zdensity)*2.0;
+	rot_sx=sin((spr.rhe)*PI/180.0); rot_cx=cos((spr.rhe)*PI/180.0);
+	rot_sy=sin(-(spr.rti+90.0)*PI/180.0); rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
+	rot_sz=sin(spr.rst*PI/180.0); rot_cz=cos(-spr.rst*PI/180.0);
+	if(!Sprite_BoundHitCheck(spr, pos, dir))
+		return 0;
+	float voxxsize=fabs(spr.xdensity), voxysize=fabs(spr.ydensity), voxzsize=fabs(spr.zdensity);
+	KV6Voxel_t *voxptr=null;
+	float minvxdist=10e99;
 	for(x=0; x<spr.model.xsize; ++x){
-		for(y=0; y<spr.model.ysize; ++y){
-			uint index=Count_KV6Blocks(spr.model, x, y);
+		for(z=0; z<spr.model.zsize; ++z){
+			uint index=Count_KV6Blocks(spr.model, x, z);
 			if(index>=spr.model.voxelcount)
 				continue;
 			sblk=&spr.model.voxels[index];
-			eblk=&sblk[cast(uint)spr.model.ylength[x][y]];
+			eblk=&sblk[cast(uint)spr.model.ylength[x][z]];
 			for(blk=sblk; blk<eblk; ++blk){
-				float fnx=(x-spr.model.xpivot)*spr.xdensity;
-				float fny=(y-spr.model.ypivot)*spr.ydensity;
-				float fnz=((spr.model.zsize-2-blk.zpos)-(spr.model.zsize-spr.model.zpivot))*spr.zdensity;
+				float fnx=(x-spr.model.xpivot+.5)*spr.xdensity;
+				float fny=(blk.ypos-spr.model.ypivot+.5)*spr.ydensity;
+				float fnz=(z-spr.model.zpivot-.5)*spr.zdensity;
 				float rot_y=fny, rot_z=fnz, rot_x;
 				fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
 				rot_x=fnx; rot_z=fnz;
@@ -519,13 +730,18 @@ int SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t 
 				}*/
 				Vector3_t cdist=(lookpos-vpos).vecabs;
 				if(cdist.x<voxxsize && cdist.y<voxxsize && cdist.z<voxzsize){
-					voxpos=vpos;
-					voxptr=blk;
-					return 1;
+					if(dist<minvxdist){
+						minvxdist=dist;
+						voxpos=vpos;
+						voxptr=blk;
+					}
 				}
 			}
 		}
 	}
+	outvoxptr=voxptr;
+	if(voxptr)
+		return 1;
 	return 0;
 }
 
@@ -536,7 +752,10 @@ struct Particle_t{
 }
 Particle_t[] Particles;
 
-void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint col){
+immutable float BlockBreakParticleSize=.3;
+Particle_t[] BlockBreakParticles;
+
+void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint col, uint timer=0){
 	uint old_size=Particles.length;
 	uint sent_col_chance=(col>>24)&255;
 	Particles.length+=amount;
@@ -548,12 +767,16 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 				for(int z=toint(pos.z-1.0); z<toint(pos.z+1.0); z++){
 					if(!Valid_Coord(x, y, z))
 						continue;
-					if(Voxel_IsSolid(x, y, z)){
+					if(Voxel_IsSolid(x, y, z) && Voxel_IsSurface(x, y, z)){
 						colors~=Voxel_GetColor(x, y, z);
 					}
 				}
 			}
 		}
+	}
+	if(Voxel_IsWater(pos.x, pos.y, pos.z)){
+		sent_col_chance=0;
+		pos.y-=1.0;
 	}
 	pos.y-=.1;
 	if(!colors.length)
@@ -566,6 +789,135 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 			Particles[i].col=col;
 		else
 			Particles[i].col=colors[uniform(0, colors.length)];
-		Particles[i].timer=500;
+		Particles[i].timer=!timer ? uniform(300, 400) : timer;
 	}
 } 
+
+void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint col, uint timer=0){
+	static if(Enable_Object_Model_Modification){
+		uint explosion_r=(col&255), explosion_g=(col>>8)&255, explosion_b=(col>>16)&255;
+		foreach(uint obj_id, obj; Objects){
+			if(!obj.modify_model)
+				continue;
+			//Crappy early out case check; need to fix this and consider pivots
+			Vector3_t size=obj.density*Vector3_t(obj.model.xsize, obj.model.ysize, obj.model.zsize);
+			Vector3_t dist=(obj.pos-pos).vecabs();
+			if(dist.x>radius+size.x*2.0 || dist.y>radius+size.y*2.0 || dist.z>radius+size.z*2.0)
+				continue;
+			KV6Sprite_t spr=Get_Object_Sprite(obj_id);
+			{
+				float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
+				float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
+				float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
+				for(uint blkx=0; blkx<spr.model.xsize; ++blkx){
+					for(uint blkz=0; blkz<spr.model.zsize; ++blkz){
+						uint index=Count_KV6Blocks(spr.model, blkx, blkz);
+						if(index>=spr.model.voxelcount)
+							continue;
+						KV6Voxel_t *sblk=&spr.model.voxels[index];
+						KV6Voxel_t *eblk=&sblk[cast(uint)spr.model.ylength[blkx][blkz]];
+						for(KV6Voxel_t *blk=sblk; blk<eblk; ++blk){
+							if(!blk.visiblefaces)
+								continue;
+							float fnx=(blkx-spr.model.xpivot+.5)*spr.xdensity;
+							float fny=(blk.ypos-spr.model.ypivot+.5)*spr.ydensity;
+							float fnz=(blkz-spr.model.zpivot-.5)*spr.zdensity;
+							float rot_y=fny, rot_z=fnz, rot_x=fnx;
+							fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
+							rot_x=fnx; rot_z=fnz;
+							fnz=rot_z*rot_cy - rot_x*rot_sy; fnx=rot_z*rot_sy + rot_x*rot_cy;
+							rot_x=fnx; rot_y=fny;
+							fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
+							fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
+							Vector3_t vxpos=Vector3_t(fnx, fny, fnz);
+							float vxdist=(vxpos-pos).length*(.8+uniform01()*.2);
+							if(vxdist>radius)
+								continue;
+							uint alpha=touint((vxdist/radius)*255.0), inv_alpha=255-alpha;
+							uint r=(blk.color)&255, g=(blk.color>>8)&255, b=(blk.color>>16)&255;
+							/*r=(explosion_r*inv_alpha+r*alpha)>>8;
+							g=(explosion_g*inv_alpha+g*alpha)>>8;
+							b=(explosion_b*inv_alpha+b*alpha)>>8;*/
+							r=(r*alpha)>>8; g=(g*alpha)>>8; b=(b*alpha)>>8;
+							blk.color=(r) | (g<<8) | (b<<16);
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+bool Sprite_Visible(KV6Sprite_t *spr){
+	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
+	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
+	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
+	for(uint edgeindex=0; edgeindex<8; edgeindex++){
+		float fnx=tofloat(toint(edgeindex%2)*spr.model.xsize);
+		float fny=tofloat(toint((edgeindex%4)>1)*spr.model.ysize);
+		float fnz=tofloat(toint(edgeindex>3)*spr.model.zsize);
+		fnx=(fnx-spr.model.xpivot+.5)*spr.xdensity;
+		fny=(fny-spr.model.ypivot+.5)*spr.ydensity;
+		fnz=(fnz-spr.model.zpivot-.5)*spr.zdensity;
+		float rot_y=fny, rot_z=fnz, rot_x=fnx;
+		fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
+		rot_x=fnx; rot_z=fnz;
+		fnz=rot_z*rot_cy - rot_x*rot_sy; fnx=rot_z*rot_sy + rot_x*rot_cy;
+		rot_x=fnx; rot_y=fny;
+		fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
+		fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
+		int screenx, screeny;
+		float renddist=Vox_Project2D(fnx, fnz, fny, &screenx, &screeny);
+		if(renddist<0.0)
+			continue;
+		if(screenx<0 || screeny<0)
+			continue;
+		if(renddist>Visibility_Range)
+			continue;
+		//Only after I fixed raycasting code
+		Vector3_t vpos=Vector3_t(fnx, fny, fnz);
+		Vector3_t vdist=vpos-CameraPos;
+		if(vdist.length>Visibility_Range)
+			continue;
+		auto result=RayCast(Vector3_t(fnx, fny, fnz), vdist.abs, vdist.length);
+		if(!result.collside)
+			return true;
+		return true;
+		//Vox_DrawRect2D(screenx, screeny, 10, 10, 0xffffffff, renddist);
+	}
+	return false;
+}
+
+bool Sprite_BoundHitCheck(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir){
+	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
+	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
+	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
+	float minx=10e99, maxx=-10e99, miny=10e99, maxy=-10e99, minz=10e99, maxz=-10e99;
+	for(uint edgeindex=0; edgeindex<8; edgeindex++){
+		float fnx=tofloat(toint(edgeindex%2)*spr.model.xsize);
+		float fny=tofloat(toint((edgeindex%4)>1)*spr.model.ysize);
+		float fnz=tofloat(toint(edgeindex>3)*spr.model.zsize);
+		fnx=(fnx-spr.model.xpivot+.5)*spr.xdensity;
+		fny=(fny-spr.model.ypivot+.5)*spr.ydensity;
+		fnz=(fnz-spr.model.zpivot-.5)*spr.zdensity;
+		float rot_y=fny, rot_z=fnz, rot_x=fnx;
+		fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
+		rot_x=fnx; rot_z=fnz;
+		fnz=rot_z*rot_cy - rot_x*rot_sy; fnx=rot_z*rot_sy + rot_x*rot_cy;
+		rot_x=fnx; rot_y=fny;
+		fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
+		fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
+		minx=min(fnx, minx); maxx=max(fnx, maxx); miny=min(fny, miny); maxy=max(fny, maxy); minz=min(fnz, minz); maxz=max(fnz, maxz);
+	}
+	Vector3_t start=Vector3_t(minx, miny, minz);
+	Vector3_t end=Vector3_t(maxx, maxy, maxz);
+	Vector3_t size=end-start;
+	Vector3_t mpos=start+size/2.0;
+	float dist=(mpos-pos).length;
+	Vector3_t lookpos=pos+dir*dist;
+	Vector3_t cdist=(lookpos-mpos).vecabs;
+	size=size.vecabs();
+	if(cdist.x<size.x && cdist.y<size.y && cdist.z<size.z)
+		return true;
+	return false;
+}

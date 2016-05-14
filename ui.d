@@ -9,6 +9,9 @@ import world;
 import vector;
 import renderer;
 import packettypes;
+version(LDC){
+	import ldc_stdlib;
+}
 
 uint CurrentChatCursor;
 bool TypingChat=false;
@@ -30,6 +33,9 @@ bool MouseLeftClick, MouseRightClick;
 bool Render_MiniMap;
 
 string LastSentLine="";
+
+bool Changed_Palette_Color=false;
+SDL_Surface *Palette_V_Colors, Palette_H_Colors;
 
 void ConvertScreenCoords(in float uxpos, in float uypos, out int lxpos, out int lypos){
 	float scrnw=cast(float)scrn_surface.w, scrnh=cast(float)scrn_surface.h;
@@ -63,6 +69,12 @@ struct MenuElement_t{
 uint[][255] Z_MenuElements;
 
 MenuElement_t[] MenuElements;
+
+MenuElement_t *AmmoCounterBG;
+MenuElement_t *AmmoCounterBullet;
+
+MenuElement_t *ProtocolBuiltin_PaletteHFG;
+MenuElement_t *ProtocolBuiltin_PaletteVFG;
 
 struct TextBox_t{
 	ubyte font_index;
@@ -130,6 +142,7 @@ uint PrevKeyPresses=0;
 void Check_Input(){
 	SDL_Event event;
 	MouseMovedX=0; MouseMovedY=0;
+	bool Scrolling_Colors=false;
 	while(SDL_PollEvent(&event)){
 		switch(event.type){
 			case SDL_QUIT:{
@@ -167,10 +180,10 @@ void Check_Input(){
 					}
 					case SDLK_r:{
 						if(Joined_Game && !TypingChat){
-							if(!Players[LocalPlayerID].Reloading){
+							if(true){
 								ItemReloadPacketLayout packet;
 								Send_Packet(ItemReloadPacketID, packet);
-								Players[LocalPlayerID].Reloading=true;
+								Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading=true;
 							}
 						}
 						break;
@@ -219,6 +232,37 @@ void Check_Input(){
 						}
 						break;
 					}
+					case SDLK_c:{
+						if(TypingChat && (KeyState[SDL_SCANCODE_LCTRL] || KeyState[SDL_SCANCODE_RCTRL])){
+							SDL_SetClipboardText(toStringz(CurrentChatLine));
+						}
+						break;
+					}
+					case SDLK_v:{
+						if(TypingChat && (KeyState[SDL_SCANCODE_LCTRL] || KeyState[SDL_SCANCODE_RCTRL])){
+							if(SDL_HasClipboardText()){
+								char *txt=SDL_GetClipboardText();
+								if(!txt){
+									writeflnerr("Couldn't get clipboard text: %s", *SDL_GetError());
+									break;
+								}
+								char[] txtarr=cast(char[])fromStringz(txt);
+								SDL_Event txtevent;
+								for(uint ctr=0; ctr<txtarr.length/32+1; ctr++){
+									uint ctr2=(ctr+1)*32;
+									if(ctr2>txtarr.length)
+										ctr2=txtarr.length;
+									txtevent.text.text[]=0;
+									txtevent.text.text[0..(ctr2-ctr*32)]=txtarr[ctr*32..ctr2];
+									txtevent.type=SDL_TEXTINPUT;
+									SDL_PushEvent(&txtevent);
+								}
+								txtarr=[];
+								SDL_free(txt);
+							}
+						}
+						break;
+					}
 					default:{break;}
 				}
 				if(number_key_pressed>0 && Joined_Game() && !TypingChat){
@@ -230,7 +274,7 @@ void Check_Input(){
 				break;
 			}
 			case SDL_MOUSEMOTION:{
-				if(Lock_Mouse){
+				if(Lock_Mouse || Menu_Mode){
 					MouseMovedX=event.motion.xrel;
 					MouseMovedY=event.motion.yrel;
 				}
@@ -276,10 +320,11 @@ void Check_Input(){
 				break;
 			}
 			case SDL_TEXTEDITING:{
+				writeflnlog("O.O omg I just received an SDL2 text editing event omg does that thing suddenly work now or what...");
+				writeflnlog("I wonder whether you see an IME text input bar now :O");
 				if(TypingChat){
 					CurrentChatLine=cast(string)fromStringz(event.edit.text.ptr);
 					CurrentChatCursor=event.edit.start;
-					writeflnlog("SDL editing text %d", event.edit.length);
 				}
 				break;
 			}
@@ -289,9 +334,10 @@ void Check_Input(){
 	if(!TypingChat){
 		QuitGame|=cast(bool)KeyState[SDL_SCANCODE_ESCAPE];
 		if(!LoadingMap){
-			ubyte KeyPresses=0;
+			ushort KeyPresses=0;
 			uint[2][] KeyBits=[[SDL_SCANCODE_S, 0], [SDL_SCANCODE_W, 1], [SDL_SCANCODE_A, 2], [SDL_SCANCODE_D, 3],
-			[SDL_SCANCODE_SPACE, 4], [SDL_SCANCODE_LCTRL, 5], [SDL_SCANCODE_E, 6]];
+			[SDL_SCANCODE_SPACE, 4], [SDL_SCANCODE_LCTRL, 5], [SDL_SCANCODE_E, 6], [SDL_SCANCODE_LEFT, 7], [SDL_SCANCODE_RIGHT, 8],
+			[SDL_SCANCODE_DOWN, 9], [SDL_SCANCODE_UP, 10]];
 			foreach(kb; KeyBits)
 				KeyPresses|=(1<<kb[1])*(cast(int)(cast(bool)KeyState[kb[0]]));
 			if(KeyPresses!=PrevKeyPresses){
@@ -304,9 +350,10 @@ void Check_Input(){
 					plr.Go_Left=cast(bool)(KeyPresses&4);
 					plr.Go_Right=cast(bool)(KeyPresses&8);
 					plr.Jump=cast(bool)(KeyPresses&16);
-					plr.Crouch=cast(bool)(KeyPresses&32);
+					//plr.Crouch=cast(bool)(KeyPresses&32);
 					plr.Use_Object=cast(bool)(KeyPresses&64);
 					plr.KeysChanged=true;
+					plr.Set_Crouch(cast(bool)(KeyPresses&32));
 				}
 			}
 		}
@@ -326,6 +373,38 @@ void Check_Input(){
 			Send_Mouse_Click(MouseLeftClick, MouseRightClick, MouseXPos, MouseYPos);
 		}*/
 	}
+	if(Joined_Game()){
+		if(Players[LocalPlayerID].item_types.length){
+			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].show_palette && ProtocolBuiltin_PaletteHFG && ProtocolBuiltin_PaletteVFG){
+				float scrollspeed=WorldSpeed*15.0;
+				if(KeyState[SDL_SCANCODE_LEFT] && Palette_Color_HIndex>=scrollspeed){
+					Changed_Palette_Color=true;
+					Scrolling_Colors=true;
+					Palette_Color_HPos-=scrollspeed;
+				}
+				if(KeyState[SDL_SCANCODE_RIGHT] && Palette_Color_HPos+scrollspeed<ProtocolBuiltin_PaletteHFG.xsize){
+					Changed_Palette_Color=true;
+					Scrolling_Colors=true;
+					Palette_Color_HPos+=scrollspeed;
+				}
+				if(KeyState[SDL_SCANCODE_UP] && Palette_Color_VPos>=scrollspeed){
+					Changed_Palette_Color=true;
+					Scrolling_Colors=true;
+					Palette_Color_VPos-=scrollspeed;
+				}
+				if(KeyState[SDL_SCANCODE_DOWN] && Palette_Color_VPos+scrollspeed<ProtocolBuiltin_PaletteVFG.ysize){
+					Changed_Palette_Color=true;
+					Scrolling_Colors=true;
+					Palette_Color_VPos+=scrollspeed;
+				}
+				Palette_Color_HIndex=touint(Palette_Color_HPos); Palette_Color_VIndex=touint(Palette_Color_VPos);
+			}
+		}
+	}
+	if(Changed_Palette_Color){
+		Check_Palette_Color();
+		Changed_Palette_Color=false;
+	}
 	List_Players=cast(bool)KeyState[SDL_SCANCODE_TAB];
 }
 
@@ -341,26 +420,131 @@ void WriteMsg(string msg, uint color){
 	ChatText[0]=msg;
 }
 
+void Check_Palette_Color(){
+	if(!ProtocolBuiltin_PaletteHFG || !ProtocolBuiltin_PaletteVFG)
+		return;
+	/*float xratio=1.0-tofloat(Palette_Color_HIndex)/tofloat(ProtocolBuiltin_PaletteHFG.xsize);
+	float yratio=1.0-tofloat(Palette_Color_VIndex)/tofloat(ProtocolBuiltin_PaletteVFG.ysize);
+	int pixelx=toint(tofloat(Mod_Picture_Sizes[ProtocolBuiltin_PaletteHFG.picture_index][0]-1)*xratio);
+	int pixely=toint(tofloat(Mod_Picture_Sizes[ProtocolBuiltin_PaletteVFG.picture_index][1]-1)*yratio);*/
+	int pixelx=((Palette_H_Colors.w-1)*Palette_Color_HIndex/ProtocolBuiltin_PaletteHFG.xsize);
+	int pixely=Palette_V_Colors.h-1-((Palette_V_Colors.h-1)*Palette_Color_VIndex/ProtocolBuiltin_PaletteVFG.ysize);
+	uint h_color=*Pixel_Pointer(Palette_H_Colors, pixelx, Palette_H_Colors.h/2);
+	uint v_color=*Pixel_Pointer(Palette_V_Colors, Palette_V_Colors.w/2, pixely);
+	uint new_color;
+	{
+		int ha=(h_color>>24)&255, hb=(h_color>>16)&255, hg=(h_color>>8)&255, hr=(h_color>>0)&255;
+		int va=(v_color>>24)&255, vb=(v_color>>16)&255, vg=(v_color>>8)&255, vr=(v_color>>0)&255;
+		ha=min(ha*va/255, 255); hr=min(hr*vr/255, 255); hg=min(hg*vg/255, 255); hb=min(hb*vb/255, 255);
+		new_color=(ha<<24) | (hr<<16) | (hg<<8) | hb;
+	}
+	if(new_color!=Players[LocalPlayerID].color){
+		SetPlayerColorPacketLayout packet;
+		packet.color=new_color;
+		Send_Packet(SetPlayerColorPacketID, packet);
+	}
+}
+
+uint Palette_Color_HIndex=0, Palette_Color_VIndex=0;
+float Palette_Color_HPos=0.0, Palette_Color_VPos=0.0;
+
+void Render_HUD(){
+	if(Joined_Game()){
+		if(Players[LocalPlayerID].item_types.length){
+			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon){
+				Item_t *item=&Players[LocalPlayerID].items[Players[LocalPlayerID].item];
+				if(AmmoCounterBG){
+					MenuElement_t *e=AmmoCounterBG;
+					SDL_Rect r;
+					r.x=e.xpos; r.y=e.ypos; r.w=e.xsize; r.h=e.ysize;
+					if(e.transparency<255)
+						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
+					SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
+					if(e.transparency<255)
+						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
+				}
+				if(AmmoCounterBullet){
+					MenuElement_t *e=AmmoCounterBullet;
+					for(uint i=0; i<item.amount1; i++){
+						SDL_Rect r;
+						r.x=e.xpos; r.y=e.ypos+i*e.ysize; r.w=e.xsize; r.h=e.ysize;
+						if(e.transparency<255)
+							SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
+						SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
+						if(e.transparency<255)
+							SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
+					}
+				}
+				if(ProtocolBuiltin_ScopePicture && !item.Reloading && MouseRightClick){
+					MenuElement_t *e=ProtocolBuiltin_ScopePicture;
+					SDL_Rect r;
+					r.w=Mod_Picture_Sizes[e.picture_index][0]; r.h=Mod_Picture_Sizes[e.picture_index][1];
+					r.x=e.xpos-r.w/2; r.y=e.ypos-r.h/2;
+					if(e.transparency<255)
+						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
+					SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
+					if(e.transparency<255)
+						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
+				}
+			}
+			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].show_palette){
+				if(ProtocolBuiltin_PaletteVFG){
+					MenuElement_t *e=ProtocolBuiltin_PaletteVFG;
+					SDL_Rect r;
+					r.x=e.xpos+Palette_Color_HIndex-e.xsize/2; r.y=e.ypos+Palette_Color_VIndex-e.ysize/2; r.w=e.xsize; r.h=e.ysize;
+					if(ProtocolBuiltin_PaletteHFG){
+						r.y+=ProtocolBuiltin_PaletteHFG.ysize/2;
+					}
+					if(e.transparency<255)
+						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
+					SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
+					if(e.transparency<255)
+						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
+				}
+				if(ProtocolBuiltin_PaletteHFG){
+					MenuElement_t *e=ProtocolBuiltin_PaletteHFG;
+					SDL_Rect r;
+					r.x=e.xpos; r.y=e.ypos; r.w=e.xsize; r.h=e.ysize;
+					if(e.transparency<255)
+						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
+					SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
+					if(e.transparency<255)
+						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
+				}
+				if(ProtocolBuiltin_PaletteHFG && ProtocolBuiltin_PaletteVFG){
+					MenuElement_t *v=ProtocolBuiltin_PaletteVFG, h=ProtocolBuiltin_PaletteHFG;
+					uint color=Players[LocalPlayerID].color;
+					SDL_SetRenderDrawColor(scrn_renderer, (color>>16)&255, (color>>8)&255, (color>>0)&255, (color>>24)&255);
+					SDL_Rect r;
+					r.x=v.xpos+Palette_Color_HIndex-v.xsize/2; r.y=h.ypos; r.w=v.xsize; r.h=h.ysize;
+					SDL_RenderFillRect(scrn_renderer, &r);
+				}
+			}
+		}
+	}
+	Render_All_Text();
+}
+
 float ChatLineBlinkSpeed=30.0;
 float ChatLineTimer=0.0;
 uint __hud_prev_tick=0, __hud_tick_amount=0;
 float __hud_avg_delta_ticks=0.0;
-void Render_HUD(){
-	if(!Joined_Game())
-		return;
-	if(TypingChat){
-		ChatLineTimer+=WorldSpeed;
-		Render_Text_Line(ChatBox_X, ChatBox_Y, Font_SpecialColor, CurrentChatLine, font_texture, FontWidth, FontHeight, LetterPadding);
-		if(((cast(uint)(ChatLineTimer*ChatLineBlinkSpeed))%32)<16){
-			Render_Text_Line(ChatBox_X+CurrentChatCursor*(FontWidth/16-LetterPadding*2), ChatBox_Y-LetterPadding*2, 0x80808080, "_", font_texture,
-			FontWidth, FontHeight, LetterPadding);
+void Render_All_Text(){
+	if(JoinedGame){
+		if(TypingChat){
+			ChatLineTimer+=WorldSpeed;
+			Render_Text_Line(ChatBox_X, ChatBox_Y, Font_SpecialColor, CurrentChatLine, font_texture, FontWidth, FontHeight, LetterPadding);
+			if(((cast(uint)(ChatLineTimer*ChatLineBlinkSpeed))%32)<16){
+				Render_Text_Line(ChatBox_X+CurrentChatCursor*(FontWidth/16-LetterPadding*2), ChatBox_Y-LetterPadding*2, 0x80808080, "_", font_texture,
+				FontWidth, FontHeight, LetterPadding);
+			}
 		}
+		else{
+			ChatLineTimer=0.0;
+		}
+		foreach(uint i, line; ChatText)
+			Render_Text_Line(ChatBox_X, ChatBox_Y+(i+1)*(FontHeight/16), ChatColors[i], line, font_texture, FontWidth, FontHeight, LetterPadding);
 	}
-	else{
-		ChatLineTimer=0.0;
-	}
-	foreach(uint i, line; ChatText)
-		Render_Text_Line(ChatBox_X, ChatBox_Y+(i+1)*(FontHeight/16), ChatColors[i], line, font_texture, FontWidth, FontHeight, LetterPadding);
 	foreach(ref box; TextBoxes){
 		if(box.font_index==255)
 			continue;
@@ -376,7 +560,8 @@ void Render_HUD(){
 		float delta_t=1000.0/tofloat(current_tick-__hud_prev_tick);
 		__hud_avg_delta_ticks+=delta_t;
 		float avg=__hud_avg_delta_ticks/tofloat(__hud_tick_amount);
-		Render_Text_Line(scrn_surface.w-(FontWidth/16)*12, 0, Font_SpecialColor, format("%f FPS", avg), font_texture, FontWidth, FontHeight, LetterPadding);
+		string fps_ping_str=format("%.2f FPS|%d ms", avg, Get_Ping());
+		Render_Text_Line(scrn_surface.w-(FontWidth/16-LetterPadding*2)*fps_ping_str.length, 0, Font_SpecialColor, fps_ping_str, font_texture, FontWidth, FontHeight, LetterPadding);
 		if(__hud_tick_amount>avg*5){
 			__hud_tick_amount=0;
 			__hud_avg_delta_ticks=avg;

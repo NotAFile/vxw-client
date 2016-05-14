@@ -12,6 +12,8 @@ import renderer;
 import vector;
 import world;
 
+uint TargetFPS=30;
+
 void main(string[] args){
 	Init_Game();
 	ushort port; string address;
@@ -57,8 +59,8 @@ void main(string[] args){
 		Finish_Render();
 		t2=SDL_GetTicks();
 		uint tdiff=t2-t1;
-		if(tdiff<16)
-			SDL_Delay(16-tdiff);
+		if(tdiff<1000/TargetFPS)
+			SDL_Delay(1000/TargetFPS-tdiff);
 	}
 	Send_Disconnect_Packet();
 	UnInit_Game();
