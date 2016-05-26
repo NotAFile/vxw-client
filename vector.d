@@ -1,5 +1,9 @@
 import std.math;
+import std.random;
 import misc;
+version(LDC){
+	import ldc_stdlib;
+}
 
 T degsin(T)(T val){
 	return sin(val*PI/180.0);
@@ -166,16 +170,11 @@ struct Vector3_t{
 	Vector3_t filter(alias filterx, alias filtery, alias filterz)(){
 		mixin("return Vector3_t("~(filterx ? "x," : "0,")~(filtery ? "y," : "0,")~(filterz ? "z," : "0,")~");");
 	}
+	Vector3_t sgn(){
+		return Vector3_t(SGN(x), SGN(y), SGN(z));
+	}
 }
 
-float tofloat(T)(T var){
-	return cast(float)var;
-}
-
-int toint(T)(T var){
-	return cast(int)var;
-}
-
-uint touint(T)(T var){
-	return cast(uint)var;
+Vector3_t RandomVector(){
+	return Vector3_t(uniform01()*2.0-1.0, uniform01()*2.0-1.0, uniform01()*2.0-1.0);
 }

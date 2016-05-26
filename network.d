@@ -9,6 +9,8 @@ version(LDC){
 //Change this depending on your system's endianess
 bool EnableByteFlip=true;
 
+bool ServerDisconnected=false;
+
 struct Connection_t{
 	ENetHost *client;
 	ENetPeer *peer;
@@ -40,6 +42,7 @@ struct Connection_t{
 				}
 				case ENET_EVENT_TYPE_DISCONNECT:{
 					writeflnlog("Server disconnected");
+					ServerDisconnected=true;
 					break;
 				}
 				default:{
@@ -80,6 +83,7 @@ struct Connection_t{
 				}
 				case ENET_EVENT_TYPE_DISCONNECT:{
 					writeflnlog("Disconnected");
+					ServerDisconnected=true;
 					break;
 				}
 				default:{
@@ -107,7 +111,13 @@ struct Connection_t{
 					break;
 				}
 				case ENET_EVENT_TYPE_DISCONNECT:{
-					writeflnlog("%s disconnected", event.peer.data);
+					if(event.peer==peer){
+						writeflnlog("Server disconnected");
+						ServerDisconnected=true;
+					}
+					else{
+						writeflnlog("Some peer disconnected: %s", *event.peer);
+					}
 					event.peer.data=null;
 					enet_peer_reset(peer);
 					break;

@@ -33,6 +33,7 @@ struct PlayerModel_t{
 	ubyte model_id;
 	Vector3_t size, offset, rotation;
 	bool FirstPersonModel, Rotate;
+	float WalkRotate;
 }
 
 struct Player_t{
@@ -51,6 +52,7 @@ struct Player_t{
 	bool Use_Object;
 	bool KeysChanged;
 	bool[3] CollidingSides;
+	Vector3_t ColVel;
 	//Remove the following line if you don't need it and replaced it with something better
 	int Model; int Gun_Model; int Arm_Model;
 	uint Gun_Timer;
@@ -60,6 +62,9 @@ struct Player_t{
 	bool left_click, right_click;
 	uint color;
 	Object_t *standing_on_obj, stood_on_obj;
+	
+	float Walk_Forwards_Timer, Walk_Sidewards_Timer;
+	
 	void Init(string initname, PlayerID_t initplayer_id){
 		name=initname;
 		player_id=initplayer_id;
@@ -71,6 +76,8 @@ struct Player_t{
 		Gun_Timer=0;
 	}
 	void Spawn(Vector3_t location, TeamID_t spteam){
+		if(player_id==LocalPlayerID)
+			BlurAmount=0.0;
 		pos=location;
 		team=spteam;
 		Spawned=true;
@@ -80,6 +87,12 @@ struct Player_t{
 			foreach(uint i, type; item_types)
 				items[i].Init(type);
 		}
+		Walk_Forwards_Timer=0.0;
+		Walk_Sidewards_Timer=0.0;
+	}
+	void On_Disconnect(){
+		InGame=false;
+		Spawned=false;
 	}
 	void Update(){
 		Update_Physics();
@@ -119,8 +132,18 @@ struct Player_t{
 			KeysChanged=false;
 		vel+=acl*WorldSpeed*10.0;
 		vel/=1.0+friction;
+		Vector3_t delta=vel;
+		if(CollidingSides[0] && !vel.x){
+			delta.x=ColVel.x;
+		}
+		if(CollidingSides[1] && !vel.y){
+			delta.y=ColVel.y;
+		}
+		if(CollidingSides[2] && !vel.z){
+			delta.z=ColVel.z;
+		}
 		CheckCollisionReturn_t coll;
-		Vector3_t newpos=pos+vel*WorldSpeed;
+		Vector3_t newpos=pos+delta*WorldSpeed;
 		if(vel.length<1.0 || 1)
 			coll=Check_Collisions_norc(newpos);
 		else
@@ -128,29 +151,39 @@ struct Player_t{
 		bool Climbed=false;
 		if(coll.Collision){
 			if((coll.Sides[0] || coll.Sides[2]) && !Crouch){
-				Vector3_t climbpos=newpos;
+				Vector3_t climbpos=pos+delta.filter(true, false, true)*WorldSpeed;
 				if(In_Water() && !Crouch)
 					climbpos.y-=1.0;
 				climbpos.y-=1.0;
 				auto climbcoll=Check_Collisions_norc(climbpos);
 				if(!climbcoll.Collision){
-					//pos.y=tofloat(toint(pos.y+height))-Player_Stand_Size-.01;
-					float y=CollidingVoxel_GetMinY(newpos.x, newpos.y+height, newpos.z);
-					if(!isNaN(y))
-						pos.y=y-Player_Stand_Size-.01-tofloat(In_Water())*1.5;
-					else
-						writeflnlog("Error when climbing: new y is NaN!");
-					//pos.y=climbpos.y;
+					float delta_y=pos.y-climbpos.y;
+					float ny=climbpos.y;
+					while(Collides_At(pos.x, ny+delta_y, pos.z) && delta_y>.005){
+						delta_y*=.5f;
+					}
+					pos.y=ny+delta_y;
 					Climbed=true;
 				}
 			}
 			if(!Climbed){
-				vel=vel.filter(!coll.Sides[0], !coll.Sides[1], !coll.Sides[2]);
+				CollidingSides=coll.Sides;
 				if(coll.Sides[1]){
 					//pos.y=coll.collpos.y-height-.01;
 				}
+				if(CollidingSides[0] && vel.x){
+					ColVel.x=vel.x;
+				}
+				if(CollidingSides[1] && vel.y){
+					ColVel.y=vel.y;
+				}
+				if(CollidingSides[2] && vel.z){
+					ColVel.z=vel.z;
+				}
+				vel=vel.filter(!CollidingSides[0], !CollidingSides[1], !CollidingSides[2]);
 			}
 		}
+		CollidingSides=coll.Sides;
 		pos+=vel*WorldSpeed;
 		//Note: I'm using a "dirty" trick here. Of course, the optimal way would be using something like a property
 		//But these are such scrap on D :S (damn it D devs, when will you make proper properties at last!)
@@ -163,9 +196,23 @@ struct Player_t{
 			if(stood_on_obj)
 				vel+=stood_on_obj.vel;
 		}
+		if(dir.length){
+			float l=vel.filter(true, false, true).dot(dir.filter(true, false, true))*WorldSpeed*4.0;
+			if(fabs(l)>.00001)
+				Walk_Forwards_Timer+=l;
+			else
+				Walk_Forwards_Timer=0.0;
+			l=vel.filter(true, false, true).dot(dir.rotate_raw(Vector3_t(0.0, 90.0, 0.0)).filter(true, false, true))*WorldSpeed*4.0;
+			if(fabs(l)>.00001)
+				Walk_Sidewards_Timer+=l;
+			else
+				Walk_Sidewards_Timer=0.0;
+		}
+		else{
+			Walk_Forwards_Timer=0.0; Walk_Sidewards_Timer=0.0;
+		}
 		if(Climbed)
 			vel*=.1;
-		CollidingSides=coll.Sides;
 		if(player_id==LocalPlayerID)
 			Update_Position_Data();
 	}
@@ -203,8 +250,14 @@ struct Player_t{
 		}
 		if(Collides_At(pos.x, newpos.y, pos.z)){
 			collsides[1]=true;
+			float delta_y=newpos.y-pos.y;
+			float ny=pos.y;
+			while(Collides_At(pos.x, ny, pos.z) && fabs(delta_y)>.05){
+				delta_y*=.5f;
+				ny=pos.y+delta_y;
+			}
 			//collpos.y=pos.y+(cast(float)(vel.y>0.0));
-			collpos.y=Get_Collision_MinY(pos.x, newpos.y, pos.z);
+			//collpos.y=Get_Collision_MinY(pos.x, newpos.y, pos.z);
 		}
 		if(Collides_At(pos.x, pos.y, newpos.z)){
 			collsides[2]=true;
@@ -257,17 +310,29 @@ struct Player_t{
 			return;
 		uint current_tick=SDL_GetTicks();
 		Item_t *current_item=&items[item];
-		if(current_tick-current_item.use_timer<ItemTypes[current_item.type].use_delay)
+		int timediff=current_tick-current_item.use_timer;
+		if(toint(timediff)<toint(ItemTypes[current_item.type].use_delay)-toint(Get_Ping())-toint(10)){
+			Update_Position_Data(true);
+		}
+		if(timediff<ItemTypes[current_item.type].use_delay)
 			return;
 		current_item.use_timer=current_tick;
 		if(current_item.Reloading || !current_item.amount1)
 			return;
 		ItemType_t *itemtype=&ItemTypes[current_item.type];
 		
-		Vector3_t usepos=pos;
+		Vector3_t usepos, usedir;
+		if(player_id==LocalPlayerID && MouseRightClick){
+			auto scp=Get_Player_Scope(player_id);
+			usepos=scp.pos; usedir=scp.rot.RotationAsDirection();
+		}
+		else{
+			usepos=pos;
+			usedir=dir;
+		}
 		Vector3_t spreadeddir;
 		float spreadfactor=itemtype.spread_c+itemtype.spread_m*uniform01();
-		spreadeddir=dir*(1.0-spreadfactor)+Vector3_t(uniform01(), uniform01(), uniform01())*spreadfactor;
+		spreadeddir=usedir*(1.0-spreadfactor)+Vector3_t(uniform01(), uniform01(), uniform01())*spreadfactor;
 
 		float block_hit_dist=10e99;
 		Vector3_t block_hit_pos;
@@ -298,7 +363,7 @@ struct Player_t{
 				KV6Sprite_t[] sprites=Get_Player_Sprites(pid);
 				foreach(ubyte spindex, ref spr; sprites){
 					Vector3_t vxpos; KV6Voxel_t *vx;
-					if(SpriteHitScan(&spr, usepos, spreadeddir, vxpos, vx)){
+					if(SpriteHitScan(&spr, usepos, spreadeddir, vxpos, vx, 3.0)){
 						//vx.color=0x00ff0000;
 						if(player_id==LocalPlayerID){
 							hit_player=true;
@@ -376,8 +441,8 @@ struct Player_t{
 		float xrecoil=itemtype.recoil_xc+itemtype.recoil_xm*uniform01()*(uniform(0, 2)*2-1);
 		float yrecoil=itemtype.recoil_yc+itemtype.recoil_ym*uniform01()*(uniform(0, 2)*2-1);
 		if(player_id==LocalPlayerID){
-			CameraRot.y+=yrecoil;
-			CameraRot.x+=xrecoil;
+			MouseRot.y+=yrecoil;
+			MouseRot.x+=xrecoil;
 		}
 		current_item.last_recoil=yrecoil;
 		dir.rotate(Vector3_t(0, yrecoil, xrecoil));
@@ -586,7 +651,7 @@ immutable uint MaxDamageParticlesPerBlock=1024;
 struct DamageParticle_t{
 	float x, y, z;
 	uint col;
-	void Init(uint ix, uint iy, uint iz, uint col, uint[] free_sides){
+	void Init(uint ix, uint iy, uint iz, uint icol, uint[] free_sides){
 		float vx=tofloat(ix)+.5, vy=tofloat(iy)+.5, vz=tofloat(iz)+.5;
 		/*uint side=uniform(0, 3);
 		float sidesgn=tofloat(toint(uniform(0, 2))*2-1)*.5;*/
@@ -603,6 +668,7 @@ struct DamageParticle_t{
 			case 5: z=vz-.5; break;
 			default:break;
 		}
+		col=icol|0xff000000;
 	}
 }
 
@@ -783,6 +849,7 @@ struct Object_t{
 	uint index;
 	KV6Model_t *model;
 	ubyte minimap_img;
+	uint color;
 	bool modify_model, enable_bullet_holes;
 	bool visible;
 	bool Is_Solid;
@@ -805,6 +872,7 @@ struct Object_t{
 			Solid_Objects.remove(index);
 		if(Hittable_Objects.canFind(index))
 			Hittable_Objects.remove(index);
+		vel=Vector3_t(0.0, 0.0, 0.0); rot=vel;
 	}
 	
 	void Update(){

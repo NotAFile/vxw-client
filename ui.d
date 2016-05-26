@@ -30,6 +30,8 @@ int MouseXPos, MouseYPos;
 int MouseMovedX, MouseMovedY;
 bool MouseLeftClick, MouseRightClick;
 
+immutable float MouseAccuracyConst=.75;
+
 bool Render_MiniMap;
 
 string LastSentLine="";
@@ -474,17 +476,6 @@ void Render_HUD(){
 						if(e.transparency<255)
 							SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
 					}
-				}
-				if(ProtocolBuiltin_ScopePicture && !item.Reloading && MouseRightClick){
-					MenuElement_t *e=ProtocolBuiltin_ScopePicture;
-					SDL_Rect r;
-					r.w=Mod_Picture_Sizes[e.picture_index][0]; r.h=Mod_Picture_Sizes[e.picture_index][1];
-					r.x=e.xpos-r.w/2; r.y=e.ypos-r.h/2;
-					if(e.transparency<255)
-						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
-					SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
-					if(e.transparency<255)
-						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
 				}
 			}
 			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].show_palette){

@@ -17,7 +17,10 @@ version(LDC){
 
 SDL_Window *scrn_window;
 SDL_Renderer *scrn_renderer;
+SDL_Texture *vxrend_texture;
 SDL_Texture *scrn_texture;
+
+SDL_Surface *scrn_surface;
 
 SDL_Texture *font_texture;
 SDL_Texture *borderless_font_texture;
@@ -32,8 +35,8 @@ uint Font_SpecialColor=0xff000000;
 
 uint ScreenXSize=800, ScreenYSize=600;
 
-Vector3_t CameraRot=Vector3_t(0.0, 0.0, 0.0);
-Vector3_t CameraPos=Vector3_t(0.0, 0.0, 0.0);
+Vector3_t CameraRot=Vector3_t(0.0, 0.0, 0.0), CameraPos=Vector3_t(0.0, 0.0, 0.0);
+Vector3_t MouseRot=Vector3_t(0.0, -90.0, 0.0);
 float X_FOV=90.0, Y_FOV=90.0;
 
 KV6Model_t*[] Mod_Models;
@@ -48,12 +51,17 @@ bool Software_Renderer=false;
 
 Vector3_t TerrainOverview;
 
+bool Do_Sprite_Visibility_Checks=true;
+
 immutable bool Enable_Object_Model_Modification=true;
+
+float BlurAmount=0.0, BaseBlurAmount=0.0, BlurAmountDecay=.99;
+float ShakeAmount=0.0, BaseShakeAmount=0.0, ShakeAmountDecay=.9;
 
 void Init_Gfx(){
 	DerelictSDL2.load();
 	DerelictSDL2Image.load();
-	if(SDL_Init(SDL_INIT_EVERYTHING))
+	if(SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO | SDL_INIT_EVENTS))
 		writeflnlog("[WARNING] SDL2 didn't initialize properly: %s", SDL_GetError());
 	if(IMG_Init(IMG_INIT_PNG)!=IMG_INIT_PNG)
 		writeflnlog("[WARNING] IMG for PNG didn't initialize properly: %s", IMG_GetError());
@@ -61,6 +69,7 @@ void Init_Gfx(){
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
 	Software_Renderer=false;
 	scrn_renderer=SDL_CreateRenderer(scrn_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+	vxrend_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, ScreenXSize, ScreenYSize);
 	scrn_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, ScreenXSize, ScreenYSize);
 	{
 		SDL_Surface *font_surface=SDL_LoadBMP("./Ressources/Default/Font.bmp");
@@ -289,7 +298,9 @@ void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
 			continue;
 		if(dst<0.0)
 			continue;
-		Render_Rectangle(scrx, scry, cast(int)(20.0/(dst+1.0))+1, cast(int)(20.0/(dst+1.0))+1, p.col, tofloat(toint(dst)));
+		uint color=p.col;
+		Vox_Calculate_2DFog(cast(ubyte*)&color, p.pos.x-CameraPos.x, p.pos.y-CameraPos.y);
+		Render_Rectangle(scrx, scry, cast(int)(20.0/(dst+1.0))+1, cast(int)(20.0/(dst+1.0))+1, color, tofloat(toint(dst)));
 	}
 	float particle_size=BlockBreakParticleSize*dst_srfc.w;
 	foreach(ref p; BlockBreakParticles){
@@ -320,7 +331,9 @@ void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
 			continue;
 		if(dst<0.0)
 			continue;
-		Render_Rectangle(scrx, scry, cast(int)(50.0/(dst+1.0))+1, cast(int)(50.0/(dst+1.0))+1, p.col, tofloat(toint(dst)));
+		uint color=p.col;
+		Vox_Calculate_2DFog(cast(ubyte*)&color, p.pos.x-CameraPos.x, p.pos.y-CameraPos.y);
+		Render_Rectangle(scrx, scry, cast(int)(50.0/(dst+1.0))+1, cast(int)(50.0/(dst+1.0))+1, color, tofloat(toint(dst)));
 	}
 	while(Particles.length){
 		if(!Particles[$-1].timer)
@@ -339,6 +352,48 @@ void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
 			continue;
 		Render_Object(o);
 	}
+	{
+		struct DrawSmokeCircleParams{
+			float dst;
+			uint color, alpha;
+			int scrx, scry, size;
+		}
+		DrawSmokeCircleParams[] params;
+		float SmokeParticleSizeIncrease=1.0f+WorldSpeed*.09f, SmokeParticleAlphaDecay=(1.0f*.99f)/SmokeParticleSizeIncrease;
+		foreach(ref p; SmokeParticles){
+			p.size*=SmokeParticleSizeIncrease; p.alpha*=SmokeParticleAlphaDecay;
+			p.pos+=p.vel;
+			p.vel*=.96f;
+			float dst;
+			int scrx, scry;
+			if(!Project2D(p.pos.x, p.pos.y, p.pos.z, &dst, scrx, scry))
+				continue;
+			if(dst<=0.0)
+				continue;
+			uint size=cast(uint)(p.size*90.0/X_FOV/dst);
+			uint color=p.col;
+			Vox_Calculate_2DFog(cast(ubyte*)&color, p.pos.x-CameraPos.x, p.pos.y-CameraPos.y);
+			uint alpha=cast(uint)(p.alpha*256.0f);
+			params~=DrawSmokeCircleParams(dst, color, alpha, scrx-size, scry-size, size);
+			//Draw_Smoke_Circle(scrx-size, scry-size, size, color, cast(uint)(p.alpha*255.0f), dst);
+			if(p.size>p.remove_size)
+				p.alpha=0f;
+			if(!alpha)
+				p.alpha=0f;
+		}
+		params.sort!("a.dst>b.dst");
+		for(uint i=0; i<params.length; i++){
+			DrawSmokeCircleParams *p=&params[i];
+			Draw_Smoke_Circle(p.scrx, p.scry, p.size, p.color, p.alpha, p.dst);
+		}
+		params.length=0;
+	}
+	while(SmokeParticles.length){
+		if(!SmokeParticles[$-1].alpha)
+			SmokeParticles.length--;
+		else
+			break;
+	}
 	if(Render_Cursor)
 		*Pixel_Pointer(dst_srfc, dst_srfc.w/2, dst_srfc.h/2)=0xffffff^*Pixel_Pointer(dst_srfc, dst_srfc.w/2, dst_srfc.h/2);
 }
@@ -347,59 +402,136 @@ void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
 void Render_Screen(){
 	//Fill_Screen(null, SDL_MapRGB(scrn_surface.format, 0, 255, 255));
 	bool Render_Local_Player=false;
+	bool Render_Scope=false;
 	if(Joined_Game()){
 		Render_Local_Player|=Players[LocalPlayerID].Spawned && Players[LocalPlayerID].InGame;
 	}
+	Set_Frame_Buffer(scrn_surface);
 	if(LoadedCompleteMap){
-		Set_Frame_Buffer(scrn_surface);
 		Vector3_t pos;
 		if(Render_Local_Player || JoinedGame){
-			if(!Menu_Mode)
-				CameraRot.x+=MouseMovedX*.5; CameraRot.y+=MouseMovedY*.5;
+			float mousexvel=MouseMovedX*.5*MouseAccuracyConst*X_FOV/90.0, mouseyvel=MouseMovedY*.5*MouseAccuracyConst*Y_FOV/90.0;
+			if(!Menu_Mode){
+				if(Players[LocalPlayerID].item_types.length){
+					if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon){
+						if(MouseRightClick){
+							MouseRot.x+=mouseyvel*(uniform01()*2.0-1.0)*.75; MouseRot.y+=mousexvel*(uniform01()*2.0-1.0)*.75;
+							mousexvel*=.6; mouseyvel*=.6;
+						}
+					}
+				}
+				MouseRot.x+=mousexvel; MouseRot.y+=mouseyvel;
+			}
 			Vector3_t rt;
-			rt.x=CameraRot.y;
-			rt.y=CameraRot.x;
-			rt.z=CameraRot.z;
+			rt.x=MouseRot.y;
+			rt.y=MouseRot.x;
+			rt.z=MouseRot.z;
 			if(Render_Local_Player)
 				Players[LocalPlayerID].dir=rt.RotationAsDirection;
 			//Limiting to 100.0°, not 90.0°, so shooting vertically will be easier
-			if(CameraRot.y<-100.0)
-				CameraRot.y=-100.0;
-			if(CameraRot.y>100.0)
-				CameraRot.y=100.0;
+			if(MouseRot.y<-100.0)
+				MouseRot.y=-100.0;
+			if(MouseRot.y>100.0)
+				MouseRot.y=100.0;
 			pos=Players[LocalPlayerID].pos;
 			CameraPos=pos;
-			SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, pos.x, pos.y, pos.z);
+			CameraRot=MouseRot;
 		}
 		else{
-			CameraRot.x+=MouseMovedX*.7; CameraRot.y+=MouseMovedY*.5;
+			MouseRot.x+=MouseMovedX*.7; MouseRot.y+=MouseMovedY*.5;
 			TerrainOverview.y+=uniform01()*.5;
 			TerrainOverview.x+=cos(TerrainOverview.y*PI/180.0)*.3;
 			TerrainOverview.z+=sin(TerrainOverview.y*PI/180.0)*.3;
 			pos=TerrainOverview;
 			pos.y=-15.0;
-			Vector3_t crot=CameraRot*.05+Vector3_t(0.0, 45.0, 0.0);
+			Vector3_t crot=MouseRot*.05+Vector3_t(0.0, 45.0, 0.0);
 			CameraPos=pos;
-			SetCamera(crot.x, crot.y, crot.z, X_FOV, Y_FOV, pos.x, pos.y, pos.z);
+			CameraRot=crot;
 		}
+		CameraPos.x+=(uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount);
+		CameraPos.y+=(uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount);
+		CameraPos.z+=(uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount);
+		SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, CameraPos.x, CameraPos.y, CameraPos.z);
 		if(Render_Local_Player)
 			Update_Rotation_Data();
 		Prepare_Render();
+		Do_Sprite_Visibility_Checks=true;
 		Render_World(scrn_surface, false);
 		{
 			if(Render_Local_Player){
-				if(Players[LocalPlayerID].item_types.length)
+				if(Players[LocalPlayerID].item_types.length){
 					if(ItemTypes[Players[LocalPlayerID].item_types[Players[LocalPlayerID].item]].is_weapon
-					&& !Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading&& MouseRightClick){
-						if(ProtocolBuiltin_ScopePicture)
+					&& !Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading && MouseRightClick){
+						if(ProtocolBuiltin_ScopePicture){
+							Render_Scope=true;
 							Render_Round_ZoomedIn(400, 300, Mod_Picture_Sizes[ProtocolBuiltin_ScopePicture.picture_index][0]/2, 1.1, 1.1);
+						}
 					}
-						
+				}
 			}
 		}
 		Render_FinishRendering();
 	}
 	SDL_SetRenderTarget(scrn_renderer, scrn_texture);
+	{
+		SDL_Rect dstrect;
+		SDL_SetRenderTarget(scrn_renderer, scrn_texture);
+		dstrect.w=ScreenXSize; dstrect.h=ScreenYSize;
+		//I already had implemented screen space shake, when I found out that camera position shake is much better
+		int shakex=toint((uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount)*ScreenXSize)*0;
+		int shakey=toint((uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount)*ScreenYSize)*0;
+		dstrect.x=shakex; dstrect.y=shakey;
+		if(dstrect.x){
+			SDL_Rect srcr, lnrct;
+			lnrct.y=0; lnrct.h=ScreenYSize;
+			srcr.y=0; srcr.h=ScreenYSize; srcr.w=1;
+			if(dstrect.x>0){
+				lnrct.x=0; lnrct.w=dstrect.x;
+				srcr.x=0;
+			}
+			else{
+				lnrct.w=-dstrect.x; lnrct.x=ScreenXSize-lnrct.w;
+				srcr.x=ScreenXSize-srcr.w;
+			}
+			SDL_RenderCopy(scrn_renderer, vxrend_texture, &srcr, &lnrct);
+		}
+		if(dstrect.y){
+			SDL_Rect srcr, lnrct;
+			lnrct.x=0; lnrct.w=ScreenXSize;
+			srcr.x=0; srcr.w=ScreenXSize; srcr.h=1;
+			if(dstrect.y>0){
+				lnrct.y=0; lnrct.h=dstrect.y;
+				srcr.y=0;
+			}
+			else{
+				lnrct.h=-dstrect.y; lnrct.y=ScreenYSize-lnrct.h;
+				srcr.y=ScreenYSize-srcr.h;
+			}
+			SDL_RenderCopy(scrn_renderer, vxrend_texture, &srcr, &lnrct);
+		}
+		SDL_SetRenderTarget(scrn_renderer, scrn_texture);
+		//SDL_SetTextureColorMod(vxrend_texture, (VoxlapInterface.fogcol>>16)&255, (VoxlapInterface.fogcol>>8)&255, (VoxlapInterface.fogcol>>0)&255);
+		{
+			float fr=(Fog_Color>>16)&255, fg=(Fog_Color>>8)&255, fb=(Fog_Color>>0)&255;
+			immutable float fog_alpha=.15;
+			float r=fr*fog_alpha+255.0*(1.0-fog_alpha), g=fg*fog_alpha+255.0*(1.0-fog_alpha), b=fb*fog_alpha+255.0*(1.0-fog_alpha);
+			SDL_SetTextureColorMod(vxrend_texture, cast(ubyte)r, cast(ubyte)g, cast(ubyte)b);
+		}
+		SDL_SetTextureBlendMode(vxrend_texture, SDL_BLENDMODE_BLEND);
+		SDL_SetTextureAlphaMod(vxrend_texture, cast(ubyte)(32+(tofloat(255-32)/(1.0+BlurAmount+BaseBlurAmount))));
+		SDL_RenderCopy(scrn_renderer, vxrend_texture, null, &dstrect);
+		if(Render_Scope){
+			MenuElement_t *e=ProtocolBuiltin_ScopePicture;
+			SDL_Rect r;
+			r.w=Mod_Picture_Sizes[e.picture_index][0]; r.h=Mod_Picture_Sizes[e.picture_index][1];			
+			r.x=e.xpos-r.w/2+shakex; r.y=e.ypos-r.h/2+shakey;
+			if(e.transparency<255)
+				SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
+			SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
+			if(e.transparency<255)
+				SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
+		}
+	}
 	{
 		SDL_Rect r;
 		foreach(ref elements; Z_MenuElements[1..$]){
@@ -440,12 +572,26 @@ void Render_Screen(){
 			if(!obj.visible || obj.minimap_img==255)
 				continue;
 			SDL_Rect orct;
+			ubyte r, g, b;
+			bool restore_color_mod=false;
+			if(obj.color){
+				if(obj.color&0xff000000){
+					SDL_GetTextureColorMod(Mod_Pictures[obj.minimap_img], &r, &g, &b);
+					SDL_SetTextureColorMod(Mod_Pictures[obj.minimap_img], (obj.color>>16)&255, (obj.color>>8)&255, (obj.color>>0)&255);
+					restore_color_mod=true;
+				}
+				else{
+					//Replace black: hmmmm
+				}
+			}
 			orct.w=Mod_Picture_Sizes[obj.minimap_img][0]*minimap_rect.w/MapXSize;
 			orct.h=Mod_Picture_Sizes[obj.minimap_img][1]*minimap_rect.h/MapZSize;
 			int xpos=cast(int)(obj.pos.x*cast(float)(minimap_rect.w)/cast(float)(MapXSize))+minimap_rect.x;
 			int zpos=cast(int)(obj.pos.z*cast(float)(minimap_rect.h)/cast(float)(MapZSize))+minimap_rect.y;
 			orct.x=xpos-orct.w/2; orct.y=zpos-orct.h/2;
 			SDL_RenderCopy(scrn_renderer, Mod_Pictures[obj.minimap_img], null, &orct);
+			if(restore_color_mod)
+				SDL_SetTextureColorMod(Mod_Pictures[obj.minimap_img], r, g, b);
 		}
 	}
 	if(List_Players){
@@ -471,6 +617,9 @@ void Render_Screen(){
 			}
 		}
 	}
+	BlurAmount*=BlurAmountDecay;
+	ShakeAmount*=ShakeAmountDecay;
+	Set_Blur(BlurAmount+BaseBlurAmount);
 }
 
 KV6Sprite_t Get_Object_Sprite(uint obj_id){
@@ -481,6 +630,14 @@ KV6Sprite_t Get_Object_Sprite(uint obj_id){
 	spr.rti=yrot; spr.rhe=xrot; spr.rst=zrot;
 	spr.xdensity=obj.density.x; spr.ydensity=obj.density.y; spr.zdensity=obj.density.z;
 	spr.model=obj.model;
+	if(obj.color){
+		if(obj.color&0xff000000){
+			spr.color_mod=obj.color;
+		}
+		else{
+			spr.replace_black=obj.color;
+		}
+	}
 	return spr;
 	
 }
@@ -534,7 +691,7 @@ void Render_Player(uint player_id){
 	}
 }
 
-SDL_Surface* ScopeSurface;
+SDL_Surface* ScopeSurface=null;
 void Render_Round_ZoomedIn(int scrx, int scry, int radius, float xzoom, float yzoom){
 	{
 		bool new_srfc=false;
@@ -551,7 +708,11 @@ void Render_Round_ZoomedIn(int scrx, int scry, int radius, float xzoom, float yz
 		}
 	}
 	Set_Frame_Buffer(ScopeSurface);
-	SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV/xzoom/tofloat(scrn_surface.w/radius), Y_FOV/yzoom/tofloat(scrn_surface.h/radius), CameraPos.x, CameraPos.y, CameraPos.z);
+	//SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV/xzoom/tofloat(scrn_surface.w/radius), Y_FOV/yzoom/tofloat(scrn_surface.h/radius), CameraPos.x, CameraPos.y, CameraPos.z);
+	auto scp=Get_Player_Scope(LocalPlayerID);
+	Vector3_t scpp=scp.pos, scpr=scp.rot;
+	SetCamera(scpr.y, scpr.x, scpr.z, X_FOV/xzoom/tofloat(scrn_surface.w/radius), Y_FOV/yzoom/tofloat(scrn_surface.h/radius), scpp.x, scpp.y, scpp.z);
+	Do_Sprite_Visibility_Checks=true;
 	Render_World(ScopeSurface, true);
 	int pow_radius=radius*radius;
 	SDL_Rect src, dst;
@@ -569,6 +730,7 @@ void Render_Round_ZoomedIn(int scrx, int scry, int radius, float xzoom, float yz
 }
 
 //Other note: this system is only WIP and will be replaced with server-side stuff someday
+//Note: already done (why do I even still have this commented-out scrap)
 
 /*Documentation Note:
  * If you want to change the way player KV6 sprites are positioned, 
@@ -616,6 +778,8 @@ KV6Sprite_t[] Get_Player_Sprites(uint player_id){
 	Player_t *plr=&Players[player_id];
 	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
 	Vector3_t pos=Players[player_id].pos;
+	if(player_id==LocalPlayerID)
+		pos=CameraPos;
 	KV6Sprite_t[] sprarr;
 	KV6Sprite_t spr;
 	foreach(ref model; plr.models){
@@ -626,13 +790,17 @@ KV6Sprite_t[] Get_Player_Sprites(uint player_id){
 		if(model.Rotate){
 			spr.rst+=mrot.z; spr.rhe+=mrot.x;
 		}
+		if(model.WalkRotate){
+			spr.rhe+=sin(plr.Walk_Forwards_Timer)*model.WalkRotate;
+			spr.rst+=sin(plr.Walk_Sidewards_Timer)*model.WalkRotate;
+		}
 		KV6Model_t *modelfile=Mod_Models[model.model_id];
 		spr.xdensity=model.size.x/tofloat(modelfile.xsize);
 		spr.ydensity=model.size.y/tofloat(modelfile.ysize); spr.zdensity=model.size.z/tofloat(modelfile.zsize);
 		spr.model=modelfile;
 		Vector3_t mpos=pos;
 		Vector3_t offsetrot=mrot;
-		offsetrot.x=0.0; offsetrot.z=0.0; offsetrot.y=rot.y;
+		offsetrot.x=0.0; offsetrot.z=0.0; offsetrot.y=-rot.y;
 		Vector3_t offset=model.offset.rotate_raw(offsetrot);
 		mpos-=offset;
 		spr.xpos=mpos.x; spr.ypos=mpos.y; spr.zpos=mpos.z;
@@ -642,6 +810,18 @@ KV6Sprite_t[] Get_Player_Sprites(uint player_id){
 	return sprarr;
 }
 
+auto Get_Player_Scope(uint player_id){
+	struct Result_t{
+		Vector3_t pos, rot;
+	}
+	Result_t result;
+	KV6Sprite_t spr=Get_Player_Attached_Sprites(player_id)[0];
+	result.rot=Vector3_t(spr.rhe, spr.rti, spr.rst);
+	result.pos=Get_Absolute_Sprite_Coord(&spr, Vector3_t(spr.model.xsize, spr.model.ysize/2.0, spr.model.zsize/2.0));
+	return result;
+}
+
+//Note: Sprite number zero has to be the weapon when scoping
 KV6Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	if(!Players[player_id].item_types.length || !Players[player_id].Spawned)
 		return [];
@@ -650,13 +830,20 @@ KV6Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	KV6Sprite_t[] sprarr;
 	KV6Sprite_t spr;
 	Vector3_t item_offset;
-	if(player_id==LocalPlayerID)
+	if(player_id==LocalPlayerID){
+		pos=CameraPos;
+	}
+	item_offset=Vector3_t(.8, 0.0, .4);
+	/*if(player_id==LocalPlayerID && false){
 		item_offset=Vector3_t(2.0, -.4, .4);
-	else
+		pos=CameraPos;
+	}
+	else{
 		item_offset=Vector3_t(.8, 0.0, .4);
+	}*/
 	//I have no idea what I'm rotating around which axis or idk, actually I am only supposed to need one single rotation
 	//But this works (makes the item appear in front of the player with an offset of item_offset, considering his rotation)
-	spr.rst=rot.z; spr.rhe=rot.x; spr.rti=rot.y;
+	spr.rst=rot.z*0.0; spr.rhe=rot.x; spr.rti=rot.y;
 	Vector3_t itempos=pos+item_offset.rotate_raw(Vector3_t(0.0, 90.0-rot.x, 90.0)).rotate_raw(Vector3_t(0.0, 90.0-rot.y+180.0, 0.0));
 	spr.xpos=itempos.x; spr.ypos=itempos.y; spr.zpos=itempos.z;
 	spr.xdensity=.04; spr.ydensity=.04; spr.zdensity=.04;
@@ -666,7 +853,7 @@ KV6Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	if(ItemTypes[item.type].is_weapon){
 		if(!item.Reloading && item.amount1){
 			if(current_tick-item.use_timer<ItemTypes[item.type].use_delay)
-				spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*-item.last_recoil*7.5;
+				spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*-item.last_recoil*0.0;
 		}
 	}
 	else
@@ -692,7 +879,7 @@ uint Count_KV6Blocks(KV6Model_t *model, uint dstx, uint dsty){
 	return index;
 }
 
-int SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out KV6Voxel_t *outvoxptr){
+int SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out KV6Voxel_t *outvoxptr, float vox_size=1.0){
 	uint x, z;
 	KV6Voxel_t *sblk, blk, eblk;
 	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
@@ -701,7 +888,7 @@ int SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t 
 	rot_sz=sin(spr.rst*PI/180.0); rot_cz=cos(-spr.rst*PI/180.0);
 	if(!Sprite_BoundHitCheck(spr, pos, dir))
 		return 0;
-	float voxxsize=fabs(spr.xdensity), voxysize=fabs(spr.ydensity), voxzsize=fabs(spr.zdensity);
+	float voxxsize=fabs(spr.xdensity)*vox_size, voxysize=fabs(spr.ydensity)*vox_size, voxzsize=fabs(spr.zdensity)*vox_size;
 	KV6Voxel_t *voxptr=null;
 	float minvxdist=10e99;
 	for(x=0; x<spr.model.xsize; ++x){
@@ -755,6 +942,18 @@ Particle_t[] Particles;
 immutable float BlockBreakParticleSize=.3;
 Particle_t[] BlockBreakParticles;
 
+struct SmokeParticle_t{
+	Vector3_t pos, vel;
+	float size;
+	float alpha;
+	float remove_size;
+	uint col;
+	void Init(Vector3_t ipos, Vector3_t ivel, uint icol, float isize){
+		pos=ipos; vel=ivel; size=isize; col=icol; alpha=uniform01()*.1f+.9f; remove_size=size*(uniform01()*1.0f+1.5f);
+	}
+}
+SmokeParticle_t[] SmokeParticles;
+
 void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint col, uint timer=0){
 	uint old_size=Particles.length;
 	uint sent_col_chance=(col>>24)&255;
@@ -791,7 +990,17 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 			Particles[i].col=colors[uniform(0, colors.length)];
 		Particles[i].timer=!timer ? uniform(300, 400) : timer;
 	}
-} 
+}
+
+void Create_Smoke(Vector3_t pos, uint amount, uint col, float size){
+	uint old_size=SmokeParticles.length;
+	SmokeParticles.length+=amount;
+	for(uint i=old_size; i<old_size+amount; i++){
+		Vector3_t spos=pos+RandomVector()*size*.1;
+		Vector3_t vel=RandomVector()*size*.01;
+		SmokeParticles[i].Init(spos, vel, col, size*30.0);
+	}
+}
 
 void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint col, uint timer=0){
 	static if(Enable_Object_Model_Modification){
@@ -846,9 +1055,33 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 			}
 		}
 	}
+	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount+1, 0xff808080, radius);
+}
+
+//Be careful: this is evil
+Vector3_t Get_Absolute_Sprite_Coord(KV6Sprite_t *spr, Vector3_t coord){
+	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
+	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
+	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
+	/*float fnx=(coord.x-spr.model.xpivot+.5)*spr.xdensity;
+	float fny=(coord.y-spr.model.ypivot+.5)*spr.ydensity;
+	float fnz=(coord.z-spr.model.zpivot-.5)*spr.zdensity;*/
+	float fnx=(coord.x-spr.model.xpivot)*spr.xdensity;
+	float fny=(coord.y-spr.model.ypivot)*spr.ydensity;
+	float fnz=(coord.z-spr.model.zpivot)*spr.zdensity;
+	float rot_y=fny, rot_z=fnz, rot_x=fnx;
+	fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
+	rot_x=fnx; rot_z=fnz;
+	fnz=rot_z*rot_cy - rot_x*rot_sy; fnx=rot_z*rot_sy + rot_x*rot_cy;
+	rot_x=fnx; rot_y=fny;
+	fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
+	fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
+	return Vector3_t(fnx, fny, fnz);
 }
 
 bool Sprite_Visible(KV6Sprite_t *spr){
+	if(!Do_Sprite_Visibility_Checks)
+		return true;
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
 	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
@@ -868,11 +1101,9 @@ bool Sprite_Visible(KV6Sprite_t *spr){
 		fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
 		int screenx, screeny;
 		float renddist=Vox_Project2D(fnx, fnz, fny, &screenx, &screeny);
-		if(renddist<0.0)
+		if(renddist<0.0 || renddist>Visibility_Range)
 			continue;
-		if(screenx<0 || screeny<0)
-			continue;
-		if(renddist>Visibility_Range)
+		if(screenx<0 || screeny<0 || screenx>=FrameBuf.w || screeny>=FrameBuf.h)
 			continue;
 		//Only after I fixed raycasting code
 		Vector3_t vpos=Vector3_t(fnx, fny, fnz);
@@ -883,7 +1114,6 @@ bool Sprite_Visible(KV6Sprite_t *spr){
 		if(!result.collside)
 			return true;
 		return true;
-		//Vox_DrawRect2D(screenx, screeny, 10, 10, 0xffffffff, renddist);
 	}
 	return false;
 }

@@ -58,7 +58,6 @@ static this(){
 	];
 }
 
-
 struct ModFile_t{
 	ubyte type;
 	ushort index;
@@ -301,14 +300,20 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				WriteMsg(packet.message, packet.color);
 				break;
 			}
-			case DisconnectPacketID:{
+			case PlayerDisconnectPacketID:{
 				auto packet=UnpackPacketToStruct!(PlayerDisconnectPacketLayout)(PacketData);
-				writeflnlog("Player with ID %d disconnected", packet.player_id);
+				writeflnlog("Player with ID %d disconnected: %s", packet.player_id, packet.reason);
+				if(packet.player_id==LocalPlayerID){
+					QuitGame=true;
+				}
+				Players[packet.player_id].On_Disconnect();
 				break;
 			}
 			case MapEnvironmentPacketID:{
 				auto packet=UnpackPacketToStruct!(MapEnvironmentPacketLayout)(PacketData);
 				Set_Fog(packet.fog_color, packet.visibility_range);
+				BaseBlurAmount=packet.base_blur;
+				BaseShakeAmount=packet.base_shake;
 				break;
 			}
 			case ExistingPlayerPacketID:{
@@ -346,7 +351,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				auto packet=UnpackPacketToStruct!(PlayerRotationPacketLayout)(PacketData);
 				Players[packet.player_id].dir=Vector3_t(packet.xrot, packet.yrot, packet.zrot);
 				if(packet.player_id==LocalPlayerID)
-					CameraRot=Players[packet.player_id].dir.DirectionAsRotation;
+					MouseRot=Players[packet.player_id].dir.DirectionAsRotation;
 				break;
 			}
 			case WorldUpdatePacketID:{
@@ -560,6 +565,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				else{
 					obj.model=null;
 				}
+				obj.color=packet.color;
 				break;
 			}
 			case SetObjectPosPacketID:{
@@ -680,6 +686,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				model.rotation=Vector3_t(packet.xrot, packet.yrot, packet.zrot);
 				model.FirstPersonModel=!cast(bool)(packet.flags&SetPlayerModelPacketFlags.NonFirstPersonModel);
 				model.Rotate=cast(bool)(packet.flags&SetPlayerModelPacketFlags.RotateModel);
+				model.WalkRotate=packet.walk_rotate;
 				break;
 			}
 			case PingPacketID:{
@@ -700,6 +707,18 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case SetPlayerModePacketID:{
 				auto packet=UnpackPacketToStruct!(SetPlayerModePacketLayout)(PacketData);
 				Players[packet.player_id].InGame=Players[packet.player_id].Spawned=cast(bool)packet.mode;
+				break;
+			}
+			case SetBlurPacketID:{
+				auto packet=UnpackPacketToStruct!(SetBlurPacketLayout)(PacketData);
+				BlurAmount=packet.blur;
+				BlurAmountDecay=packet.decay;
+				break;
+			}
+			case SetShakePacketID:{
+				auto packet=UnpackPacketToStruct!(SetShakePacketLayout)(PacketData);
+				ShakeAmount=packet.shake;
+				ShakeAmountDecay=packet.decay;
 				break;
 			}
 			default:{
@@ -729,8 +748,9 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 }
 
 void Send_Disconnect_Packet(){
-	ubyte[2] data=[DisconnectPacketID, 0];
-	Send_Data(data.ptr, 2);
+	PlayerDisconnectPacketLayout packet;
+	packet.player_id=LocalPlayerID; packet.reason="Disconnected";
+	Send_Packet(PlayerDisconnectPacketID, packet);
 }
 
 void Send_Packet(T)(PacketID_t id, T packet){
@@ -740,9 +760,9 @@ void Send_Packet(T)(PacketID_t id, T packet){
 
 immutable float RotationDataSendDist=.1;
 Vector3_t LastRotationDataSent=Vector3_t(0.0);
-void Update_Rotation_Data(){
-	float dist=(CameraRot-LastRotationDataSent).length;
-	if(dist>RotationDataSendDist){
+void Update_Rotation_Data(bool force_update=false){
+	float dist=(MouseRot-LastRotationDataSent).length;
+	if(dist>RotationDataSendDist || (force_update && dist>.00001)){
 		PlayerRotationPacketLayout packet;
 		Vector3_t dir=Players[LocalPlayerID].dir;
 		packet.xrot=dir.x; packet.yrot=dir.y; packet.zrot=dir.z;
@@ -750,15 +770,15 @@ void Update_Rotation_Data(){
 		uint data=Convert_Unit_Vec_To_NetFP(dir);
 		/*writeflnlog("%s", dir);
 		writeflnlog("%s", Convert_NetFP_To_Unit_Vec(data));*/
-		LastRotationDataSent=CameraRot;
+		LastRotationDataSent=MouseRot;
 	}
 }
 
 immutable float PositionDataSendDist=2.0;
 Vector3_t LastPositionDataSent=Vector3_t(0.0);
-void Update_Position_Data(){
+void Update_Position_Data(bool force_update=false){
 	float dist=(Players[LocalPlayerID].pos-LastPositionDataSent).length;
-	if(dist>PositionDataSendDist){
+	if(dist>PositionDataSendDist || (force_update && dist>.00001)){
 		PlayerPositionPacketLayout packet;
 		Vector3_t pos=Players[LocalPlayerID].pos;
 		packet.xpos=pos.x; packet.ypos=pos.y; packet.zpos=pos.z;

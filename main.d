@@ -48,6 +48,7 @@ void main(string[] args){
 		Check_Input();
 		while(true){
 			auto ret=Update_Network();
+			QuitGame|=ServerDisconnected;
 			if(ret.data.length)
 				On_Packet_Receive(ret);
 			else
