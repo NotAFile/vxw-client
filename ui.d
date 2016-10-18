@@ -1,6 +1,7 @@
 import derelict.sdl2.sdl;
 import std.string;
 import std.algorithm;
+import std.conv;
 import gfx;
 import misc;
 import network;
@@ -9,6 +10,7 @@ import world;
 import vector;
 import renderer;
 import packettypes;
+import script;
 version(LDC){
 	import ldc_stdlib;
 }
@@ -29,6 +31,7 @@ bool Lock_Mouse=true;
 int MouseXPos, MouseYPos;
 int MouseMovedX, MouseMovedY;
 bool MouseLeftClick, MouseRightClick;
+bool MouseLeftChanged, MouseRightChanged;
 
 immutable float MouseAccuracyConst=.75;
 
@@ -51,24 +54,32 @@ struct MenuElement_t{
 	ubyte transparency;
 	int xpos, ypos;
 	int xsize, ysize;
+	union{
+		uint icolor_mod;
+		ubyte[4] bcolor_mod;
+	}
 	//Maybe optimize menu elements to get deleted when their picture index is 255
-	void set(ubyte initindex, ubyte picindex, ubyte zval, float sxpos, float sypos, float sxsize, float sysize, ubyte inittransparency){
+	void set(ubyte initindex, ubyte picindex, ubyte zval, float sxpos, float sypos, float sxsize, float sysize, ubyte inittransparency, uint colormod=0x00ffffff){
 		index=initindex;
 		picture_index=picindex;
 		ConvertScreenCoords(sxpos, sypos, xpos, ypos);
 		ConvertScreenCoords(sxsize, sysize, xsize, ysize);
 		if(zpos!=zval){
-			int arrind=countUntil(Z_MenuElements[zpos], index);
+			int arrind=cast(int)countUntil(Z_MenuElements[zpos], index);
 			if(arrind>=0)
 				Z_MenuElements[zpos]=Z_MenuElements[zpos].remove(arrind);
 			Z_MenuElements[zval]~=index;
 		}
 		zpos=zval;
 		transparency=inittransparency;
+		icolor_mod=colormod;
+	}
+	bool inactive(){
+		return this.picture_index==255 || this.zpos==255 || this.transparency==0 || !this.xsize || !this.ysize;
 	}
 }
 
-uint[][255] Z_MenuElements;
+uint[][256] Z_MenuElements;
 
 MenuElement_t[] MenuElements;
 
@@ -120,6 +131,9 @@ struct TextBox_t{
 			lines[i]=lines[i-1]; colors[i]=colors[i-1];
 		}
 	}
+	bool inactive(){
+		return this.font_index==255 || !this.lines.length || !this.xsize || !this.ysize;
+	}
 }
 
 TextBox_t[] TextBoxes;
@@ -144,6 +158,7 @@ uint PrevKeyPresses=0;
 void Check_Input(){
 	SDL_Event event;
 	MouseMovedX=0; MouseMovedY=0;
+	MouseLeftChanged=false; MouseRightChanged=false;
 	bool Scrolling_Colors=false;
 	while(SDL_PollEvent(&event)){
 		switch(event.type){
@@ -155,7 +170,7 @@ void Check_Input(){
 				byte number_key_pressed=0;
 				switch(event.key.keysym.sym){
 					case SDLK_RETURN:{
-						if(Joined_Game()){
+						if(JoinedGamePhase>=JoinedGameMaxPhases){
 							TypingChat=!TypingChat;
 							if(TypingChat){
 								SDL_StartTextInput();
@@ -181,7 +196,7 @@ void Check_Input(){
 						break;
 					}
 					case SDLK_r:{
-						if(Joined_Game && !TypingChat){
+						if(Joined_Game() && !TypingChat){
 							if(true){
 								ItemReloadPacketLayout packet;
 								Send_Packet(ItemReloadPacketID, packet);
@@ -222,7 +237,7 @@ void Check_Input(){
 					case SDLK_UP:{
 						if(TypingChat && LastSentLine){
 							CurrentChatLine=LastSentLine;
-							CurrentChatCursor=CurrentChatLine.length;
+							CurrentChatCursor=cast(uint)CurrentChatLine.length;
 						}
 						break;
 					}
@@ -253,7 +268,7 @@ void Check_Input(){
 								for(uint ctr=0; ctr<txtarr.length/32+1; ctr++){
 									uint ctr2=(ctr+1)*32;
 									if(ctr2>txtarr.length)
-										ctr2=txtarr.length;
+										ctr2=cast(uint)txtarr.length;
 									txtevent.text.text[]=0;
 									txtevent.text.text[0..(ctr2-ctr*32)]=txtarr[ctr*32..ctr2];
 									txtevent.type=SDL_TEXTINPUT;
@@ -287,14 +302,18 @@ void Check_Input(){
 					bool old_left_click=MouseLeftClick, old_right_click=MouseRightClick;
 					/*MouseLeftClick=cast(bool)(event.button.button&SDL_BUTTON_LEFT);
 					MouseRightClick=cast(bool)(event.button.button&SDL_BUTTON_RIGHT);*/
-					//Weird functionality (I mean, why the fuck is SDL_BUTTON_LEFT 1 and SDL_BUTTON_RIGHT 3 ???)
+					//Weird functionality (I mean, why the fuck is SDL_BUTTON_LEFT 1 and SDL_BUTTON_RIGHT 3 ??? It even goes against the docs)
 					if(event.button.button<3)
 						MouseLeftClick=true;
 					if(event.button.button>1)
 						MouseRightClick=true;
-					if(old_left_click!=MouseLeftClick || old_right_click!=MouseRightClick){
+					MouseLeftChanged=old_left_click!=MouseLeftClick;
+					MouseRightChanged=old_right_click!=MouseRightClick;
+					if(MouseLeftChanged, MouseRightChanged){
 						Send_Mouse_Click(MouseLeftClick, MouseRightClick, event.button.x, event.button.y);
 					}
+					if(Menu_Mode)
+						Script_OnMouseClick(MouseLeftClick, MouseRightClick);
 				}
 				break;
 			}
@@ -307,9 +326,13 @@ void Check_Input(){
 						MouseLeftClick=false;
 					if(event.button.button>1)
 						MouseRightClick=false;
-					if(old_left_click!=MouseLeftClick || old_right_click!=MouseRightClick){
+					MouseLeftChanged=old_left_click!=MouseLeftClick;
+					MouseRightChanged=old_right_click!=MouseRightClick;
+					if(MouseLeftChanged, MouseRightChanged){
 						Send_Mouse_Click(MouseLeftClick, MouseRightClick, event.button.x, event.button.y);
 					}
+					if(Menu_Mode)
+						Script_OnMouseClick(MouseLeftClick, MouseRightClick);
 				}
 				break;
 			}
@@ -339,7 +362,7 @@ void Check_Input(){
 			ushort KeyPresses=0;
 			uint[2][] KeyBits=[[SDL_SCANCODE_S, 0], [SDL_SCANCODE_W, 1], [SDL_SCANCODE_A, 2], [SDL_SCANCODE_D, 3],
 			[SDL_SCANCODE_SPACE, 4], [SDL_SCANCODE_LCTRL, 5], [SDL_SCANCODE_E, 6], [SDL_SCANCODE_LEFT, 7], [SDL_SCANCODE_RIGHT, 8],
-			[SDL_SCANCODE_DOWN, 9], [SDL_SCANCODE_UP, 10]];
+			[SDL_SCANCODE_DOWN, 9], [SDL_SCANCODE_UP, 10], [SDL_SCANCODE_LSHIFT, 11]];
 			foreach(kb; KeyBits)
 				KeyPresses|=(1<<kb[1])*(cast(int)(cast(bool)KeyState[kb[0]]));
 			if(KeyPresses!=PrevKeyPresses){
@@ -354,6 +377,7 @@ void Check_Input(){
 					plr.Jump=cast(bool)(KeyPresses&16);
 					//plr.Crouch=cast(bool)(KeyPresses&32);
 					plr.Use_Object=cast(bool)(KeyPresses&64);
+					plr.Sprint=cast(bool)(KeyPresses&2048);
 					plr.KeysChanged=true;
 					plr.Set_Crouch(cast(bool)(KeyPresses&32));
 				}
@@ -414,7 +438,7 @@ string[] ChatText;
 uint[] ChatColors;
 string CurrentChatLine="";
 void WriteMsg(string msg, uint color){
-	for(uint i=ChatText.length-1; i; i--){
+	for(uint i=cast(uint)ChatText.length-1; i; i--){
 		ChatColors[i]=ChatColors[i-1];
 		ChatText[i]=ChatText[i-1];
 	}
@@ -467,9 +491,16 @@ void Render_HUD(){
 				}
 				if(AmmoCounterBullet){
 					MenuElement_t *e=AmmoCounterBullet;
+					int xsizechange=0, ysizechange=0;
+					if(e.xsize>=e.ysize){
+						ysizechange=e.ysize;
+					}
+					if(e.ysize>=e.xsize){
+						xsizechange=e.xsize;
+					}
 					for(uint i=0; i<item.amount1; i++){
 						SDL_Rect r;
-						r.x=e.xpos; r.y=e.ypos+i*e.ysize; r.w=e.xsize; r.h=e.ysize;
+						r.x=e.xpos+i*xsizechange; r.y=e.ypos+i*ysizechange; r.w=e.xsize; r.h=e.ysize;
 						if(e.transparency<255)
 							SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
 						SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
@@ -540,9 +571,17 @@ void Render_All_Text(){
 		if(box.font_index==255)
 			continue;
 		SDL_Texture *fnt=Mod_Pictures[box.font_index];
+		uint ypos=box.ypos;
 		foreach(uint i, ref line; box.lines){
-			Render_Text_Line(box.xpos, box.ypos, box.colors[i], line,fnt,Mod_Picture_Sizes[box.font_index][0], Mod_Picture_Sizes[box.font_index][1],0,
+			uint col;
+			if(box.colors.length)
+				col=box.colors[i];
+			else
+				col=0x00ffffff;
+			Render_Text_Line(box.xpos, ypos, col, line,fnt,Mod_Picture_Sizes[box.font_index][0], Mod_Picture_Sizes[box.font_index][1],0,
 			box.xsizeratio, box.ysizeratio);
+			if(box.wrap_lines)
+				ypos+=to!float(Mod_Picture_Sizes[box.font_index][1])*box.xsizeratio/16.0;
 		}
 	}
 	uint current_tick=SDL_GetTicks();
@@ -552,7 +591,7 @@ void Render_All_Text(){
 		__hud_avg_delta_ticks+=delta_t;
 		float avg=__hud_avg_delta_ticks/tofloat(__hud_tick_amount);
 		string fps_ping_str=format("%.2f FPS|%d ms", avg, Get_Ping());
-		Render_Text_Line(scrn_surface.w-(FontWidth/16-LetterPadding*2)*fps_ping_str.length, 0, Font_SpecialColor, fps_ping_str, font_texture, FontWidth, FontHeight, LetterPadding);
+		Render_Text_Line(cast(int)(scrn_surface.w-(FontWidth/16-LetterPadding*2)*fps_ping_str.length), 0, Font_SpecialColor, fps_ping_str, font_texture, FontWidth, FontHeight, LetterPadding);
 		if(__hud_tick_amount>avg*5){
 			__hud_tick_amount=0;
 			__hud_avg_delta_ticks=avg;

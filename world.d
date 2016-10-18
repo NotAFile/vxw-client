@@ -22,6 +22,7 @@ float CrouchFriction=5.0;
 //Inb4 SMB
 float PlayerJumpPower=6.0;
 float PlayerWalkSpeed=1.0;
+float PlayerSprintSpeed=1.5;
 float WorldSpeedRatio=2.0;
 
 uint Visibility_Range=128, Fog_Color=0x0000ffff;
@@ -48,7 +49,7 @@ struct Player_t{
 	Vector3_t dir;
 	TeamID_t team;
 	bool Go_Forwards, Go_Back, Go_Left, Go_Right;
-	bool Jump, Crouch;
+	bool Jump, Crouch, Sprint;
 	bool Use_Object;
 	bool KeysChanged;
 	bool[3] CollidingSides;
@@ -107,12 +108,13 @@ struct Player_t{
 		acl=Vector3_t(0.0);
 		Vector3_t acdir=dir.filter(1, 0, 1);
 		float friction=WorldSpeed;
+		float walk_speed=!Sprint ? PlayerWalkSpeed : PlayerSprintSpeed;
 		if(CollidingSides[1]){
 			if(Go_Forwards || Go_Back){
-				acl+=acdir*((!Go_Back) ? PlayerWalkSpeed : -PlayerWalkSpeed);
+				acl+=acdir*((!Go_Back) ? walk_speed : -walk_speed);
 			}
 			if(Go_Left || Go_Right){
-				acl+=acdir.rotate(Vector3_t(0.0, Go_Left ? 90.0 : -90.0, 0.0))*PlayerWalkSpeed;
+				acl+=acdir.rotate(Vector3_t(0.0, Go_Left ? 90.0 : -90.0, 0.0))*walk_speed;
 			}
 			if(Jump){
 				acl.y-=PlayerJumpPower;
@@ -701,7 +703,7 @@ struct BlockDamage_t{
 		if(!particle_pos){
 			uint newc=touint(tofloat(damage)*tofloat(MaxDamageParticlesPerBlock)/255.0);
 			if(newc!=particles.length){
-				uint oldlen=particles.length;
+				uint oldlen=cast(uint)particles.length;
 				particles.length=newc;
 				for(uint i=oldlen; i<newc; i++){
 					particles[i].Init(x, y, z, 0, free_sides);

@@ -11,6 +11,7 @@ import std.array;
 import std.exception;
 import std.math;
 import std.string;
+import std.meta;
 import network;
 import renderer;
 import packettypes;
@@ -19,6 +20,7 @@ import misc;
 import vector;
 import world;
 import gfx;
+import script;
 version(LDC){
 	import ldc_stdlib;
 }
@@ -58,6 +60,10 @@ static this(){
 	];
 }
 
+enum ModDataTypes{
+	Picture=0, Model=1, Script=2
+}
+
 struct ModFile_t{
 	ubyte type;
 	ushort index;
@@ -67,9 +73,9 @@ struct ModFile_t{
 	uint hash;
 	bool receiving_data;
 	bool no_file;
-	this(string initname, uint initsize, ushort initindex, ubyte inittype){
-		name=initname; size=initsize; index=initindex; type=inittype;
-		hash=0; receiving_data=false; no_file=false;
+	this(string initname, ushort initindex, ubyte inittype){
+		name=initname; index=initindex; type=inittype;
+		size=0; hash=0; receiving_data=false; no_file=false;
 	}
 	void Loading_Finished(){
 		receiving_data=false;
@@ -96,7 +102,7 @@ struct ModFile_t{
 		data=[];
 		switch(type){
 			//On Linux, I probably could have used virtual files in RAM instead of physically re-loading them :d
-			case 0:{
+			case ModDataTypes.Picture:{
 				SDL_Surface *fsrfc;
 				string error;
 				switch(fname[$-4..$]){
@@ -121,8 +127,6 @@ struct ModFile_t{
 				if(!fsrfc){writeflnerr("Couldn't load %s: %s", fname, error); break;}
 				SDL_SetColorKey(fsrfc, SDL_TRUE, SDL_MapRGB(fsrfc.format, 255, 0, 255));
 				SDL_Surface *srfc=SDL_ConvertSurfaceFormat(fsrfc, SDL_PIXELFORMAT_ARGB8888, 0);
-				if(!index)
-					Set_Font(srfc);
 				SDL_Texture *tex=SDL_CreateTextureFromSurface(scrn_renderer, srfc);
 				if(Mod_Pictures.length<=index){
 					Mod_Pictures.length=index+1;
@@ -134,7 +138,7 @@ struct ModFile_t{
 				SDL_FreeSurface(fsrfc);
 				break;
 			}
-			case 1:{
+			case ModDataTypes.Model:{
 				KV6Model_t *model=Load_KV6(fname);
 				if(!model){
 					writeflnerr("Couldn't load %s", fname);
@@ -145,7 +149,25 @@ struct ModFile_t{
 				Mod_Models[index]=model;
 				break;
 			}
-			default:{break;}
+			case ModDataTypes.Script:{
+				try{
+					string script=std.file.readText(fname);
+					if(Loaded_Scripts.length<=index){
+						Loaded_Scripts.length=index+1;
+					}
+					else{
+						if(Loaded_Scripts[index].initialized){
+							Loaded_Scripts[index].Uninit();
+						}
+					}
+					Loaded_Scripts[index]=Script_t(index, fname, script);
+				}
+				catch(FileException){
+					writeflnerr("Couldn't load %s", fname);
+				}
+				break;
+			}
+			default:{writeflnerr("Server sent mod of unknown data type %s", type); break;}
 		}
 	}
 	bool LoadFromFile(){
@@ -157,6 +179,7 @@ struct ModFile_t{
 				long lfsize=f.size();
 				if(lfsize<int.max){
 					data.length=cast(uint)lfsize;
+					size=cast(uint)lfsize;
 					f.rawRead(data);
 					CRC32 context=makeDigest!CRC32();
 					context.put(data);
@@ -244,7 +267,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 	if(JoinedGamePhase>=JoinedGameMaxPhases){
 		ubyte id=(cast(ubyte[])recv_packet.data)[0];
 		ubyte *contentptr=(cast(ubyte*)recv_packet.data)+1;
-		uint packetlength=recv_packet.data.length;
+		uint packetlength=cast(uint)recv_packet.data.length;
 		ubyte[] PacketData=cast(ubyte[])recv_packet.data[1..$];
 		debug{
 			writeflnlog("Received packet with ID %s", id);
@@ -324,7 +347,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case ModRequirementPacketID:{
 				auto packet=UnpackPacketToStruct!(ModRequirementPacketLayout)(PacketData);
 				string filename="Ressources/"~packet.path;
-				ModFile_t mf=ModFile_t(packet.path, packet.size, packet.index, packet.type);
+				ModFile_t mf=ModFile_t(packet.path, packet.index, packet.type);
 				if(LoadingMods.length<=packet.type)
 					LoadingMods.length=packet.type+1;
 				if(LoadingMods[packet.type].length<=packet.index)
@@ -401,6 +424,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				plr.Jump=cast(bool)(keys&16);
 				plr.Crouch=cast(bool)(keys&32);
 				plr.Use_Object=cast(bool)(keys&64);
+				plr.Sprint=cast(bool)(keys&2048);
 				plr.KeysChanged=true;
 				break;
 			}
@@ -420,14 +444,18 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				auto packet=UnpackPacketToStruct!(WorldPhysicsPacketLayout)(PacketData);
 				Gravity=packet.g; AirFriction=packet.airfriction; GroundFriction=packet.groundfriction; WaterFriction=packet.waterfriction;
 				CrouchFriction=packet.crouchfriction;
-				PlayerJumpPower=packet.player_jumppower; PlayerWalkSpeed=packet.player_walkspeed;
+				PlayerJumpPower=packet.player_jumppower; PlayerWalkSpeed=packet.player_walkspeed; PlayerSprintSpeed=packet.player_sprintspeed;
 				WorldSpeedRatio=packet.world_speed;
 				break;
 			}
 			case MenuElementPacketID:{
 				auto packet=UnpackPacketToStruct!(MenuElementPacketLayout)(PacketData);
-				if(packet.elementindex>=MenuElements.length)
+				if(packet.elementindex>=MenuElements.length){
+					size_t oldlen=MenuElements.length;
 					MenuElements.length=packet.elementindex+1;
+					for(size_t i=oldlen; i<MenuElements.length; i++)
+						MenuElements[i].picture_index=255;
+				}
 				MenuElements[packet.elementindex].set(packet.elementindex, packet.picindex, packet.zval, packet.xpos, packet.ypos, packet.xsize, 
 				packet.ysize, packet.transparency);
 				break;
@@ -524,7 +552,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case SetObjectPacketID:{
 				auto packet=UnpackPacketToStruct!(SetObjectPacketLayout)(PacketData);
 				if(packet.obj_id>=Objects.length){
-					uint oldlength=Objects.length;
+					uint oldlength=cast(uint)Objects.length;
 					Objects.length=packet.obj_id+1;
 					for(uint i=oldlength; i<Objects.length; i++)
 						Objects[i].Init(i);
@@ -609,12 +637,12 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 						uint xsize=Mod_Picture_Sizes[packet.index][0], ysize=Mod_Picture_Sizes[packet.index][1];
 						switch(packet.target){
 							case AssignBuiltinPictureTypes.Font:{
-								font_texture=dstpic;
-								FontWidth=xsize; FontHeight=ysize;
+								Set_ModFile_Font(packet.index);
 								break;
 							}
 							default:break;
 						}
+						break;
 					}
 					case AssignBuiltinTypes.Sent_Image:{
 						MenuElement_t *element=&MenuElements[packet.index];
@@ -647,6 +675,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 							}
 							default:break;
 						}
+						break;
 					}
 					default:{
 						break;
@@ -660,7 +689,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				if(EnableByteFlip)
 					obj_id_bytes.reverse;
 				obj_id=*(cast(ushort*)obj_id_bytes.ptr);
-				uint vertices_count=(PacketData.length-2)/12;
+				uint vertices_count=cast(uint)(PacketData.length-2)/12;
 				Vector3_t[] vertices;
 				vertices.length=vertices_count;
 				ubyte *xptr=&PacketData[2], yptr=&PacketData[2+4], zptr=&PacketData[2+8];
@@ -721,6 +750,16 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				ShakeAmountDecay=packet.decay;
 				break;
 			}
+			case ToggleScriptPacketID:{
+				auto packet=UnpackPacketToStruct!(ToggleScriptPacketLayout)(PacketData);
+				Loaded_Scripts[packet.index].Set_Enabled(cast(bool)(packet.flags&1), cast(bool)(packet.flags&2));
+				break;
+			}
+			case CustomScriptPacketID:{
+				auto packet=UnpackPacketToStruct!(CustomScriptPacketLayout)(PacketData);
+				Loaded_Scripts[packet.scr_index].Call_Func("On_Packet_Receive", cast(ubyte[])packet.data);
+				break;
+			}
 			default:{
 				writeflnlog("Invalid packet ID %d", id);
 				break;
@@ -728,9 +767,6 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 		}
 	}
 	else{
-		debug{
-			writeflnlog("Received packet");
-		}
 		ubyte[] PacketData=recv_packet.data;
 		switch(JoinedGamePhase){
 			case 0:{

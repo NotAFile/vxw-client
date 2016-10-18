@@ -11,8 +11,14 @@ import ui;
 import renderer;
 import vector;
 import world;
+import script;
 
 uint TargetFPS=30;
+
+version(OSX){
+	//Ew why would an intelligent non-pleb even use this shit
+	static assert(0);
+}
 
 void main(string[] args){
 	Init_Game();
@@ -54,6 +60,7 @@ void main(string[] args){
 			else
 				break;
 		}
+		Update_Script();
 		Update_World();
 		Prepare_Render();
 		Render_Screen();
@@ -72,6 +79,7 @@ void Init_Game(){
 	Init_Gfx();
 	Init_UI();
 	Init_Renderer();
+	Init_Script();
 }
 
 void UnInit_Game(){

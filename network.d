@@ -198,6 +198,6 @@ struct ReceivedPacket_t{
 ReceivedPacket_t Update_Network(){
 	ENetEvent event=connection.Update(0);
 	if(event.type==ENET_EVENT_TYPE_RECEIVE)
-		return ReceivedPacket_t(event.peer.connectID, event.packet.data, event.packet.dataLength);
+		return ReceivedPacket_t(event.peer.connectID, event.packet.data, cast(uint)event.packet.dataLength);
 	return ReceivedPacket_t(0);
 }

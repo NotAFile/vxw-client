@@ -22,9 +22,10 @@ SDL_Texture *scrn_texture;
 
 SDL_Surface *scrn_surface;
 
-SDL_Texture *font_texture;
-SDL_Texture *borderless_font_texture;
+SDL_Texture *font_texture=null;
+SDL_Texture *borderless_font_texture=null;
 uint FontWidth, FontHeight;
+ubyte font_index=255;
 
 SDL_Texture *minimap_texture;
 SDL_Surface *minimap_srfc;
@@ -72,22 +73,28 @@ void Init_Gfx(){
 	vxrend_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, ScreenXSize, ScreenYSize);
 	scrn_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, ScreenXSize, ScreenYSize);
 	{
-		SDL_Surface *font_surface=SDL_LoadBMP("./Ressources/Default/Font.bmp");
-		if(font_surface){
+		SDL_Surface *font_surface=SDL_LoadBMP("./Ressources/Default/Font.png");
+		if(font_surface)
 			Set_Font(font_surface);
-		}
 	}
 	Init_Renderer();
 }
 
+void Set_ModFile_Font(ubyte index){
+	font_index=index;
+	SDL_Surface *srfc=LoadingMods[ModDataTypes.Picture][index].LoadToSurface();
+	Set_Font(srfc);
+	SDL_FreeSurface(srfc);
+}
+
 void Set_Font(SDL_Surface *ffnt){
-	SDL_Surface *fnt=SDL_ConvertSurfaceFormat(ffnt, SDL_PIXELFORMAT_ARGB8888, 0);
+	SDL_Surface *fnt=SDL_CreateRGBSurface(0, ffnt.w, ffnt.h, 32, 0, 0, 0, 0);
+	(cast(uint*)fnt.pixels)[0..fnt.w*fnt.h]=(cast(uint*)ffnt.pixels)[0..fnt.w*fnt.h];
 	FontWidth=fnt.w; FontHeight=fnt.h;
 	SDL_SetColorKey(fnt, SDL_TRUE, SDL_MapRGB(fnt.format, 255, 0, 255));
 	if(borderless_font_texture)
 		SDL_DestroyTexture(borderless_font_texture);
 	borderless_font_texture=SDL_CreateTextureFromSurface(scrn_renderer, fnt);
-	LetterPadding=0;
 	for(uint i=0; i<Enable_Shade_Text; i++){
 		SDL_Surface *s=Shade_Text(fnt);
 		if(i)
@@ -149,10 +156,10 @@ SDL_Surface *Shade_Text(SDL_Surface *srfc){
 		for(uint ly=0; ly<16; ly++){
 			uint srcletterxp=lx*FontWidth/16, srcletteryp=ly*FontHeight/16;
 			uint dstletterxp=lx*LetterWidth+LetterPadding, dstletteryp=ly*LetterHeight+LetterPadding;
-			//TL;DR this could be an SDL_BlitSurface call
+			//TL;DR this could be an SDL_BlitSurface call (if it didn't crash or fuck up)
 			for(uint y=0; y<FontHeight/16; y++){
 				for(uint x=0; x<FontWidth/16; x++){
-					*Pixel_Pointer(dst, dstletterxp+x, dstletteryp+y)=*Pixel_Pointer(srfc, srcletterxp+x, srcletteryp+y);
+					*Pixel_Pointer(dst, dstletterxp+x, dstletteryp+y)=*Pixel_Pointer(srfc, srcletterxp+x, srcletteryp+y)&0x00ffffff;
 				}
 			}
 		}
@@ -167,10 +174,10 @@ SDL_Surface *Shade_Text(SDL_Surface *srfc){
 				for(uint x=0; x<dst.w/16; x++){
 					if(*Pixel_Pointer(srfc, letterxp+x, letteryp+y)!=ColorKey)
 						continue;
-					bool upc=y>0 ? (*Pixel_Pointer(srfc, letterxp+x, letteryp+y-1)!=ColorKey) : false;
-					bool lfc=x>0 ? (*Pixel_Pointer(srfc, letterxp+x-1, letteryp+y)!=ColorKey) : false;
-					bool rgc=x<(dst.w/16-1) ? (*Pixel_Pointer(srfc, letterxp+x+1, letteryp+y)!=ColorKey) : false;
-					bool lwc=y<(dst.h/16-1) ? (*Pixel_Pointer(srfc, letterxp+x, letteryp+y+1)!=ColorKey) : false;
+					bool upc=y>0 ? ((*Pixel_Pointer(srfc, letterxp+x, letteryp+y-1)&0x00ffffff)!=ColorKey) : false;
+					bool lfc=x>0 ? ((*Pixel_Pointer(srfc, letterxp+x-1, letteryp+y)&0x00ffffff)!=ColorKey) : false;
+					bool rgc=x<(dst.w/16-1) ? ((*Pixel_Pointer(srfc, letterxp+x+1, letteryp+y)&0x00ffffff)!=ColorKey) : false;
+					bool lwc=y<(dst.h/16-1) ? ((*Pixel_Pointer(srfc, letterxp+x, letteryp+y+1)&0x00ffffff)!=ColorKey) : false;
 					if(upc || lfc || rgc || lwc){
 						*Pixel_Pointer(dst, letterxp+x, letteryp+y)=0xff909090;
 					}
@@ -203,7 +210,7 @@ void Render_Text_Line(uint xpos, uint ypos, uint color, string line, SDL_Texture
 		fontsrcrect.w=font_w/16; fontsrcrect.h=font_h/16;
 		SDL_GetTextureColorMod(font, &old_r, &old_g, &old_b);
 		SDL_GetTextureBlendMode(font, &old_blend_mode);
-		SDL_SetTextureColorMod(font, cast(ubyte)(color>>16), cast(ubyte)(color>>8), cast(ubyte)(color));
+		SDL_SetTextureColorMod(font, cast(ubyte)((color>>16)&255), cast(ubyte)((color>>8)&255), cast(ubyte)(color&255));
 		SDL_SetTextureBlendMode(font, SDL_BLENDMODE_BLEND);
 		padding=letter_padding*2;
 	}
@@ -221,6 +228,12 @@ void Render_Text_Line(uint xpos, uint ypos, uint color, string line, SDL_Texture
 		lrect.w++; lrect.h++;
 	}
 	foreach(letter; line){
+		bool letter_processed=false;
+		switch(letter){
+			case '\n':lrect.x=xpos; lrect.y+=lrect.h-padding; letter_processed=true; break;
+			default:break;
+		}
+		if(letter_processed) continue;
 		fontsrcrect.x=(letter%16)*fontsrcrect.w;
 		fontsrcrect.y=(letter/16)*fontsrcrect.h;
 		SDL_RenderCopy(scrn_renderer, font, &fontsrcrect, &lrect);
@@ -409,7 +422,7 @@ void Render_Screen(){
 	Set_Frame_Buffer(scrn_surface);
 	if(LoadedCompleteMap){
 		Vector3_t pos;
-		if(Render_Local_Player || JoinedGame){
+		if(Render_Local_Player){
 			float mousexvel=MouseMovedX*.5*MouseAccuracyConst*X_FOV/90.0, mouseyvel=MouseMovedY*.5*MouseAccuracyConst*Y_FOV/90.0;
 			if(!Menu_Mode){
 				if(Players[LocalPlayerID].item_types.length){
@@ -534,15 +547,26 @@ void Render_Screen(){
 	}
 	{
 		SDL_Rect r;
-		foreach(ref elements; Z_MenuElements[1..$]){
+		foreach(ref elements; Z_MenuElements[0..254]){
 			foreach(e_index; elements){
 				MenuElement_t *e=&MenuElements[e_index];
-				if(e.picture_index==255)
+				if(e.inactive())
 					continue;
 				r.x=e.xpos; r.y=e.ypos; r.w=e.xsize; r.h=e.ysize;
+				if(!r.w || !r.h)
+					continue;
 				if(e.transparency<255)
 					SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
+				ubyte rmod, gmod, bmod;
+				bool color_mod=(e.icolor_mod&0x00ffffff)!=0x00ffffff;
+				if(color_mod){
+					SDL_GetTextureColorMod(Mod_Pictures[e.picture_index], &rmod, &gmod, &bmod);
+					SDL_SetTextureColorMod(Mod_Pictures[e.picture_index], e.bcolor_mod[0], e.bcolor_mod[1], e.bcolor_mod[2]);
+				}
 				SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
+				if(color_mod){
+					SDL_SetTextureColorMod(Mod_Pictures[e.picture_index], rmod, gmod, bmod);
+				}
 				if(e.transparency<255)
 					SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
 			}
@@ -608,7 +632,7 @@ void Render_Screen(){
 			list_player_amount[p.team]++;
 			Player_List_Table[p.team][list_player_amount[p.team]-1]=p.player_id;
 		}
-		uint teamlist_w=scrn_surface.w/Teams.length;
+		uint teamlist_w=cast(uint)(scrn_surface.w/Teams.length); //cast for 64 bit systems
 		for(uint t=0; t<Teams.length; t++){
 			for(uint plist_index=0; plist_index<list_player_amount[t]; plist_index++){
 				Player_t *plr=&Players[Player_List_Table[t][plist_index]];
@@ -955,7 +979,7 @@ struct SmokeParticle_t{
 SmokeParticle_t[] SmokeParticles;
 
 void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint col, uint timer=0){
-	uint old_size=Particles.length;
+	uint old_size=cast(uint)Particles.length;
 	uint sent_col_chance=(col>>24)&255;
 	Particles.length+=amount;
 	uint[] colors;
@@ -993,7 +1017,7 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 }
 
 void Create_Smoke(Vector3_t pos, uint amount, uint col, float size){
-	uint old_size=SmokeParticles.length;
+	uint old_size=cast(uint)SmokeParticles.length;
 	SmokeParticles.length+=amount;
 	for(uint i=old_size; i<old_size+amount; i++){
 		Vector3_t spos=pos+RandomVector()*size*.1;

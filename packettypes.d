@@ -21,7 +21,8 @@ struct ServerVersionPacketLayout{
 	PlayerID_t player_id;
 }
 
-//TODO: Make an array out of this; D can do lots of wonderful things in that direction
+//TODO: Make an array/enum/sth out of all these packets; D can do lots of wonderful things in that direction
+//NOTE: Importance approved
 struct MapChangePacketLayout{
 	uint xsize, ysize, zsize;
 	uint datasize;
@@ -29,11 +30,13 @@ struct MapChangePacketLayout{
 }
 immutable PacketID_t MapChangePacketID=0;
 
+//NOTE: Importance approved
 struct MapChunkPacketLayout{
-	string data; //Cast to ubyte
+	string data;
 }
 immutable PacketID_t MapChunkPacketID=1;
 
+//NOTE: Importance approved
 struct PlayerJoinPacketLayout{
 	PlayerID_t player_id;
 	TeamID_t team_id;
@@ -41,18 +44,21 @@ struct PlayerJoinPacketLayout{
 }
 immutable PacketID_t PlayerJoinPacketID=2;
 
+//NOTE: Importance approved
 struct ChatMessagePacketLayout{
 	uint color;
 	string message;
 }
 immutable PacketID_t ChatPacketID=3;
 
+//NOTE: Importance approved
 struct PlayerDisconnectPacketLayout{
 	PlayerID_t player_id;
 	string reason;
 }
 immutable PacketID_t PlayerDisconnectPacketID=4;
 
+//NOTE: Importance: meh
 struct MapEnvironmentPacketLayout{
 	uint fog_color;
 	uint visibility_range;
@@ -61,6 +67,7 @@ struct MapEnvironmentPacketLayout{
 }
 immutable PacketID_t MapEnvironmentPacketID=5;
 
+//NOTE: No idea what this is even for
 struct ExistingPlayerPacketLayout{
 	PlayerID_t player_id;
 	string name;
@@ -69,6 +76,7 @@ immutable PacketID_t ExistingPlayerPacketID=6;
 
 //Client behaviour: Client initializes a mod structure (necessary). A copy of that packet is sent back, with hash changed if client could calculate it
 //Server behaviour: Should send this first each time a mod is sent to the client. On receiving, server compares the hash and sends ModData when needed
+//NOTE: Importance approved
 struct ModRequirementPacketLayout{
 	ubyte type;
 	ushort index;
@@ -78,6 +86,7 @@ struct ModRequirementPacketLayout{
 }
 immutable PacketID_t ModRequirementPacketID=7;
 
+//NOTE: Importance approved
 struct ModDataPacketLayout{
 	ubyte type;
 	ushort index;
@@ -85,6 +94,8 @@ struct ModDataPacketLayout{
 }
 immutable PacketID_t ModDataPacketID=8;
 
+//NOTE: Importance approved
+//(creates a player world object in comparison to the player join packet, which just notifies of a new unjoined player)
 struct PlayerSpawnPacketLayout{
 	PlayerID_t player_id;
 	TeamID_t team_id;
@@ -92,6 +103,7 @@ struct PlayerSpawnPacketLayout{
 }
 immutable PacketID_t PlayerSpawnPacketID=9;
 
+//NOTE: Importance unsure: could be done by scripts? (Far far future)
 struct TeamDataPacketLayout{
 	TeamID_t team_id;
 	uint col;
@@ -99,12 +111,16 @@ struct TeamDataPacketLayout{
 }
 immutable PacketID_t TeamDataPacketID=10;
 
+//NOTE: Importance approved
+//NOTE: You can never compress this one enough
 struct PlayerRotationPacketLayout{
 	PlayerID_t player_id;
 	float xrot, yrot, zrot;
 }
 immutable PacketID_t PlayerRotationPacketID=11;
 
+//NOTE: Importance approved
+//NOTE: You can never compress this one enough
 immutable PacketID_t WorldUpdatePacketID=12;
 
 //WIP and TEMPORARY-ONLY packet. This will be removed and replaced by key press handling in future.
@@ -124,16 +140,21 @@ struct BindModelPacketLayout{
 }
 immutable PacketID_t BindModelPacketID=14;
 
+//NOTE: Importance approved
+//NOTE: You can never compress this one enough
 struct PlayerPositionPacketLayout{
 	float xpos, ypos, zpos;
 }
 immutable PacketID_t PlayerPositionPacketID=15;
 
+//NOTE: Importance is meh, once we will have a scripted engine instead of hardcoded one,
+//we can remove this
 struct WorldPhysicsPacketLayout{
-	float g, airfriction, groundfriction, waterfriction, crouchfriction, player_jumppower, player_walkspeed, world_speed;
+	float g, airfriction, groundfriction, waterfriction, crouchfriction, player_jumppower, player_walkspeed, player_sprintspeed, world_speed;
 }
 immutable PacketID_t WorldPhysicsPacketID=16;
 
+//NOTE: Is way better off being done by scripts (sending every tiny detail sux)
 struct MenuElementPacketLayout{
 	ubyte elementindex;
 	ubyte picindex;
@@ -144,17 +165,20 @@ struct MenuElementPacketLayout{
 }
 immutable PacketID_t MenuElementPacketID=17;
 
+//NOTE: See above
 struct ToggleMenuPacketLayout{
 	ubyte EnableMenu;
 }
 immutable PacketID_t ToggleMenuPacketID=18;
 
+//NOTE: Will be modified/removed with the introduction of scripts
 struct MouseClickPacketLayout{
 	ubyte clicks;
 	ushort xpos, ypos;
 }
 immutable PacketID_t MouseClickPacketID=19;
 
+//NOTE: Implement as script? (HP bars are already server-side)
 struct PlayerHitPacketLayout{
 	PlayerID_t player_id;
 	ubyte hit_sprite;
@@ -165,6 +189,7 @@ enum{
 	ITEMTYPE_FLAGS_WEAPON=(1<<0), ITEMTYPE_FLAGS_REPEATEDUSE=(1<<1), ITEMTYPE_FLAGS_SHOWPALETTE=(1<<2)
 };
 
+//NOTE: TODO: Scripted weapons and throw this out
 struct ItemTypePacketLayout{
 	ubyte weapon_id;
 	ushort use_delay;
@@ -179,18 +204,21 @@ struct ItemTypePacketLayout{
 }
 immutable PacketID_t ItemTypePacketID=21;
 
+//NOTE: TODO: Scripted items and throw this out
 struct ItemReloadPacketLayout{
 	ubyte item_id;
 	uint amount1, amount2;
 }
 immutable PacketID_t ItemReloadPacketID=22;
 
+//NOTE: Maybe let this
 struct ToolSwitchPacketLayout{
 	PlayerID_t player_id;
 	ubyte tool_id;
 }
 immutable PacketID_t ToolSwitchPacketID=23;
 
+//NOTE: Script this and throw this out
 struct BlockBreakPacketLayout{
 	PlayerID_t player_id;
 	ubyte break_type;
@@ -204,6 +232,7 @@ struct SetPlayerColorPacketLayout{
 }
 immutable PacketID_t SetPlayerColorPacketID=25;
 
+//NOTE: Script this and throw this out
 struct BlockBuildPacketLayout{
 	PlayerID_t player_id;
 	ubyte build_type;
@@ -347,6 +376,20 @@ struct SetShakePacketLayout{
 }
 
 immutable PacketID_t SetShakePacketID=43;
+
+struct ToggleScriptPacketLayout{
+	ushort index;
+	ubyte flags;
+}
+
+immutable PacketID_t ToggleScriptPacketID=44;
+
+struct CustomScriptPacketLayout{
+	ushort scr_index;
+	string data;
+}
+
+immutable PacketID_t CustomScriptPacketID=45;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)
