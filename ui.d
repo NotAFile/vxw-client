@@ -52,6 +52,7 @@ struct MenuElement_t{
 	ubyte picture_index;
 	ubyte zpos;
 	ubyte transparency;
+	bool reserved;
 	int xpos, ypos;
 	int xsize, ysize;
 	union{
@@ -309,7 +310,7 @@ void Check_Input(){
 						MouseRightClick=true;
 					MouseLeftChanged=old_left_click!=MouseLeftClick;
 					MouseRightChanged=old_right_click!=MouseRightClick;
-					if(MouseLeftChanged, MouseRightChanged){
+					if(MouseLeftChanged || MouseRightChanged){
 						Send_Mouse_Click(MouseLeftClick, MouseRightClick, event.button.x, event.button.y);
 					}
 					if(Menu_Mode)
@@ -328,7 +329,7 @@ void Check_Input(){
 						MouseRightClick=false;
 					MouseLeftChanged=old_left_click!=MouseLeftClick;
 					MouseRightChanged=old_right_click!=MouseRightClick;
-					if(MouseLeftChanged, MouseRightChanged){
+					if(MouseLeftChanged || MouseRightChanged){
 						Send_Mouse_Click(MouseLeftClick, MouseRightClick, event.button.x, event.button.y);
 					}
 					if(Menu_Mode)

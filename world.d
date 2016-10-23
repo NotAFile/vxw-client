@@ -319,12 +319,12 @@ struct Player_t{
 		if(timediff<ItemTypes[current_item.type].use_delay)
 			return;
 		current_item.use_timer=current_tick;
-		if(current_item.Reloading || !current_item.amount1)
-			return;
 		ItemType_t *itemtype=&ItemTypes[current_item.type];
+		if(current_item.Reloading || (!current_item.amount1 && itemtype.maxamount1))
+			return;
 		
 		Vector3_t usepos, usedir;
-		if(player_id==LocalPlayerID && MouseRightClick){
+		if(player_id==LocalPlayerID && MouseRightClick && itemtype.is_weapon){
 			auto scp=Get_Player_Scope(player_id);
 			usepos=scp.pos; usedir=scp.rot.RotationAsDirection();
 		}
@@ -600,7 +600,7 @@ struct ItemType_t{
 	ubyte index;
 	uint use_delay;
 	uint maxamount1, maxamount2;
-	bool is_weapon, repeated_use, show_palette;
+	bool is_weapon, repeated_use, show_palette, color_mod;
 	ubyte block_damage;
 	short block_damage_range;
 	float spread_c, spread_m;

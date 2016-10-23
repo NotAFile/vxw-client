@@ -130,11 +130,12 @@ struct ModFile_t{
 				SDL_Texture *tex=SDL_CreateTextureFromSurface(scrn_renderer, srfc);
 				if(Mod_Pictures.length<=index){
 					Mod_Pictures.length=index+1;
+					Mod_Picture_Surfaces.length=index+1;
 					Mod_Picture_Sizes.length=index+1;
 				}
 				Mod_Pictures[index]=tex;
+				Mod_Picture_Surfaces[index]=srfc;
 				Mod_Picture_Sizes[index]=[srfc.w, srfc.h];
-				SDL_FreeSurface(srfc);
 				SDL_FreeSurface(fsrfc);
 				break;
 			}
@@ -458,6 +459,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				}
 				MenuElements[packet.elementindex].set(packet.elementindex, packet.picindex, packet.zval, packet.xpos, packet.ypos, packet.xsize, 
 				packet.ysize, packet.transparency);
+				MenuElements[packet.elementindex].reserved=!MenuElements[packet.elementindex].inactive();
 				break;
 			}
 			case ToggleMenuPacketID:{
@@ -483,6 +485,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				type.is_weapon=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_WEAPON);
 				type.repeated_use=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_REPEATEDUSE);
 				type.show_palette=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_SHOWPALETTE);
+				type.color_mod=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_COLORMOD);
 				type.model_id=packet.model_id;
 				if(type.index>=ItemTypes.length)
 					ItemTypes.length=type.index+1;

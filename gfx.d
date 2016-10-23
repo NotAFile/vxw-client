@@ -42,6 +42,7 @@ float X_FOV=90.0, Y_FOV=90.0;
 
 KV6Model_t*[] Mod_Models;
 SDL_Texture*[] Mod_Pictures;
+SDL_Surface*[] Mod_Picture_Surfaces;
 uint[2][] Mod_Picture_Sizes;
 
 uint Enable_Shade_Text=1;
@@ -82,9 +83,7 @@ void Init_Gfx(){
 
 void Set_ModFile_Font(ubyte index){
 	font_index=index;
-	SDL_Surface *srfc=LoadingMods[ModDataTypes.Picture][index].LoadToSurface();
-	Set_Font(srfc);
-	SDL_FreeSurface(srfc);
+	Set_Font(Mod_Picture_Surfaces[index]);
 }
 
 void Set_Font(SDL_Surface *ffnt){
@@ -561,7 +560,7 @@ void Render_Screen(){
 				bool color_mod=(e.icolor_mod&0x00ffffff)!=0x00ffffff;
 				if(color_mod){
 					SDL_GetTextureColorMod(Mod_Pictures[e.picture_index], &rmod, &gmod, &bmod);
-					SDL_SetTextureColorMod(Mod_Pictures[e.picture_index], e.bcolor_mod[0], e.bcolor_mod[1], e.bcolor_mod[2]);
+					SDL_SetTextureColorMod(Mod_Pictures[e.picture_index], e.bcolor_mod[2], e.bcolor_mod[1], e.bcolor_mod[0]);
 				}
 				SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
 				if(color_mod){
@@ -849,6 +848,8 @@ auto Get_Player_Scope(uint player_id){
 KV6Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	if(!Players[player_id].item_types.length || !Players[player_id].Spawned)
 		return [];
+	if(ItemTypes[Players[player_id].items[Players[player_id].item].type].model_id==255)
+		return[];
 	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
 	Vector3_t pos=Players[player_id].pos;
 	KV6Sprite_t[] sprarr;
@@ -883,10 +884,10 @@ KV6Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	else
 	if(Players[player_id].left_click && !item.Reloading){
 		if(current_tick-item.use_timer<ItemTypes[item.type].use_delay){
-			spr.rhe+=tofloat(current_tick-item.use_timer)*45.0/tofloat(ItemTypes[item.type].use_delay);
+			spr.rhe+=tofloat(current_tick-item.use_timer)*45.0/tofloat(ItemTypes[item.type].use_delay)*(ItemTypes[item.type].is_weapon ? 1.0 : -1.0);
 		}
 	}
-	if(Players[player_id].item==1)
+	if(ItemTypes[Players[player_id].items[Players[player_id].item].type].color_mod==true)
 		spr.color_mod=(Players[player_id].color&0x00ffffff) | 0xff000000;
 	spr.model=Mod_Models[ItemTypes[Players[player_id].items[Players[player_id].item].type].model_id];
 	sprarr~=spr;

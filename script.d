@@ -7,12 +7,15 @@ import world;
 import protocol;
 import packettypes;
 import std.string;
+import std.traits;
 import std.format;
 import std.datetime;
 import std.algorithm;
 import std.meta;
 import std.conv;
 import std.random;
+
+extern(C){
 
 ushort Current_Script_Index=0;
 
@@ -24,26 +27,29 @@ string[] SLStdLib_DisabledFuncs=["get_doc_string_from_file", "add_doc_file", "ge
 uint SLStdLib_DisabledVar=0;
 string[] SLStdLib_DisabledVars=["_slang_install_prefix"];
 
+//Just btw the whole intrinsic function table thing is broken af (seems like only aggregate types like structures and bstring get passed properly).
+//But that's not a problem since we can just pop the stuff we need from the stack.
+//(S-Lang won't check amount of arguments and just throws them all on the stack)
 SLang_Intrin_Fun_Type[] ScrGuiLib_Funcs(){
 	return [
-		MAKE_INTRINSIC_0(cast(char*)toStringz("Create_MenuElement"), &ScrGuiLib_CreateMenuElement, SLANG_VOID_TYPE),
-		MAKE_INTRINSIC_1(cast(char*)toStringz("Update_MenuElement"), &ScrGuiLib_UpdateMenuElement, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
-		MAKE_INTRINSIC_1(cast(char*)toStringz("Delete_MenuElement"), &ScrGuiLib_DeleteMenuElement, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
+		MAKE_INTRINSIC_0(cast(char*)toStringz("MenuElement_Create"), &ScrGuiLib_MenuElementCreate, SLANG_VOID_TYPE),
+		MAKE_INTRINSIC_1(cast(char*)toStringz("MenuElement_Update"), &ScrGuiLib_MenuElementUpdate, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
+		MAKE_INTRINSIC_1(cast(char*)toStringz("MenuElement_Delete"), &ScrGuiLib_MenuElementDelete, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
 		MAKE_INTRINSIC_1(cast(char*)toStringz("Object_Hovered"), &ScrGuiLib_Object_Hovered, SLANG_UCHAR_TYPE, SLANG_STRUCT_TYPE),
 		MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_LeftClick"), &ScrGuiLib_MouseLeftClicked, SLANG_UCHAR_TYPE),
 		MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_RightClick"), &ScrGuiLib_MouseRightClicked, SLANG_UCHAR_TYPE),
 		MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_LeftChanged"), &ScrGuiLib_MouseLeftChanged, SLANG_UCHAR_TYPE),
 		MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_RightChanged"), &ScrGuiLib_MouseRightChanged, SLANG_UCHAR_TYPE),
 		MAKE_INTRINSIC_0(cast(char*)toStringz("MenuMode_Get"), &ScrGuiLib_MenuMode_Get, SLANG_UCHAR_TYPE),
-		MAKE_INTRINSIC_1(cast(char*)toStringz("MenuMode_Set"), &ScrGuiLib_MenuMode_Set, SLANG_VOID_TYPE, SLANG_UCHAR_TYPE),
+		//MAKE_INTRINSIC_1(cast(char*)toStringz("MenuMode_Set"), &ScrGuiLib_MenuMode_Set, SLANG_VOID_TYPE, SLANG_UCHAR_TYPE),
 		MAKE_INTRINSIC_0(cast(char*)toStringz("StandardFont_Get"), &ScrGuiLib_StandardFont_Get, SLANG_UCHAR_TYPE),
 		MAKE_INTRINSIC_1(cast(char*)toStringz("StandardFont_Set"), &ScrGuiLib_StandardFont_Set, SLANG_VOID_TYPE, SLANG_UCHAR_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("MouseX"), &ScrGuiLib_MenuMode_Get, SLANG_DOUBLE_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("MouseY"), &ScrGuiLib_MenuMode_Get, SLANG_DOUBLE_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("Create_TextBox"), &ScrGuiLib_CreateTextBox, SLANG_VOID_TYPE),
-		MAKE_INTRINSIC_1(cast(char*)toStringz("Update_TextBox"), &ScrGuiLib_UpdateTextBox, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
-		MAKE_INTRINSIC_1(cast(char*)toStringz("Delete_TextBox"), &ScrGuiLib_DeleteTextBox, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("Key_Pressed"), &ScrStdLib_KeyPressed, SLANG_UCHAR_TYPE),
+		MAKE_INTRINSIC_0(cast(char*)toStringz("MouseX"), &ScrGuiLib_MouseX, SLANG_DOUBLE_TYPE),
+		MAKE_INTRINSIC_0(cast(char*)toStringz("MouseY"), &ScrGuiLib_MouseY, SLANG_DOUBLE_TYPE),
+		MAKE_INTRINSIC_0(cast(char*)toStringz("TextBox_Create"), &ScrGuiLib_TextBoxCreate, SLANG_VOID_TYPE),
+		MAKE_INTRINSIC_1(cast(char*)toStringz("TextBox_Update"), &ScrGuiLib_TextBoxUpdate, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
+		MAKE_INTRINSIC_1(cast(char*)toStringz("TextBox_Delete"), &ScrGuiLib_TextBoxDelete, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
+		MAKE_INTRINSIC_0(cast(char*)toStringz("PictureColor_Get"), &ScrGuiLib_PictureColorGet, SLANG_UINT_TYPE),
 		SLANG_END_INTRIN_FUN_TABLE()
 	];
 }
@@ -66,13 +72,13 @@ struct ScriptLib_t{
 		if(nsname.length){
 			ns=SLns_create_namespace(toStringz(nsname));
 			nshashname=SLang_create_slstring(toStringz(nsname));
-			ns.namespace_name=null;
 		}
 		SLang_Intrin_Fun_Type[] intr_func_table;
 		switch(nsname){
 			case "scrgui":{
 				intr_func_table=ScrGuiLib_Funcs();
-				SLns_add_intrinsic_variable(ns, "Font_SpecialColor", &Font_SpecialColor, SLANG_UINT_TYPE, 1);
+				SLns_add_intrinsic_variable(ns, toStringz("Font_SpecialColor"), &Font_SpecialColor, SLANG_UINT_TYPE, 1);
+				SLns_add_intrinsic_function(ns, toStringz("MenuMode_Set"), &ScrGuiLib_MenuMode_Set, SLANG_VOID_TYPE, 0);
 				break;
 			}
 			default:break;
@@ -81,6 +87,8 @@ struct ScriptLib_t{
 			if(SLns_add_intrin_fun_table(ns, intr_func_table.ptr, null))
 				writeflnerr("Couldn't add intrinsic function table for script library \"%s\"", typename);
 		}
+		if(nsname.length)
+			ns.namespace_name=null;
 	}
 }
 
@@ -223,6 +231,35 @@ struct Script_t{
 Script_t[] Loaded_Scripts;
 
 void Init_Script(){
+	//In case I might want to link S-Lang dynamically
+	/*static if(__SLANG_LINK_DYNAMICALLY){
+		version(Posix){
+			import core.sys.posix.dlfcn;
+			auto libhandle=dlopen("./libslang.so".toStringz(), RTLD_NOW );
+			foreach(elementname; __traits(allMembers, slang)){
+				static if(__traits(isStaticFunction, __traits(getMember, slang, elementname))){
+					dlsym(libhandle, elementname.toStringz() );
+					writeflnlog("%s", elementname);
+				}
+				else{
+					writeflnlog("_%s", elementname);
+				}
+			}			
+		}
+		version(Windows){
+			import std.windows;
+			auto libhandle=LoadLibraryA("./libslang.dll".toStringz());	
+			foreach(elementname; __traits(allMembers, slang)){
+				static if(__traits(isStaticFunction, __traits(getMember, slang, elementname))){
+					GetProcAddress(libhandle, elementname.toStringz() );
+					writeflnlog("%s", elementname);
+				}
+				else{
+					writeflnlog("_%s", elementname);
+				}
+			}
+		}
+	}*/
 	SLang_Traceback=SL_TB_PARTIAL;
 	SLang_init_slang();
 	SLang_init_slmath();
@@ -233,7 +270,7 @@ void Init_Script(){
 		SLadd_intrinsic_variable(cast(const(char*))toStringz(varname), &SLStdLib_DisabledVar, SLANG_UINT_TYPE, 1);
 	SLadd_intrinsic_function(cast(const(char*))toStringz("rand"), &ScrStdLib_Rand, SLANG_UINT_TYPE, 0);
 	SLadd_intrinsic_function(cast(const(char*))toStringz("Send_Packet"), &ScrStdLib_SendPacket, SLANG_VOID_TYPE, 1, SLANG_BSTRING_TYPE);
-	SLadd_intrinsic_function(cast(const(char*))toStringz("Key_Pressed"), &ScrStdLib_KeyPressed, SLANG_UCHAR_TYPE, 1, SLANG_UCHAR_TYPE);
+	SLadd_intrinsic_function(cast(const(char*))toStringz("Key_Pressed"), &ScrStdLib_KeyPressed, SLANG_UCHAR_TYPE, 0);
 	ScriptLibraries=[ScriptLib_t("None", ""), ScriptLib_t("GUI", "scrgui")];
 }
 
@@ -254,7 +291,8 @@ void Script_OnMouseClick(bool left, bool right){
 	}
 }
 
-extern(C) void ScrGuiLib_CreateMenuElement(){
+//TODO: Create proper menu element management code
+void ScrGuiLib_MenuElementCreate(){
 	string[] fieldnames=["elementindex", "picindex", "xpos", "ypos", "zpos", "xsize", "ysize", "transparency", "color_mod"];
 	char*[] c_fieldnames;
 	foreach(ref field; fieldnames)
@@ -262,7 +300,7 @@ extern(C) void ScrGuiLib_CreateMenuElement(){
 	SLang_Struct_Type *button=SLang_create_struct (cast(const(char**))c_fieldnames.ptr, cast(uint)fieldnames.length);
 	int elem=-1;
 	for(uint i=0; i<MenuElements.length; i++){
-		if(!MenuElements[i].inactive())
+		if(!MenuElements[i].inactive() || MenuElements[i].reserved)
 			continue;
 		elem=i;
 		break;
@@ -272,6 +310,7 @@ extern(C) void ScrGuiLib_CreateMenuElement(){
 		MenuElements.length++;
 		MenuElements[elem].zpos=255;
 	}
+	MenuElements[elem].reserved=true;
 	//Inivisible, but not inactive (Still need a good way to combine script/packet menu element modification stuff)
 	MenuElements[elem].set(cast(ubyte)elem, cast(ubyte)0, cast(ubyte)0, 0.0, 0.0, 1.0f/float.infinity, 1.0f/float.infinity, 1);
 	SLang_push_uchar(cast(ubyte)elem); SLang_push_uchar(0); SLang_push_float(0.0); SLang_push_float(0.0); SLang_push_uchar(0);
@@ -280,7 +319,7 @@ extern(C) void ScrGuiLib_CreateMenuElement(){
 	SLang_push_struct(button);
 }
 
-extern(C) void ScrGuiLib_UpdateMenuElement(SLang_Struct_Type *slelement){
+void ScrGuiLib_MenuElementUpdate(SLang_Struct_Type *slelement){
 	string[] fieldnames=["elementindex", "picindex", "xpos", "ypos", "zpos", "xsize", "ysize", "transparency", "color_mod"];
 	foreach(ref field; fieldnames)
 		SLang_push_struct_field(slelement, cast(char*)toStringz(field));
@@ -288,18 +327,20 @@ extern(C) void ScrGuiLib_UpdateMenuElement(SLang_Struct_Type *slelement){
 	SLang_pop_uint(&color_mod); SLang_pop_uchar(&transparency); SLang_pop_float(&ysize); SLang_pop_float(&xsize); SLang_pop_uchar(&zpos);
 	SLang_pop_float(&ypos); SLang_pop_float(&xpos); SLang_pop_uchar(&picindex); SLang_pop_uchar(&elementindex);
 	MenuElements[elementindex].set(elementindex, picindex, zpos, xpos, ypos, xsize, ysize, transparency, color_mod);
+	MenuElements[elementindex].reserved=true;
 }
 
-extern(C) void ScrGuiLib_DeleteMenuElement(SLang_Struct_Type *slelement){
+void ScrGuiLib_MenuElementDelete(SLang_Struct_Type *slelement){
 	SLang_push_struct_field(slelement, cast(char*)toStringz("elementindex"));
 	ubyte elementindex;
 	SLang_pop_uchar(&elementindex);
 	MenuElements[elementindex].picture_index=255;
+	MenuElements[elementindex].reserved=false;
 	if(slelement.destroy_method)
 		SLexecute_function(slelement.destroy_method);
 }
 
-extern(C) void ScrGuiLib_CreateTextBox(){
+void ScrGuiLib_TextBoxCreate(){
 	string[] fieldnames=["boxindex", "fontindex", "xpos", "ypos", "xsize", "ysize", "xsizeratio", "ysizeratio", "wrap_lines", "move_lines_down",
 	"move_lines_up", "lines", "colors"];
 	char*[] c_fieldnames;
@@ -328,7 +369,7 @@ extern(C) void ScrGuiLib_CreateTextBox(){
 	SLang_push_struct(textbox);
 }
 
-extern(C) void ScrGuiLib_UpdateTextBox(SLang_Struct_Type *slelement){
+void ScrGuiLib_TextBoxUpdate(SLang_Struct_Type *slelement){
 	string[] fieldnames=["boxindex", "fontindex", "xpos", "ypos", "xsize", "ysize", "xsizeratio", "ysizeratio", "wrap_lines", "move_lines_down",
 	"move_lines_up", "lines", "colors"];
 	foreach(ref field; fieldnames)
@@ -355,7 +396,7 @@ extern(C) void ScrGuiLib_UpdateTextBox(SLang_Struct_Type *slelement){
 	}
 }
 
-extern(C) void ScrGuiLib_DeleteTextBox(SLang_Struct_Type *slelement){
+void ScrGuiLib_TextBoxDelete(SLang_Struct_Type *slelement){
 	SLang_push_struct_field(slelement, cast(char*)toStringz("boxindex"));
 	ubyte boxindex;
 	SLang_pop_uchar(&boxindex);
@@ -364,7 +405,7 @@ extern(C) void ScrGuiLib_DeleteTextBox(SLang_Struct_Type *slelement){
 		SLexecute_function(slelement.destroy_method);
 }
 
-extern(C) ubyte ScrGuiLib_Object_Hovered(SLang_Struct_Type *slelement){
+ubyte ScrGuiLib_Object_Hovered(SLang_Struct_Type *slelement){
 	string[] fieldnames=["xpos", "ypos", "xsize", "ysize"];
 	foreach(ref field; fieldnames)
 		SLang_push_struct_field(slelement, cast(char*)toStringz(field));
@@ -374,27 +415,36 @@ extern(C) ubyte ScrGuiLib_Object_Hovered(SLang_Struct_Type *slelement){
 	return MouseXPos>=ixpos && MouseXPos<ixpos+ixsize && MouseYPos>=iypos && MouseYPos<iypos+iysize;
 }
 
-extern(C) double ScrGuiLib_MouseX(){return MouseXPos;}
-extern(C) double ScrGuiLib_MouseY(){return MouseYPos;}
-extern(C) ubyte ScrGuiLib_MouseLeftClicked(){return MouseLeftClick;}
-extern(C) ubyte ScrGuiLib_MouseRightClicked(){return MouseRightClick;}
-extern(C) ubyte ScrGuiLib_MouseLeftChanged(){return MouseLeftChanged;}
-extern(C) ubyte ScrGuiLib_MouseRightChanged(){return MouseRightChanged;}
-extern(C) void ScrGuiLib_MenuMode_Set(ubyte mode){Set_Menu_Mode(cast(bool)mode);}
-extern(C) ubyte ScrGuiLib_MenuMode_Get(){return Menu_Mode;}
+double ScrGuiLib_MouseX(){return MouseXPos;}
+double ScrGuiLib_MouseY(){return MouseYPos;}
+ubyte ScrGuiLib_MouseLeftClicked(){return MouseLeftClick;}
+ubyte ScrGuiLib_MouseRightClicked(){return MouseRightClick;}
+ubyte ScrGuiLib_MouseLeftChanged(){return MouseLeftChanged;}
+ubyte ScrGuiLib_MouseRightChanged(){return MouseRightChanged;}
+void ScrGuiLib_MenuMode_Set(){ubyte mode; SLang_pop_uchar(&mode); Set_Menu_Mode(cast(bool)mode);}
+ubyte ScrGuiLib_MenuMode_Get(){return Menu_Mode;}
 
 
-extern(C) void ScrGuiLib_StandardFont_Set(ubyte font){
+void ScrGuiLib_StandardFont_Set(ubyte font){
 	Set_ModFile_Font(font);
 }
-extern(C) ubyte ScrGuiLib_StandardFont_Get(){
+ubyte ScrGuiLib_StandardFont_Get(){
 	auto ind=Mod_Pictures.countUntil(font_texture);
 	if(ind<0)
 		return font_index;
 	return cast(ubyte)ind;
 }
 
-extern(C) ubyte ScrStdLib_KeyPressed(){
+uint ScrGuiLib_PictureColorGet(){
+	ubyte picindex; float xcoord, ycoord;
+	SLang_pop_float(&ycoord); SLang_pop_float(&xcoord); SLang_pop_uchar(&picindex);
+	SDL_Surface *pic=Mod_Picture_Surfaces[picindex];
+	uint xp=to!uint(xcoord*(pic.w-1)), yp=to!uint(ycoord*(pic.h-1));
+	uint col=*(cast(uint*)(&((pic.pixels))[(xp<<2)+yp*pic.pitch]));
+	return col;
+}
+
+ubyte ScrStdLib_KeyPressed(){
 	ubyte key;
 	SLang_pop_uchar(&key);
 	if(TypingChat)
@@ -402,12 +452,13 @@ extern(C) ubyte ScrStdLib_KeyPressed(){
 	return KeyState[key]!=0;
 }
 
-extern(C) uint ScrStdLib_Rand(){return uniform!uint();}
-extern(C) void ScrStdLib_SendPacket(SLang_BString_Type *bstr){
+uint ScrStdLib_Rand(){return uniform!uint();}
+void ScrStdLib_SendPacket(SLang_BString_Type *bstr){
 	CustomScriptPacketLayout packet;
 	packet.scr_index=Current_Script_Index;
 	ubyte *content; SLstrlen_Type len;
 	content=SLbstring_get_pointer(bstr, &len);
 	packet.data=(cast(char*)content)[0..len].dup();
 	Send_Packet(CustomScriptPacketID, packet);
+}
 }
