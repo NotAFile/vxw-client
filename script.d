@@ -13,6 +13,7 @@ import std.datetime;
 import std.algorithm;
 import std.meta;
 import std.conv;
+import std.stdio;
 import std.random;
 
 extern(C){
@@ -50,13 +51,6 @@ SLang_Intrin_Fun_Type[] ScrGuiLib_Funcs(){
 		MAKE_INTRINSIC_1(cast(char*)toStringz("TextBox_Update"), &ScrGuiLib_TextBoxUpdate, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
 		MAKE_INTRINSIC_1(cast(char*)toStringz("TextBox_Delete"), &ScrGuiLib_TextBoxDelete, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
 		MAKE_INTRINSIC_0(cast(char*)toStringz("PictureColor_Get"), &ScrGuiLib_PictureColorGet, SLANG_UINT_TYPE),
-		SLANG_END_INTRIN_FUN_TABLE()
-	];
-}
-
-SLang_Intrin_Fun_Type[] ScrStdLib_Funcs(){
-	return [
-		MAKE_INTRINSIC_0(cast(char*)toStringz("rnd"), &ScrStdLib_Rand, SLANG_UINT_TYPE),
 		SLANG_END_INTRIN_FUN_TABLE()
 	];
 }
@@ -263,7 +257,6 @@ void Init_Script(){
 	SLang_Traceback=SL_TB_PARTIAL;
 	SLang_init_slang();
 	SLang_init_slmath();
-	SLang_init_slfile();
 	foreach(funcname; SLStdLib_DisabledFuncs)
 		SLadd_intrinsic_function(cast(const(char*))toStringz(funcname), &SLStdLib_DisabledFunc, SLANG_VOID_TYPE, 0);
 	foreach(varname; SLStdLib_DisabledVars)
@@ -271,6 +264,7 @@ void Init_Script(){
 	SLadd_intrinsic_function(cast(const(char*))toStringz("rand"), &ScrStdLib_Rand, SLANG_UINT_TYPE, 0);
 	SLadd_intrinsic_function(cast(const(char*))toStringz("Send_Packet"), &ScrStdLib_SendPacket, SLANG_VOID_TYPE, 1, SLANG_BSTRING_TYPE);
 	SLadd_intrinsic_function(cast(const(char*))toStringz("Key_Pressed"), &ScrStdLib_KeyPressed, SLANG_UCHAR_TYPE, 0);
+	SLadd_intrinsic_function(cast(const(char*))toStringz("plog"), &ScrStdLib_PrintLog, SLANG_VOID_TYPE, 0);
 	ScriptLibraries=[ScriptLib_t("None", ""), ScriptLib_t("GUI", "scrgui")];
 }
 
@@ -460,5 +454,12 @@ void ScrStdLib_SendPacket(SLang_BString_Type *bstr){
 	content=SLbstring_get_pointer(bstr, &len);
 	packet.data=(cast(char*)content)[0..len].dup();
 	Send_Packet(CustomScriptPacketID, packet);
+}
+void ScrStdLib_PrintLog(){
+	char *content;
+	if(!SLpop_string(&content)){
+		writefln("[SCRIPT]%s", fromStringz(content));
+		SLfree(content);
+	}
 }
 }

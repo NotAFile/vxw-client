@@ -303,7 +303,13 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case PlayerJoinPacketID:{
 				auto packet=UnpackPacketToStruct!(PlayerJoinPacketLayout)(PacketData);
-				writeflnlog("Player #%d %s joined %s", packet.player_id, packet.name, Teams[packet.team_id].name);
+				if(packet.team_id<255){
+					writeflnlog("%s", packet.team_id);
+					writeflnlog("Player #%d %s joined %s", packet.player_id, packet.name, Teams[packet.team_id].name);
+				}
+				else{
+					writeflnlog("Player #%d %s joined the game", packet.player_id, packet.name);
+				}
 				Init_Player(packet.name, packet.player_id);
 				if(packet.player_id==LocalPlayerID)
 					Join_Game();

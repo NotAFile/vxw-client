@@ -628,6 +628,8 @@ void Render_Screen(){
 				arr.length=Players.length;
 		}
 		foreach(ref p; Players){
+			if(p.team==255)
+				continue;
 			list_player_amount[p.team]++;
 			Player_List_Table[p.team][list_player_amount[p.team]-1]=p.player_id;
 		}
