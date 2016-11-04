@@ -214,7 +214,7 @@ int SLang_pop_struct_fields (SLang_Struct_Type *, int);
 int SLang_pop_struct (SLang_Struct_Type **);
 
 int SLang_push_string(const char *);
-
+int SLpop_string (char **);
 
 int SLang_push_char (byte);
 int SLang_push_uchar (ubyte);
@@ -241,6 +241,8 @@ int SLdo_pop();
 int SLdo_pop_n(uint);
 int SLang_peek_at_stack();
 
+int SLreverse_stack (int);
+int SLroll_stack (int);
 
 alias SLang_Any_Type=_pSLang_Object_Type;
 int SLang_pop_anytype (SLang_Any_Type **);
@@ -297,6 +299,14 @@ SLang_Intrin_Fun_Type MAKE_INTRINSIC_0(char *name, void *func, SLtype typeout){
 
 SLang_Intrin_Fun_Type MAKE_INTRINSIC_1(char *name, void *func, SLtype typeout, SLtype a1){
 	return MAKE_INTRINSIC_N(name, func, typeout, cast(ubyte)1, a1, 0u, 0u, 0u, 0u, 0u, 0u);
+}
+
+SLang_Intrin_Fun_Type MAKE_INTRINSIC_2(char *name, void *func, SLtype typeout, SLtype a1, SLtype a2){
+	return MAKE_INTRINSIC_N(name, func, typeout, cast(ubyte)2, a1, a2, 0u, 0u, 0u, 0u, 0u);
+}
+
+SLang_Intrin_Fun_Type MAKE_INTRINSIC_3(char *name, void *func, SLtype typeout, SLtype a1, SLtype a2, SLtype a3){
+	return MAKE_INTRINSIC_N(name, func, typeout, cast(ubyte)3, a1, a2, a3, 0u, 0u, 0u, 0u);
 }
 
 struct SLang_Intrin_Var_Type
@@ -367,4 +377,7 @@ immutable SL_TB_FULL=0x1;    /* full traceback */
 immutable SL_TB_OMIT_LOCALS=0x2;    /* full, but omit local vars */
 immutable SL_TB_PARTIAL=0x4;    /* show just on line of traceback */
 
+extern __gshared int SLang_Num_Function_Args;
+
+void SLfree(void *);	       /* This function handles NULL */
 }
