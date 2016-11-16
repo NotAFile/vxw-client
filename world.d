@@ -647,7 +647,6 @@ uint Hash_Coordinates(uint x, uint y, uint z){
 	return x+y*MapXSize+z*MapXSize*MapYSize;
 }
 
-//immutable uint MaxDamageParticlesPerBlock=65536;
 immutable uint MaxDamageParticlesPerBlock=1024;
 
 struct DamageParticle_t{
@@ -758,7 +757,6 @@ void Damage_Block(PlayerID_t player_id, uint xpos, uint ypos, uint zpos, ubyte v
 void Break_Block(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, uint zpos){
 	uint col=Voxel_GetColor(xpos, ypos, zpos);
 	Voxel_Remove(xpos, ypos, zpos);
-	//Create_Particles(Vector3_t(tofloat(xpos)+.5, tofloat(ypos)+.5, tofloat(zpos)+.5), Vector3_t(0.0,), 1.0, .1, 16, col);
 	uint x, y, z;
 	uint particle_amount=touint(1.0/BlockBreakParticleSize)+1;
 	for(x=0; x<particle_amount; x++){
@@ -998,5 +996,5 @@ bool Valid_Coord(T)(T x, T y, T z){
 void Set_Fog(uint fogcol, uint fogrange){
 	Visibility_Range=fogrange;
 	Fog_Color=fogcol;
-	Set_Renderer_Fog(fogcol, fogrange);
+	Renderer_SetFog(fogcol, fogrange);
 }

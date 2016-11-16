@@ -1,113 +1,208 @@
-//Replace this file by any other .d file to change the renderer module
-
 import derelict.sdl2.sdl;
 import core.stdc.stdio : cstdio_fread=fread;
 import std.algorithm;
 import std.stdio;
 import std.math;
-import voxlap;
 import protocol;
 import gfx;
 import world;
 import misc;
 import vector;
+import core.stdc.stdlib : malloc, free;
 
-dpoint3d RenderCameraPos;
-dpoint3d Cam_ist, Cam_ihe, Cam_ifo;
+SDL_GLContext gl_context;
+uint Renderer_WindowFlags=SDL_WINDOW_OPENGL;
 
-vx5_interface *VoxlapInterface;
+extern(C) void ogl_reshape(int width, int height);
+extern(C) void ogl_init();
+extern(C) void ogl_display();
+extern(C) void ogl_camera_setup(float a, float b, float x, float y, float z);
+extern(C) void ogl_map_vxl_load_s(char* data);
+extern(C) void ogl_chunk_rebuild_all();
+extern(C) void ogl_map_set(int x, int y, int z, ulong color);
+extern(C) ulong ogl_map_get(int x, int y, int z);
+extern(C) void ogl_particle_create(uint color, float x, float y, float z, float velocity, float velocity_y, int amount, float min_size, float max_size);
+extern(C) void ogl_overlay_setup();
+extern(C) void ogl_overlay_rect(void* texture, int texture_width, int texture_height, ubyte red, ubyte green, ubyte blue, ubyte alpha, int x, int y, int w, int h);
+extern(C) void ogl_overlay_rect_sub(void* texture, int texture_width, int texture_height, ubyte red, ubyte green, ubyte blue, ubyte alpha, int x, int y, int w, int h, int src_x, int src_y, int src_w, int src_h);
+extern(C) void ogl_overlay_finish();
+extern(C) int ogl_overlay_bind_fullness();
+extern(C) void ogl_display_min();
+extern(C) void ogl_render_sprite(float x, float y, float z, int xsiz, int ysiz, int zsiz, float dx, float dy, float dz, float rx, float ry, float rz);
 
-SDL_Surface *FrameBuf;
+extern(C) char* ogl_info(int i);
+extern(C) int ogl_deprecation_state();
 
-void Init_Renderer(){
-	scrn_surface=SDL_CreateRGBSurface(0, ScreenXSize, ScreenYSize, 32, 0, 0, 0, 0);
-	initvoxlap();
-	VoxlapInterface=Vox_GetVX5();
-	Set_Fog(0x0000ffff, 128);
-	Vox_SetSideShades(32, 16, 8, 4, 32, 64);
+alias RendererTexture_t=void*;
+
+//What is missing here:
+//A Project2D function that converts 3D coordinates to 2D
+//Renderer_UploadToTexture() function to fix minimap
+
+void Renderer_Init(){
+	SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);
+	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);
+	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);
+	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,24);
+	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
+	
+	//SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,4);
+	//SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS,1);
+	//SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES,4);
 }
 
-void Load_Map(ubyte[] map){
-	Vox_vloadvxl(cast(const char*)map.ptr, cast(uint)map.length);
+void Renderer_SetUp(){
+	gl_context = SDL_GL_CreateContext(scrn_window);
+	ogl_init();
+	ogl_reshape(ScreenXSize,ScreenYSize);
+	printf("%s\n%s\n%s\n",ogl_info(0),ogl_info(1),ogl_info(2));
 }
 
-float XFOV_Ratio=1.0, YFOV_Ratio=1.0;
+void*[] allocated_textures;
 
-void SetCamera(float xrotation, float yrotation, float tilt, float xfov, float yfov, float xpos, float ypos, float zpos){
-	RenderCameraPos.x=xpos; RenderCameraPos.y=zpos; RenderCameraPos.z=ypos;
-	Vox_ConvertToEucl(xrotation+90.0, yrotation, tilt, &Cam_ist, &Cam_ihe, &Cam_ifo);
-	YFOV_Ratio=XFOV_Ratio=45.0/xfov;
-	setcamera(&RenderCameraPos, &Cam_ist, &Cam_ihe, &Cam_ifo, FrameBuf.w/2, FrameBuf.h/2, FrameBuf.w*XFOV_Ratio);
+void Renderer_UnInit(){
+	foreach(tex; allocated_textures)
+		free(tex);
 }
 
-void Prepare_Render(){
+RendererTexture_t Renderer_TextureFromSurface(SDL_Surface *srfc){
+	void *mempos=malloc(srfc.w*srfc.h*4);
+	if(!mempos){
+		writeflnlog("SHTF: MALLOC FAILED\n");
+	}
+	(cast(ubyte*)mempos)[0..srfc.w*srfc.h*4]=(cast(ubyte*)srfc.pixels)[0..srfc.w*srfc.h*4];
+	RendererTexture_t ret=mempos;
+	allocated_textures~=ret;
+	return cast(RendererTexture_t)ret;
+}
+
+void Renderer_UploadToTexture(SDL_Surface *srfc, RendererTexture_t tex){
+	(cast(uint*)tex)[0..srfc.w*srfc.h]=(cast(uint*)srfc.pixels)[0..srfc.w*srfc.h];
+}
+
+void Renderer_DestroyTexture(RendererTexture_t tex){
+	if(allocated_textures.canFind(tex))
+		allocated_textures=allocated_textures.remove(allocated_textures.countUntil(tex));
+	free(tex);
+}
+
+void Renderer_Blit2D(RendererTexture_t tex, uint[2]* size, SDL_Rect *dstr, ubyte alpha=255, ubyte[3] *ColorMod=null, SDL_Rect *srcr=null){
+	ubyte[3] cmod;
+	if(ColorMod){
+		cmod=*ColorMod;
+	}
+	else{
+		cmod=[255, 255, 255];
+	}
+	if(!srcr){
+		ogl_overlay_rect(tex,(*size)[0],(*size)[1], cmod[0], cmod[1], cmod[2], alpha, dstr.x, dstr.y, dstr.w, dstr.h);
+	}
+	else{
+		ogl_overlay_rect_sub(tex,(*size)[0],(*size)[1], cmod[0], cmod[1], cmod[2], alpha, dstr.x, dstr.y, dstr.w, dstr.h,
+		srcr.x, srcr.y, srcr.w, srcr.h);
+	}
+}
+
+int Rendered_3D=-1;
+
+void Renderer_StartRendering(bool render_3D){
+	Rendered_3D=render_3D;
+	if(render_3D)
+		ogl_display();
+	else
+		ogl_display_min();
+}
+
+void Renderer_Start2D(){
+	ogl_overlay_setup();
+}
+
+void Renderer_ShowInfo(){
+	int state = ogl_deprecation_state();
+	if(state>0) {
+		Render_Text_Line(0,cast(int)(ScreenYSize-FontHeight/16*2.5F),0xFFFFFF,"GPU deprecated!",font_texture,FontWidth,FontHeight,LetterPadding,2.5F,2.5F);
+		if(state&1) {
+			Render_Text_Line(0,cast(int)(ScreenYSize-FontHeight/16*2.5F*2.0F),0xFFFFFF,"power of 2 tex limit",font_texture,FontWidth,FontHeight,LetterPadding,2.5F,2.5F);
+		}
+		if(state&2) {
+			Render_Text_Line(0,cast(int)(ScreenYSize-FontHeight/16*2.5F*3.0F),0xFFFFFF,"ogl1.4 only",font_texture,FontWidth,FontHeight,LetterPadding,2.5F,2.5F);
+		}
+	}
+}
+
+void Renderer_Finish2D(){
+	ogl_overlay_finish();
+}
+
+void Renderer_FinishRendering(){
+	SDL_GL_SwapWindow(scrn_window);
+}
+
+void Renderer_LoadMap(ubyte[] map){
+	ogl_map_vxl_load_s(cast(char*)map.ptr);
+	ogl_chunk_rebuild_all();
+}
+
+void Renderer_SetCamera(float xrotation, float yrotation, float tilt, float xfov, float yfov, float xpos, float ypos, float zpos){
+	ogl_camera_setup((-xrotation+90.0F)/180.0F*3.14159F, (yrotation+90.0F)/180.0F*3.14159F, xpos, 64.0-ypos, zpos);
+}
+
+void Renderer_DrawVoxels(){}
+
+//PLS ADD: (returns whether object is visible, scrx/scry are screen coords of the centre, dist is distance
+bool Project2D(float xpos, float ypos, float zpos, float *dist, out int scrx, out int scry){
+	return false;
+}
+
+int[2] Project2D(float xpos, float ypos, float zpos, float *dist){
+	return [-10000, -10000];
+}
+
+//Note: It's ok if you don't even plan on implementing blur in your renderer, BUT ONLY FOR VERY SHITTY RENDERERS OR CPU ONES THAT CAN'T AFFORD THIS
+void Set_Blur(float amount){
 	
 }
 
-void Set_Frame_Buffer(SDL_Surface *srfc){
-	voxsetframebuffer(cast(int)srfc.pixels, srfc.pitch, srfc.w, srfc.h);
-	FrameBuf=srfc;
-}
-
-void Render_Voxels(){
-	opticast();
-}
-
-void Render_FinishRendering(){
-	SDL_UpdateTexture(vxrend_texture, null, scrn_surface.pixels, scrn_surface.pitch);
-}
-
-void UnInit_Renderer(){
-	uninitvoxlap();
-}
-
-void Set_Renderer_Fog(uint fogcolor, uint fogrange){
-	VoxlapInterface.fogcol=fogcolor|0xff000000;
-	VoxlapInterface.maxscandist=fogrange;
-}
-
-//Note: It's ok if you don't even plan on implementing blur in your renderer
-void Set_Blur(float amount){
-	VoxlapInterface.anginc=1.0+amount*2.0;
-}
-
 uint Voxel_FindFloorZ(uint x, uint y, uint z){
-	return getfloorz(x, z, y);
-	/*for(y=0; y<MapYSize; y++){
+	for(y=0;y<MapYSize; y++){
 		if(Voxel_IsSolid(x, y, z)){
 			return y;
 		}
-	}*/
+	}
+	return 0;
 }
 
-//Actually these don't belong here, but a renderer can bring its own map memory format
+//Actually these shouldn't belong here, but a renderer can bring its own map memory format
 bool Voxel_IsSolid(uint x, uint y, uint z){
-	return cast(bool)isvoxelsolid(x, z, y);
+	return ogl_map_get(x,64-y-1,z)!=0xFFFFFFFF;
 }
 
+//0xARGB, not 0xABGR '-'
 void Voxel_SetColor(uint x, uint y, uint z, uint col){
-	setcube(x, z, y, (col&0x00ffffff)|0xfe000000);
+	ogl_map_set(x,64-y-1,z,((col>>16)&255) | (((col>>8)&255)<<8) | ((col&255)<<16));
 }
 
 void Voxel_SetShade(uint x, uint y, uint z, ubyte shade){
-	if(shade>254)
-		shade=254;
-	setcube(x, z, y, (Voxel_GetColor(x, y, z)&0x00ffffff)|(shade<<24));
+	
 }
 
 uint Voxel_GetColor(uint x, uint y, uint z){
-	int address=getcube(x, z, y);
-	if(!address)
-		return 0;
-	if(address==1)
-		return 0x01000000;
-	return *(cast(uint*)address);
+	uint col=ogl_map_get(x,64-y-1,z)&0xFFFFFF;
+	return ((col>>16)&255) | (((col>>8)&255)<<8) | ((col&255)<<16);
 }
 
 void Voxel_Remove(uint x, uint y, uint z){
-	setcube(x, z, y, -1);
+	uint col = ogl_map_get(x,64-y-1,z)&0xFFFFFF;
+	ogl_map_set(x,64-y-1,z,0xFFFFFFFF);
+	ogl_particle_create(col,x+0.5F,(64-y-1)+0.5F,z+0.5F,2.5F,1.0F,16,0.1F,0.25F);
 }
 
+void Renderer_DrawSprite(KV6Sprite_t *spr){
+	ogl_render_sprite(spr.xpos,64.0F-spr.ypos,spr.zpos,spr.model.xsize,spr.model.ysize,spr.model.zsize,spr.xdensity,spr.ydensity,spr.zdensity,spr.rhe,-spr.rti+90.0F,spr.rst);
+}
+
+void Renderer_SetFog(uint fogcolor, uint fogrange){
+}
 
 extern(C) struct KV6Voxel_t{
 	uint color;
@@ -215,158 +310,13 @@ uint Count_KV6Blocks(KV6Model_t *model, uint dstx, uint dsty){
 	return index;
 }
 
-int[2] Project2D(float xpos, float ypos, float zpos, float *dist){
-	int[2] scrpos;
-	float dst=Vox_Project2D(xpos, zpos, ypos, &scrpos[0], &scrpos[1]);
-	if(dist)
-		*dist=dst;
-	return scrpos;
+void Renderer_Draw3DParticle(float x, float y, float z, int w, int h, uint col){
 }
 
-bool Project2D(float xpos, float ypos, float zpos, float *dist, out int scrx, out int scry){
-	float dst=Vox_Project2D(xpos, zpos, ypos, &scrx, &scry);
-	if(dist)
-		*dist=dst;
-	return xpos>=0 && ypos>=0;
+void Renderer_Draw3DParticle(Vector3_t *pos, int w, int h, uint col){
+	return Renderer_Draw3DParticle(pos.x, pos.y, pos.z, w, h, col);
 }
 
-alias Render_Rectangle=Vox_DrawRect2D;
-
-/*void Render_Rectangle(int x, int y, int w, int h, uint col, float zdist){
-	Vox_DrawRect2D(x, y, w, h, col, zdist);
-}*/
-
-void Render_Sprite(KV6Sprite_t *spr){
-	if(spr.color_mod){
-		if(spr.replace_black)
-			_Render_Sprite!(true, true)(spr);
-		else
-			_Render_Sprite!(false, true)(spr);
-	}
-	else{
-		if(spr.replace_black)
-			_Render_Sprite!(true, false)(spr);
-		else
-			_Render_Sprite!(false, false)(spr);
-	}
-}
-
-void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod)(KV6Sprite_t *spr){
-	if(!Sprite_Visible(spr))
-		return;
-	uint blkx, blkz;
-	KV6Voxel_t *sblk, blk, eblk;
-	uint blockadvance=1;
-	{
-		float xdiff=spr.xpos-RenderCameraPos.x, ydiff=spr.ypos-RenderCameraPos.z, zdiff=spr.zpos-RenderCameraPos.y;
-		//Change this and make it consider ydiff too when not using Voxlap
-		float l=sqrt(xdiff*xdiff+zdiff*zdiff);
-		if(l>VoxlapInterface.maxscandist)
-			return;
-		if(!spr.xdensity || !spr.ydensity || !spr.zdensity)
-			return;
-		blockadvance=cast(uint)(l*l/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*2.0)+1;
-	}
-	int screen_w=FrameBuf.w, screen_h=FrameBuf.h;
-	float KVRectW=(cast(float)FrameBuf.w)/2.0*XFOV_Ratio*2.0, KVRectH=(cast(float)FrameBuf.h)/2.0*YFOV_Ratio*2.0;
-	float sprdensity=Vector3_t(spr.xdensity, spr.ydensity, spr.zdensity).length;
-	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
-	uint color_mod_alpha, color_mod_r, color_mod_g, color_mod_b;
-	static if(Enable_Color_Mod){
-		color_mod_alpha=(spr.color_mod>>24)&255;
-		color_mod_r=(spr.color_mod>>16)&255;
-		color_mod_g=(spr.color_mod>>8)&255;
-		color_mod_b=(spr.color_mod>>0)&255;
-	}
-	rot_sx=sin((spr.rhe)*PI/180.0); rot_cx=cos((spr.rhe)*PI/180.0);
-	rot_sy=sin(-(spr.rti+90.0)*PI/180.0); rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
-	rot_sz=sin(-spr.rst*PI/180.0); rot_cz=cos(-spr.rst*PI/180.0);
-	for(blkx=0; blkx<spr.model.xsize; blkx+=blockadvance){
-		for(blkz=0; blkz<spr.model.zsize; blkz+=blockadvance){
-			uint index=Count_KV6Blocks(spr.model, blkx, blkz);
-			if(index>=spr.model.voxelcount)
-				continue;
-			sblk=&spr.model.voxels[index];
-			eblk=&sblk[cast(uint)spr.model.ylength[blkx][blkz]];
-			for(blk=sblk; blk<eblk; blk+=blockadvance){
-				if(!blk.visiblefaces)
-					continue;
-				float fnx=(blkx-spr.model.xpivot+.5)*spr.xdensity;
-				float fny=(blk.ypos-spr.model.ypivot+.5)*spr.ydensity;
-				float fnz=(blkz-spr.model.zpivot-.5)*spr.zdensity;
-				float rot_y=fny, rot_z=fnz, rot_x=fnx;
-				fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
-				rot_x=fnx; rot_z=fnz;
-				fnz=rot_z*rot_cy - rot_x*rot_sy; fnx=rot_z*rot_sy + rot_x*rot_cy;
-				rot_x=fnx; rot_y=fny;
-				fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
-				fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
-				/*if(x==spr.model.xsize/2 && y==spr.model.ysize/2 && blk==sblk && spr.xdensity==.2f){
-					writeflnlog("%s", (Vector3_t(fnx, fny, fnz)-Vector3_t(RenderCameraPos.x, RenderCameraPos.z, RenderCameraPos.y)).length);
-				}*/
-				int screenx, screeny;
-				float renddist=Vox_Project2D(fnx, fnz, fny, &screenx, &screeny);
-				if(renddist<0.0 || isNaN(renddist))
-					continue;
-				int w=cast(int)(KVRectW*sprdensity/renddist)+1, h=cast(int)(KVRectH*sprdensity/renddist)+1;
-				screenx-=w>>1; screeny-=h>>1;
-				if(screenx+w<0 || screeny+h<0 || screenx>=screen_w || screeny>=screen_h){
-					continue;
-				}
-				uint vxcolor=blk.color;
-				static if(Enable_Black_Color_Replace){
-					if((vxcolor&0x00ffffff)==0x00040404)
-						vxcolor=spr.replace_black;
-				}
-				static if(Enable_Color_Mod){
-					uint color_alpha, color_r, color_g, color_b;
-					color_alpha=255-color_mod_alpha;
-					color_r=(vxcolor>>>16)&255; 
-					color_g=(vxcolor>>>8)&255; 
-					color_b=(vxcolor>>>0)&255;
-					color_r=(color_r*color_alpha+color_mod_r*color_mod_alpha)>>>8;
-					color_g=(color_g*color_alpha+color_mod_g*color_mod_alpha)>>>8;
-					color_b=(color_b*color_alpha+color_mod_b*color_mod_alpha)>>>8;
-					vxcolor=(color_r<<16) | (color_g<<8) | (color_b);
-				}
-				Vox_Calculate_2DFog(cast(ubyte*)&vxcolor, fnx-RenderCameraPos.x, fnz-RenderCameraPos.y);
-				Vox_DrawRect2D(screenx, screeny, w, h, vxcolor|0xff000000, renddist);
-			}
-		}
-	}
-}
-
-void Draw_Smoke_Circle(int sx, int sy, int radius, uint color, uint alpha, float dist){
-	if(dist>VoxlapInterface.maxscandist)
-		return;
-	int w=radius*2, h=radius*2;
-	immutable uint fb_w=FrameBuf.w, fb_h=FrameBuf.h;
-	uint neg_alpha=256-alpha;
-	w=min(fb_w-sx, w); h=min(fb_h-sy, h);
-	uint *pty=cast(uint*)((cast(ubyte*)(FrameBuf.pixels))+(sx<<2)+(sy*FrameBuf.pitch));
-	int zbufoff=VoxlapInterface.zbufoff;
-	float *zbufptr=cast(float*)((cast(ubyte*)pty)+zbufoff);
-	uint cr=((color>>16)&255)*alpha, cg=((color>>8)&255)*alpha, cb=((color>>0)&255)*alpha;
-	int pow_r=radius*radius;
-	int min_x=sx<0 ? -sx : 0, min_y=sy<0 ? -sy : 0;
-	int max_x=sx+w<fb_w ? w : fb_w-sx-1, max_y=sy+h<fb_h ? h : fb_h-sy-1;
-	for(int y=min_y; y<max_y;++y){
-		if(y<min_y)
-			continue;
-		int cy=y-radius;
-		int powr=pow_r-cy*cy;
-		for(int x=min_x; x<max_x; ++x){
-			int cx=x-radius;
-			if(cx*cx>powr)
-				continue;
-			if(dist<zbufptr[x]){
-				zbufptr[x]=dist;
-				pty[x]=0xff000000 | (((touint((pty[x]>>16)&255)*neg_alpha+cr)>>8)<<16) |
-				(((touint((pty[x]>>8)&255)*neg_alpha+cg)>>8)<<8) | ((touint((pty[x]&255)*neg_alpha+cb)>>8)<<0);
-			}
-		}
-		pty+=fb_w;
-		zbufptr+=fb_w;
-	}
-	return;
+void Renderer_DrawSmokeCircle(float x, float y, float z, int radius, uint color, uint alpha, float dist){
+	
 }

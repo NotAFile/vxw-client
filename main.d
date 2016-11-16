@@ -13,7 +13,7 @@ import vector;
 import world;
 import script;
 
-uint TargetFPS=30;
+uint TargetFPS=60;
 
 version(OSX){
 	//Ew why would an intelligent non-pleb even use this shit
@@ -62,7 +62,6 @@ void main(string[] args){
 		}
 		Update_Script();
 		Update_World();
-		Prepare_Render();
 		Render_Screen();
 		Finish_Render();
 		t2=SDL_GetTicks();
@@ -78,12 +77,10 @@ void Init_Game(){
 	Init_Netcode();
 	Init_Gfx();
 	Init_UI();
-	Init_Renderer();
 	Init_Script();
 }
 
 void UnInit_Game(){
-	UnInit_Renderer();
 	UnInit_UI();
 	UnInit_Gfx();
 	UnInit_Netcode();

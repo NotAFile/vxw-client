@@ -46,7 +46,7 @@ ubyte[] CurrentLoadingMap;
 
 uint MapXSize, MapYSize, MapZSize;
 
-uint Client_Version=3;
+uint Client_Version=4;
 
 uint JoinedGameMaxPhases=4;
 uint JoinedGamePhase=0;
@@ -127,7 +127,7 @@ struct ModFile_t{
 				if(!fsrfc){writeflnerr("Couldn't load %s: %s", fname, error); break;}
 				SDL_SetColorKey(fsrfc, SDL_TRUE, SDL_MapRGB(fsrfc.format, 255, 0, 255));
 				SDL_Surface *srfc=SDL_ConvertSurfaceFormat(fsrfc, SDL_PIXELFORMAT_ARGB8888, 0);
-				SDL_Texture *tex=SDL_CreateTextureFromSurface(scrn_renderer, srfc);
+				RendererTexture_t tex=Renderer_TextureFromSurface(srfc);
 				if(Mod_Pictures.length<=index){
 					Mod_Pictures.length=index+1;
 					Mod_Picture_Surfaces.length=index+1;
@@ -216,32 +216,6 @@ struct ModFile_t{
 			return;
 		}
 	}
-	SDL_Surface *LoadToSurface(){
-		string fname="./Ressources/"~name, error;
-		SDL_Surface *fsrfc;
-		switch(fname[$-4..$]){
-			case ".bmp":{
-				fsrfc=SDL_LoadBMP(toStringz(fname));
-				if(!fsrfc)
-					error=cast(string)fromStringz(SDL_GetError());
-				break;
-			}
-			case ".png":{
-				fsrfc=IMG_Load(toStringz(fname));
-				if(!fsrfc)
-					error=cast(string)fromStringz(IMG_GetError());
-				break;
-			}
-			default:{
-				fsrfc=null;
-				error="Unknown image file format"~fname[$-4..$];
-				break;
-			}
-		}
-		if(!fsrfc)
-			writeflnerr("Couldn't load %s: %s", fname, error);
-		return fsrfc;
-	}
 }
 
 ModFile_t[][] LoadingMods;
@@ -293,7 +267,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				writeflnlog("Received map chunk of size %s (%s/%s)", packet.data.length, CurrentLoadingMap.length, MapTargetSize);
 				if(CurrentLoadingMap.length==MapTargetSize){
 					Set_MiniMap_Size(MapXSize, MapZSize);
-					Load_Map(CurrentLoadingMap);
+					Renderer_LoadMap(CurrentLoadingMap);
 					TerrainOverview=Vector3_t(MapXSize/2, 0.0, MapZSize/2);
 					LoadingMap=false;
 					LoadedCompleteMap=true;
@@ -642,7 +616,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				auto packet=UnpackPacketToStruct!(AssignBuiltinPacketLayout)(PacketData);
 				switch(packet.type){
 					case AssignBuiltinTypes.Picture:{
-						SDL_Texture *dstpic=Mod_Pictures[packet.index];
+						RendererTexture_t dstpic=Mod_Pictures[packet.index];
 						uint xsize=Mod_Picture_Sizes[packet.index][0], ysize=Mod_Picture_Sizes[packet.index][1];
 						switch(packet.target){
 							case AssignBuiltinPictureTypes.Font:{
@@ -666,14 +640,14 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 							}
 							case AssignBuiltinSentImageTypes.Palette_HFG:{
 								ProtocolBuiltin_PaletteHFG=element;
-								Palette_H_Colors=LoadingMods[0][element.picture_index].LoadToSurface();
+								Palette_H_Colors=Mod_Picture_Surfaces[element.picture_index];
 								Palette_Color_HIndex=ProtocolBuiltin_PaletteHFG.xsize/2;
 								Palette_Color_HPos=tofloat(Palette_Color_HIndex);
 								break;
 							}
 							case AssignBuiltinSentImageTypes.Palette_VFG:{
 								ProtocolBuiltin_PaletteVFG=element;
-								Palette_V_Colors=LoadingMods[0][element.picture_index].LoadToSurface();
+								Palette_V_Colors=Mod_Picture_Surfaces[element.picture_index];
 								Palette_Color_VIndex=ProtocolBuiltin_PaletteVFG.ysize/2;
 								Palette_Color_VPos=tofloat(Palette_Color_VIndex);
 								break;
@@ -761,7 +735,8 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case ToggleScriptPacketID:{
 				auto packet=UnpackPacketToStruct!(ToggleScriptPacketLayout)(PacketData);
-				Loaded_Scripts[packet.index].Set_Enabled(cast(bool)(packet.flags&1), cast(bool)(packet.flags&2));
+				Loaded_Scripts[packet.index].Set_Enabled(cast(bool)(packet.flags&ToggleScriptPacketFlags.Run),
+				cast(bool)(packet.flags&ToggleScriptPacketFlags.Repeat));
 				break;
 			}
 			case CustomScriptPacketID:{
@@ -860,8 +835,8 @@ void Send_Key_Presses(ushort keypresses){
 void Send_Mouse_Click(bool left_click, bool right_click, int xpos, int ypos){
 	MouseClickPacketLayout packet;
 	packet.clicks=(cast(uint)left_click)*(1<<0)+(cast(uint)right_click)*(1<<1);
-	packet.xpos=cast(ushort)(cast(float)(xpos)*65535.0/cast(float)(scrn_surface.w));
-	packet.ypos=cast(ushort)(cast(float)(ypos)*65535.0/cast(float)(scrn_surface.h));
+	packet.xpos=cast(ushort)(cast(float)(xpos)*65535.0/cast(float)(ScreenXSize));
+	packet.ypos=cast(ushort)(cast(float)(ypos)*65535.0/cast(float)(ScreenYSize));
 	Send_Packet(MouseClickPacketID, packet);
 	if(Joined_Game && !Menu_Mode)
 		Players[LocalPlayerID].left_click=left_click;

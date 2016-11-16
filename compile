@@ -1,2 +1,0 @@
-#!/bin/bash
-dmd *.d *.di -L-l:libslang.so ./derelict/sdl2/*.d ./derelict/enet/*.d ./derelict/util/*.d -gc -ofmain

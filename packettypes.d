@@ -377,6 +377,10 @@ struct SetShakePacketLayout{
 
 immutable PacketID_t SetShakePacketID=43;
 
+enum ToggleScriptPacketFlags{
+	Run=(1<<0), Repeat=(1<<1)
+}
+
 struct ToggleScriptPacketLayout{
 	ushort index;
 	ubyte flags;

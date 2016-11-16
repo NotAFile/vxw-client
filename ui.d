@@ -14,6 +14,7 @@ import script;
 version(LDC){
 	import ldc_stdlib;
 }
+import core.stdc.stdio;
 
 uint CurrentChatCursor;
 bool TypingChat=false;
@@ -43,7 +44,7 @@ bool Changed_Palette_Color=false;
 SDL_Surface *Palette_V_Colors, Palette_H_Colors;
 
 void ConvertScreenCoords(in float uxpos, in float uypos, out int lxpos, out int lypos){
-	float scrnw=cast(float)scrn_surface.w, scrnh=cast(float)scrn_surface.h;
+	float scrnw=cast(float)ScreenXSize, scrnh=cast(float)ScreenYSize;
 	lxpos=cast(int)(uxpos*scrnw); lypos=cast(int)(uypos*scrnh);
 }
 
@@ -57,7 +58,7 @@ struct MenuElement_t{
 	int xsize, ysize;
 	union{
 		uint icolor_mod;
-		ubyte[4] bcolor_mod;
+		ubyte[3] bcolor_mod;
 	}
 	//Maybe optimize menu elements to get deleted when their picture index is 255
 	void set(ubyte initindex, ubyte picindex, ubyte zval, float sxpos, float sypos, float sxsize, float sysize, ubyte inittransparency, uint colormod=0x00ffffff){
@@ -76,7 +77,7 @@ struct MenuElement_t{
 		icolor_mod=colormod;
 	}
 	bool inactive(){
-		return this.picture_index==255 || this.zpos==255 || this.transparency==0 || !this.xsize || !this.ysize;
+		return this.picture_index==255 || this.transparency==0 || !this.xsize || !this.ysize;
 	}
 }
 
@@ -476,19 +477,13 @@ uint Palette_Color_HIndex=0, Palette_Color_VIndex=0;
 float Palette_Color_HPos=0.0, Palette_Color_VPos=0.0;
 
 void Render_HUD(){
+	//TODO: fix array out of bounds exception
 	if(Joined_Game()){
 		if(Players[LocalPlayerID].item_types.length){
 			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon){
 				Item_t *item=&Players[LocalPlayerID].items[Players[LocalPlayerID].item];
 				if(AmmoCounterBG){
-					MenuElement_t *e=AmmoCounterBG;
-					SDL_Rect r;
-					r.x=e.xpos; r.y=e.ypos; r.w=e.xsize; r.h=e.ysize;
-					if(e.transparency<255)
-						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
-					SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
-					if(e.transparency<255)
-						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
+					MenuElement_draw(AmmoCounterBG);
 				}
 				if(AmmoCounterBullet){
 					MenuElement_t *e=AmmoCounterBullet;
@@ -500,13 +495,7 @@ void Render_HUD(){
 						xsizechange=e.xsize;
 					}
 					for(uint i=0; i<item.amount1; i++){
-						SDL_Rect r;
-						r.x=e.xpos+i*xsizechange; r.y=e.ypos+i*ysizechange; r.w=e.xsize; r.h=e.ysize;
-						if(e.transparency<255)
-							SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
-						SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
-						if(e.transparency<255)
-							SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
+						MenuElement_draw(e,e.xpos+i*xsizechange,e.ypos+i*ysizechange,e.xsize,e.ysize);
 					}
 				}
 			}
@@ -514,33 +503,21 @@ void Render_HUD(){
 				if(ProtocolBuiltin_PaletteVFG){
 					MenuElement_t *e=ProtocolBuiltin_PaletteVFG;
 					SDL_Rect r;
-					r.x=e.xpos+Palette_Color_HIndex-e.xsize/2; r.y=e.ypos+Palette_Color_VIndex-e.ysize/2; r.w=e.xsize; r.h=e.ysize;
+					int y = e.ypos+Palette_Color_VIndex-e.ysize/2;
 					if(ProtocolBuiltin_PaletteHFG){
-						r.y+=ProtocolBuiltin_PaletteHFG.ysize/2;
+						y += ProtocolBuiltin_PaletteHFG.ysize/2;
 					}
-					if(e.transparency<255)
-						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
-					SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
-					if(e.transparency<255)
-						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
+					MenuElement_draw(e,e.xpos+Palette_Color_HIndex-e.xsize/2,y,e.xsize,e.ysize);
 				}
 				if(ProtocolBuiltin_PaletteHFG){
-					MenuElement_t *e=ProtocolBuiltin_PaletteHFG;
-					SDL_Rect r;
-					r.x=e.xpos; r.y=e.ypos; r.w=e.xsize; r.h=e.ysize;
-					if(e.transparency<255)
-						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
-					SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
-					if(e.transparency<255)
-						SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
+					MenuElement_draw(ProtocolBuiltin_PaletteHFG);
 				}
 				if(ProtocolBuiltin_PaletteHFG && ProtocolBuiltin_PaletteVFG){
 					MenuElement_t *v=ProtocolBuiltin_PaletteVFG, h=ProtocolBuiltin_PaletteHFG;
 					uint color=Players[LocalPlayerID].color;
-					SDL_SetRenderDrawColor(scrn_renderer, (color>>16)&255, (color>>8)&255, (color>>0)&255, (color>>24)&255);
-					SDL_Rect r;
-					r.x=v.xpos+Palette_Color_HIndex-v.xsize/2; r.y=h.ypos; r.w=v.xsize; r.h=h.ysize;
-					SDL_RenderFillRect(scrn_renderer, &r);
+					//SDL_SetRenderDrawColor(scrn_renderer, (color>>16)&255, (color>>8)&255, (color>>0)&255, (color>>24)&255);
+					//MenuElement_draw(v,v.xpos+Palette_Color_HIndex-v.xsize/2,h.ypos,v.xsize,v.ysize);
+					//SDL_RenderFillRect(scrn_renderer, &r);
 				}
 			}
 		}
@@ -571,7 +548,6 @@ void Render_All_Text(){
 	foreach(ref box; TextBoxes){
 		if(box.font_index==255)
 			continue;
-		SDL_Texture *fnt=Mod_Pictures[box.font_index];
 		uint ypos=box.ypos;
 		foreach(uint i, ref line; box.lines){
 			uint col;
@@ -579,7 +555,9 @@ void Render_All_Text(){
 				col=box.colors[i];
 			else
 				col=0x00ffffff;
-			Render_Text_Line(box.xpos, ypos, col, line,fnt,Mod_Picture_Sizes[box.font_index][0], Mod_Picture_Sizes[box.font_index][1],0,
+			//Render_Text_Line(box.xpos, ypos, col, line, Mod_Pictures[box.font_index], Mod_Picture_Sizes[box.font_index][0], Mod_Picture_Sizes[box.font_index][1], 0,
+			//box.xsizeratio, box.ysizeratio);
+			Render_Text_Line(box.xpos, ypos, col, line, Mod_Pictures[box.font_index], Mod_Picture_Sizes[box.font_index][0], Mod_Picture_Sizes[box.font_index][1], 0,
 			box.xsizeratio, box.ysizeratio);
 			if(box.wrap_lines)
 				ypos+=to!float(Mod_Picture_Sizes[box.font_index][1])*box.xsizeratio/16.0;
@@ -592,7 +570,7 @@ void Render_All_Text(){
 		__hud_avg_delta_ticks+=delta_t;
 		float avg=__hud_avg_delta_ticks/tofloat(__hud_tick_amount);
 		string fps_ping_str=format("%.2f FPS|%d ms", avg, Get_Ping());
-		Render_Text_Line(cast(int)(scrn_surface.w-(FontWidth/16-LetterPadding*2)*fps_ping_str.length), 0, Font_SpecialColor, fps_ping_str, font_texture, FontWidth, FontHeight, LetterPadding);
+		Render_Text_Line(cast(int)(ScreenXSize-(FontWidth/16-LetterPadding*2)*fps_ping_str.length), 0, Font_SpecialColor, fps_ping_str, font_texture, FontWidth, FontHeight, LetterPadding);
 		if(__hud_tick_amount>avg*5){
 			__hud_tick_amount=0;
 			__hud_avg_delta_ticks=avg;

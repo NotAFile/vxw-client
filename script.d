@@ -32,27 +32,36 @@ string[] SLStdLib_DisabledVars=["_slang_install_prefix"];
 //But that's not a problem since we can just pop the stuff we need from the stack.
 //(S-Lang won't check amount of arguments and just throws them all on the stack)
 SLang_Intrin_Fun_Type[] ScrGuiLib_Funcs(){
-	return [
-		MAKE_INTRINSIC_0(cast(char*)toStringz("MenuElement_Create"), &ScrGuiLib_MenuElementCreate, SLANG_VOID_TYPE),
-		MAKE_INTRINSIC_1(cast(char*)toStringz("MenuElement_Update"), &ScrGuiLib_MenuElementUpdate, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
-		MAKE_INTRINSIC_1(cast(char*)toStringz("MenuElement_Delete"), &ScrGuiLib_MenuElementDelete, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
-		MAKE_INTRINSIC_1(cast(char*)toStringz("Object_Hovered"), &ScrGuiLib_Object_Hovered, SLANG_UCHAR_TYPE, SLANG_STRUCT_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_LeftClick"), &ScrGuiLib_MouseLeftClicked, SLANG_UCHAR_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_RightClick"), &ScrGuiLib_MouseRightClicked, SLANG_UCHAR_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_LeftChanged"), &ScrGuiLib_MouseLeftChanged, SLANG_UCHAR_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_RightChanged"), &ScrGuiLib_MouseRightChanged, SLANG_UCHAR_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("MenuMode_Get"), &ScrGuiLib_MenuMode_Get, SLANG_UCHAR_TYPE),
-		//MAKE_INTRINSIC_1(cast(char*)toStringz("MenuMode_Set"), &ScrGuiLib_MenuMode_Set, SLANG_VOID_TYPE, SLANG_UCHAR_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("StandardFont_Get"), &ScrGuiLib_StandardFont_Get, SLANG_UCHAR_TYPE),
-		MAKE_INTRINSIC_1(cast(char*)toStringz("StandardFont_Set"), &ScrGuiLib_StandardFont_Set, SLANG_VOID_TYPE, SLANG_UCHAR_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("MouseX"), &ScrGuiLib_MouseX, SLANG_DOUBLE_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("MouseY"), &ScrGuiLib_MouseY, SLANG_DOUBLE_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("TextBox_Create"), &ScrGuiLib_TextBoxCreate, SLANG_VOID_TYPE),
-		MAKE_INTRINSIC_1(cast(char*)toStringz("TextBox_Update"), &ScrGuiLib_TextBoxUpdate, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
-		MAKE_INTRINSIC_1(cast(char*)toStringz("TextBox_Delete"), &ScrGuiLib_TextBoxDelete, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
-		MAKE_INTRINSIC_0(cast(char*)toStringz("PictureColor_Get"), &ScrGuiLib_PictureColorGet, SLANG_UINT_TYPE),
-		SLANG_END_INTRIN_FUN_TABLE()
-	];
+return [
+	MAKE_INTRINSIC_0(cast(char*)toStringz("MenuElement_Create"), &ScrGuiLib_MenuElementCreate, SLANG_VOID_TYPE),
+	MAKE_INTRINSIC_1(cast(char*)toStringz("MenuElement_Update"), &ScrGuiLib_MenuElementUpdate, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
+	MAKE_INTRINSIC_1(cast(char*)toStringz("MenuElement_Delete"), &ScrGuiLib_MenuElementDelete, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
+	MAKE_INTRINSIC_1(cast(char*)toStringz("Object_Hovered"), &ScrGuiLib_Object_Hovered, SLANG_UCHAR_TYPE, SLANG_STRUCT_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_LeftClick"), &ScrGuiLib_MouseLeftClicked, SLANG_UCHAR_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_RightClick"), &ScrGuiLib_MouseRightClicked, SLANG_UCHAR_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_LeftChanged"), &ScrGuiLib_MouseLeftChanged, SLANG_UCHAR_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("Mouse_RightChanged"), &ScrGuiLib_MouseRightChanged, SLANG_UCHAR_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("MenuMode_Get"), &ScrGuiLib_MenuMode_Get, SLANG_UCHAR_TYPE),
+	//MAKE_INTRINSIC_1(cast(char*)toStringz("MenuMode_Set"), &ScrGuiLib_MenuMode_Set, SLANG_VOID_TYPE, SLANG_UCHAR_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("StandardFont_Get"), &ScrGuiLib_StandardFont_Get, SLANG_UCHAR_TYPE),
+	MAKE_INTRINSIC_1(cast(char*)toStringz("StandardFont_Set"), &ScrGuiLib_StandardFont_Set, SLANG_VOID_TYPE, SLANG_UCHAR_TYPE), //Doesn't work btw lel
+	MAKE_INTRINSIC_0(cast(char*)toStringz("MouseX"), &ScrGuiLib_MouseX, SLANG_DOUBLE_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("MouseY"), &ScrGuiLib_MouseY, SLANG_DOUBLE_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("TextBox_Create"), &ScrGuiLib_TextBoxCreate, SLANG_VOID_TYPE),
+	MAKE_INTRINSIC_1(cast(char*)toStringz("TextBox_Update"), &ScrGuiLib_TextBoxUpdate, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
+	MAKE_INTRINSIC_1(cast(char*)toStringz("TextBox_Delete"), &ScrGuiLib_TextBoxDelete, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("PictureColor_Get"), &ScrGuiLib_PictureColorGet, SLANG_UINT_TYPE),
+	SLANG_END_INTRIN_FUN_TABLE()
+];
+}
+
+SLang_Intrin_Fun_Type[] ScrWorldLib_Funcs(){
+return[
+	MAKE_INTRINSIC_0(cast(char*)toStringz("FogColor_Get"), &ScrWorldLib_FogColorGet, SLANG_UINT_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("FogColor_Set"), &ScrWorldLib_FogColorSet, SLANG_VOID_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("VisibilityRange_Get"), &ScrWorldLib_VisibilityRangeGet, SLANG_UINT_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("VisibilityRange_Set"), &ScrWorldLib_VisibilityRangeSet, SLANG_VOID_TYPE)
+];
 }
 
 struct ScriptLib_t{
@@ -74,6 +83,9 @@ struct ScriptLib_t{
 				SLns_add_intrinsic_variable(ns, toStringz("Font_SpecialColor"), &Font_SpecialColor, SLANG_UINT_TYPE, 1);
 				SLns_add_intrinsic_function(ns, toStringz("MenuMode_Set"), &ScrGuiLib_MenuMode_Set, SLANG_VOID_TYPE, 0);
 				break;
+			}
+			case "scrworld":{
+				intr_func_table=ScrWorldLib_Funcs();
 			}
 			default:break;
 		}
@@ -105,16 +117,16 @@ struct Script_t{
 		nsname=format("___clntscrptns_%d_", index);
 		enabled=false;
 		sclibrary=null;
-		if(content[0]=='#'){
+		if(content[0..2]=="%#"){
 			string scrlibname="";
 			uint chars_to_skip=0;
-			foreach(ref c; content[1..$]){
+			foreach(ref c; content[2..$]){
 				if(c=='\n' || c=='\0')
 					break;
 				scrlibname~=c;
 				chars_to_skip++;
 			}
-			content=content[chars_to_skip+1..$];
+			content=content[chars_to_skip+2..$];
 			foreach(ref sclib; ScriptLibraries){
 				if(sclib.typename==scrlibname){
 					sclibrary=&sclib;
@@ -265,7 +277,7 @@ void Init_Script(){
 	SLadd_intrinsic_function(cast(const(char*))toStringz("Send_Packet"), &ScrStdLib_SendPacket, SLANG_VOID_TYPE, 1, SLANG_BSTRING_TYPE);
 	SLadd_intrinsic_function(cast(const(char*))toStringz("Key_Pressed"), &ScrStdLib_KeyPressed, SLANG_UCHAR_TYPE, 0);
 	SLadd_intrinsic_function(cast(const(char*))toStringz("plog"), &ScrStdLib_PrintLog, SLANG_VOID_TYPE, 0);
-	ScriptLibraries=[ScriptLib_t("None", ""), ScriptLib_t("GUI", "scrgui")];
+	ScriptLibraries=[ScriptLib_t("None", ""), ScriptLib_t("GUI", "scrgui"), ScriptLib_t("World", "scrworld")];
 }
 
 void Update_Script(){
@@ -437,6 +449,11 @@ uint ScrGuiLib_PictureColorGet(){
 	uint col=*(cast(uint*)(&((pic.pixels))[(xp<<2)+yp*pic.pitch]));
 	return col;
 }
+
+uint ScrWorldLib_FogColorGet(){return Fog_Color;}
+void ScrWorldLib_FogColorSet(){SLang_pop_uint(&Fog_Color);}
+uint ScrWorldLib_VisibilityRangeGet(){return Visibility_Range;}
+void ScrWorldLib_VisibilityRangeSet(){SLang_pop_uint(&Visibility_Range);}
 
 ubyte ScrStdLib_KeyPressed(){
 	ubyte key;

@@ -3,9 +3,9 @@ import derelict.sdl2.image;
 import std.math;
 import std.format;
 import std.algorithm;
+import std.conv;
 import std.random;
 import renderer;
-import voxlap;
 import protocol;
 import misc;
 import world;
@@ -14,20 +14,19 @@ import vector;
 version(LDC){
 	import ldc_stdlib;
 }
+import core.stdc.stdio;
 
 SDL_Window *scrn_window;
-SDL_Renderer *scrn_renderer;
-SDL_Texture *vxrend_texture;
-SDL_Texture *scrn_texture;
 
-SDL_Surface *scrn_surface;
+RendererTexture_t font_texture=null;
+SDL_Surface *font_surface=null;
 
-SDL_Texture *font_texture=null;
-SDL_Texture *borderless_font_texture=null;
+RendererTexture_t borderless_font_texture=null;
+SDL_Surface *borderless_font_surface=null;
 uint FontWidth, FontHeight;
 ubyte font_index=255;
 
-SDL_Texture *minimap_texture;
+RendererTexture_t minimap_texture;
 SDL_Surface *minimap_srfc;
 
 MenuElement_t *ProtocolBuiltin_ScopePicture;
@@ -41,15 +40,13 @@ Vector3_t MouseRot=Vector3_t(0.0, -90.0, 0.0);
 float X_FOV=90.0, Y_FOV=90.0;
 
 KV6Model_t*[] Mod_Models;
-SDL_Texture*[] Mod_Pictures;
+RendererTexture_t[] Mod_Pictures;
 SDL_Surface*[] Mod_Picture_Surfaces;
 uint[2][] Mod_Picture_Sizes;
 
-uint Enable_Shade_Text=1;
+uint Enable_Shade_Text=0;
 uint LetterPadding=0;
 immutable bool Dank_Text=false;
-
-bool Software_Renderer=false;
 
 Vector3_t TerrainOverview;
 
@@ -67,18 +64,16 @@ void Init_Gfx(){
 		writeflnlog("[WARNING] SDL2 didn't initialize properly: %s", SDL_GetError());
 	if(IMG_Init(IMG_INIT_PNG)!=IMG_INIT_PNG)
 		writeflnlog("[WARNING] IMG for PNG didn't initialize properly: %s", IMG_GetError());
-	scrn_window=SDL_CreateWindow("Voxel game client", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ScreenXSize, ScreenYSize, 0);
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-	Software_Renderer=false;
-	scrn_renderer=SDL_CreateRenderer(scrn_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-	vxrend_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, ScreenXSize, ScreenYSize);
-	scrn_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, ScreenXSize, ScreenYSize);
+	Renderer_Init();
+	scrn_window=SDL_CreateWindow("Voxelwar", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ScreenXSize, ScreenYSize, Renderer_WindowFlags);
+	Renderer_SetUp();
 	{
 		SDL_Surface *font_surface=SDL_LoadBMP("./Ressources/Default/Font.png");
-		if(font_surface)
+		if(font_surface){
 			Set_Font(font_surface);
+			SDL_FreeSurface(font_surface);
+		}
 	}
-	Init_Renderer();
 }
 
 void Set_ModFile_Font(ubyte index){
@@ -87,13 +82,11 @@ void Set_ModFile_Font(ubyte index){
 }
 
 void Set_Font(SDL_Surface *ffnt){
-	SDL_Surface *fnt=SDL_CreateRGBSurface(0, ffnt.w, ffnt.h, 32, 0, 0, 0, 0);
-	(cast(uint*)fnt.pixels)[0..fnt.w*fnt.h]=(cast(uint*)ffnt.pixels)[0..fnt.w*fnt.h];
-	FontWidth=fnt.w; FontHeight=fnt.h;
-	SDL_SetColorKey(fnt, SDL_TRUE, SDL_MapRGB(fnt.format, 255, 0, 255));
-	if(borderless_font_texture)
-		SDL_DestroyTexture(borderless_font_texture);
-	borderless_font_texture=SDL_CreateTextureFromSurface(scrn_renderer, fnt);
+	uint prev_ck;
+	SDL_GetColorKey(ffnt, &prev_ck);
+	SDL_SetColorKey(ffnt, SDL_TRUE, 0x00ff00ff);
+	FontWidth=ffnt.w; FontHeight=ffnt.h;
+	SDL_Surface *fnt=ffnt;
 	for(uint i=0; i<Enable_Shade_Text; i++){
 		SDL_Surface *s=Shade_Text(fnt);
 		if(i)
@@ -101,9 +94,14 @@ void Set_Font(SDL_Surface *ffnt){
 		fnt=s;
 	}
 	if(font_texture)
-		SDL_DestroyTexture(font_texture);
-	font_texture=SDL_CreateTextureFromSurface(scrn_renderer, fnt);
-	SDL_FreeSurface(fnt);
+		Renderer_DestroyTexture(font_texture);
+	font_texture=Renderer_TextureFromSurface(fnt);
+	font_surface=fnt;
+	if(borderless_font_texture)
+		Renderer_DestroyTexture(borderless_font_texture);
+	borderless_font_surface=SDL_ConvertSurfaceFormat(ffnt, ffnt.format.format, 0);
+	borderless_font_texture=Renderer_TextureFromSurface(borderless_font_surface);
+	SDL_SetColorKey(ffnt, SDL_TRUE, prev_ck);
 }
 
 void Set_MiniMap_Size(uint xsize, uint ysize){
@@ -114,11 +112,11 @@ void Set_MiniMap_Size(uint xsize, uint ysize){
 	if(minimap_srfc)
 		SDL_FreeSurface(minimap_srfc);
 	if(minimap_texture)
-		SDL_DestroyTexture(minimap_texture);
+		Renderer_DestroyTexture(minimap_texture);
 	SDL_Surface *tmp=SDL_CreateRGBSurface(0, xsize, ysize, 32, 0, 0, 0, 0);
-	minimap_srfc=SDL_ConvertSurfaceFormat(tmp, SDL_PIXELFORMAT_ARGB8888, 0);
+	minimap_srfc=SDL_ConvertSurfaceFormat(tmp, SDL_PIXELFORMAT_ABGR8888, 0);
 	SDL_FreeSurface(tmp);
-	minimap_texture=SDL_CreateTextureFromSurface(scrn_renderer, minimap_srfc);
+	minimap_texture=Renderer_TextureFromSurface(minimap_srfc);
 }
 
 void Update_MiniMap(){
@@ -127,17 +125,18 @@ void Update_MiniMap(){
 	for(z=0; z<MapZSize; z++){
 		for(x=0; x<MapXSize; x++){
 			uint col=Voxel_GetColor(x, Voxel_FindFloorZ(x, 0, z), z);
-			pixel_ptr[x]=col;
+			pixel_ptr[x]=col&0x00ffffff;
 		}
 		pixel_ptr=cast(uint*)((cast(ubyte*)pixel_ptr)+minimap_srfc.pitch);
 	}
-	SDL_UpdateTexture(minimap_texture, null, minimap_srfc.pixels, minimap_srfc.pitch);
+	Renderer_UploadToTexture(minimap_srfc, minimap_texture);
 }
 
 uint *Pixel_Pointer(SDL_Surface *s, int x, int y){
 	return cast(uint*)((cast(ubyte*)s.pixels)+(x<<2)+(y*s.pitch));
 }
 
+//This is very buggy (or at least causes a lot of bugs), but I haven't found anything yet
 SDL_Surface *Shade_Text(SDL_Surface *srfc){
 	LetterPadding++;
 	uint LetterWidth=(srfc.w+LetterPadding*16*2)/16, LetterHeight=(srfc.h+LetterPadding*16*2)/16;
@@ -146,11 +145,7 @@ SDL_Surface *Shade_Text(SDL_Surface *srfc){
 	uint ColorKey;
 	SDL_GetColorKey(srfc, &ColorKey);
 	ColorKey&=0x00ffffff;
-	for(uint y=0; y<dst.h; y++){
-		for(uint x=0; x<dst.w; x++){
-			*Pixel_Pointer(dst, x, y)=ColorKey;
-		}
-	}
+	(cast(uint*)dst.pixels)[0..dst.w*dst.h]=ColorKey;
 	for(uint lx=0; lx<16; lx++){
 		for(uint ly=0; ly<16; ly++){
 			uint srcletterxp=lx*FontWidth/16, srcletteryp=ly*FontHeight/16;
@@ -163,7 +158,7 @@ SDL_Surface *Shade_Text(SDL_Surface *srfc){
 			}
 		}
 	}
-	SDL_FreeSurface(srfc);
+	//NOTE: srfc passed to the function gets freed somewhere else
 	srfc=dst;
 	dst=SDL_ConvertSurfaceFormat(srfc, srfc.format.format, 0);
 	for(uint lx=0; lx<16; lx++){
@@ -190,42 +185,29 @@ SDL_Surface *Shade_Text(SDL_Surface *srfc){
 	return dst;
 }
 
-void Fill_Screen(SDL_Rect *rect, uint color){
-	SDL_SetRenderTarget(scrn_renderer, scrn_texture);
-	SDL_SetRenderDrawColor(scrn_renderer, color&255, (color>>8)&255, (color>>16)&255, (color>>24)&255);
-	if(!Software_Renderer)
-		SDL_RenderFillRect(scrn_renderer, rect);
-}
-
-void Render_Text_Line(uint xpos, uint ypos, uint color, string line, SDL_Texture *font, uint font_w, uint font_h, uint letter_padding, float 
-	xsizeratio=1.0, float ysizeratio=1.0){
+void Render_Text_Line(uint xpos, uint ypos, uint color, string line, RendererTexture_t font, uint font_w, uint font_h, uint letter_padding, float xsizeratio=1.0, float ysizeratio=1.0){
 	SDL_Rect lrect, fontsrcrect;
+	if(!font)
+		return;
 	lrect.x=xpos; lrect.y=ypos;
-	SDL_SetRenderTarget(scrn_renderer, scrn_texture);
 	uint padding;
 	ubyte old_r, old_g, old_b;
-	SDL_BlendMode old_blend_mode;
 	if(color!=Font_SpecialColor){
 		fontsrcrect.w=font_w/16; fontsrcrect.h=font_h/16;
-		SDL_GetTextureColorMod(font, &old_r, &old_g, &old_b);
-		SDL_GetTextureBlendMode(font, &old_blend_mode);
-		SDL_SetTextureColorMod(font, cast(ubyte)((color>>16)&255), cast(ubyte)((color>>8)&255), cast(ubyte)(color&255));
-		SDL_SetTextureBlendMode(font, SDL_BLENDMODE_BLEND);
 		padding=letter_padding*2;
 	}
 	else{
-		fontsrcrect.w=font_w/16-letter_padding*2; fontsrcrect.h=font_h/16-letter_padding*2;
-		SDL_GetTextureColorMod(borderless_font_texture, &old_r, &old_g, &old_b);
-		SDL_GetTextureBlendMode(borderless_font_texture, &old_blend_mode);
-		SDL_SetTextureColorMod(borderless_font_texture, 255, 255, 255);
-		SDL_SetTextureBlendMode(borderless_font_texture, SDL_BLENDMODE_MOD);
+		letter_padding=0;
+		fontsrcrect.w=borderless_font_surface.w/16-letter_padding*2; fontsrcrect.h=borderless_font_surface.h/16-letter_padding*2;
 		font=borderless_font_texture;
 		padding=0;
 	}
-	lrect.w=toint(tofloat(fontsrcrect.w)*xsizeratio); lrect.h=toint(tofloat(fontsrcrect.h)*ysizeratio);
+	lrect.w=to!int(to!float(fontsrcrect.w)*xsizeratio); lrect.h=to!int(to!float(fontsrcrect.h)*ysizeratio);
 	if(Dank_Text){
 		lrect.w++; lrect.h++;
 	}
+	uint[2] texsize=[font_surface.w, font_surface.h];
+	ubyte[3] cmod=[cast(ubyte)((color>>16)&255),cast(ubyte)((color>>8)&255),cast(ubyte)(color&255)];
 	foreach(letter; line){
 		bool letter_processed=false;
 		switch(letter){
@@ -235,43 +217,26 @@ void Render_Text_Line(uint xpos, uint ypos, uint color, string line, SDL_Texture
 		if(letter_processed) continue;
 		fontsrcrect.x=(letter%16)*fontsrcrect.w;
 		fontsrcrect.y=(letter/16)*fontsrcrect.h;
-		SDL_RenderCopy(scrn_renderer, font, &fontsrcrect, &lrect);
+		Renderer_Blit2D(font, &texsize, &lrect, 255, &cmod, &fontsrcrect);
 		lrect.x+=lrect.w-padding*xsizeratio;
 	}
-	SDL_SetTextureColorMod(font, old_r, old_g, old_b);
-	SDL_SetTextureBlendMode(font, old_blend_mode);
 }
 
 uint[][] Player_List_Table;
 
-void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
-	Render_Voxels();
+void Render_World(bool Render_Cursor){
+	Renderer_DrawVoxels();
 	for(uint p=0; p<Players.length; p++)
 		Render_Player(p);
 	foreach(ref bdmg; BlockDamage){
 		foreach(ref prtcl; bdmg.particles){
-			float dst; int scrx, scry;
-			if(!Project2D(prtcl.x, prtcl.y, prtcl.z, &dst, scrx, scry))
-				continue;
-			if(dst<0.0)
-				continue;
-			/*Vector3_t dist=Vector3_t(prtcl.x, prtcl.y, prtcl.z)-pos;
-			dist.x=tofloat(toint(dist.x));
-			dist.y=tofloat(toint(dist.y));
-			dist.z=tofloat(toint(dist.z));
-			dst=dist.length;*/
-			Render_Rectangle(scrx, scry, cast(int)(20.0/(dst+1.0))+1, cast(int)(20.0/(dst+1.0))+1, prtcl.col, dst);
+			Renderer_Draw3DParticle(prtcl.x, prtcl.y, prtcl.z, 20, 20, prtcl.col);
 		}
 	}
 	foreach(ref dmgobj_id; DamagedObjects){
 		Object_t *dmgobj=&Objects[dmgobj_id];
 		foreach(ref prtcl; dmgobj.particles){
-			float dst; int scrx, scry;
-			if(!Project2D(prtcl.x, prtcl.y, prtcl.z, &dst, scrx, scry))
-				continue;
-			if(dst<0.0)
-				continue;
-			Render_Rectangle(scrx, scry, cast(int)(20.0/(dst+1.0))+1, cast(int)(20.0/(dst+1.0))+1, prtcl.col, dst);
+			Renderer_Draw3DParticle(prtcl.x, prtcl.y, prtcl.z, 20, 20, prtcl.col);
 		}
 	}
 	foreach(ref p; Particles){
@@ -304,17 +269,9 @@ void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
 			p.pos+=p.vel;
 		}
 		p.vel.y+=.005;
-		float dst;
-		int scrx, scry;
-		if(!Project2D(p.pos.x, p.pos.y, p.pos.z, &dst, scrx, scry))
-			continue;
-		if(dst<0.0)
-			continue;
-		uint color=p.col;
-		Vox_Calculate_2DFog(cast(ubyte*)&color, p.pos.x-CameraPos.x, p.pos.y-CameraPos.y);
-		Render_Rectangle(scrx, scry, cast(int)(20.0/(dst+1.0))+1, cast(int)(20.0/(dst+1.0))+1, color, tofloat(toint(dst)));
+		Renderer_Draw3DParticle(&p.pos, 20, 20, p.col);
 	}
-	float particle_size=BlockBreakParticleSize*dst_srfc.w;
+	float particle_size=BlockBreakParticleSize*ScreenXSize;
 	foreach(ref p; BlockBreakParticles){
 		if(!p.timer)
 			continue;
@@ -337,15 +294,7 @@ void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
 			p.pos+=p.vel;
 		}
 		p.vel.y+=.005;
-		float dst;
-		int scrx, scry;
-		if(!Project2D(p.pos.x, p.pos.y, p.pos.z, &dst, scrx, scry))
-			continue;
-		if(dst<0.0)
-			continue;
-		uint color=p.col;
-		Vox_Calculate_2DFog(cast(ubyte*)&color, p.pos.x-CameraPos.x, p.pos.y-CameraPos.y);
-		Render_Rectangle(scrx, scry, cast(int)(50.0/(dst+1.0))+1, cast(int)(50.0/(dst+1.0))+1, color, tofloat(toint(dst)));
+		Renderer_Draw3DParticle(&p.pos, 50, 50, p.col);
 	}
 	while(Particles.length){
 		if(!Particles[$-1].timer)
@@ -368,7 +317,8 @@ void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
 		struct DrawSmokeCircleParams{
 			float dst;
 			uint color, alpha;
-			int scrx, scry, size;
+			int size;
+			float xpos, ypos, zpos;
 		}
 		DrawSmokeCircleParams[] params;
 		float SmokeParticleSizeIncrease=1.0f+WorldSpeed*.09f, SmokeParticleAlphaDecay=(1.0f*.99f)/SmokeParticleSizeIncrease;
@@ -384,10 +334,9 @@ void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
 				continue;
 			uint size=cast(uint)(p.size*90.0/X_FOV/dst);
 			uint color=p.col;
-			Vox_Calculate_2DFog(cast(ubyte*)&color, p.pos.x-CameraPos.x, p.pos.y-CameraPos.y);
+			//Vox_Calculate_2DFog(cast(ubyte*)&color, p.pos.x-CameraPos.x, p.pos.y-CameraPos.y);
 			uint alpha=cast(uint)(p.alpha*256.0f);
-			params~=DrawSmokeCircleParams(dst, color, alpha, scrx-size, scry-size, size);
-			//Draw_Smoke_Circle(scrx-size, scry-size, size, color, cast(uint)(p.alpha*255.0f), dst);
+			params~=DrawSmokeCircleParams(dst, color, alpha, size, p.pos.x, p.pos.y, p.pos.z);
 			if(p.size>p.remove_size)
 				p.alpha=0f;
 			if(!alpha)
@@ -396,7 +345,7 @@ void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
 		params.sort!("a.dst>b.dst");
 		for(uint i=0; i<params.length; i++){
 			DrawSmokeCircleParams *p=&params[i];
-			Draw_Smoke_Circle(p.scrx, p.scry, p.size, p.color, p.alpha, p.dst);
+			Renderer_DrawSmokeCircle(p.xpos, p.ypos, p.zpos, p.size, p.color, p.alpha, p.dst);
 		}
 		params.length=0;
 	}
@@ -406,19 +355,49 @@ void Render_World(SDL_Surface *dst_srfc, bool Render_Cursor){
 		else
 			break;
 	}
-	if(Render_Cursor)
-		*Pixel_Pointer(dst_srfc, dst_srfc.w/2, dst_srfc.h/2)=0xffffff^*Pixel_Pointer(dst_srfc, dst_srfc.w/2, dst_srfc.h/2);
+	/*if(Render_Cursor)
+		*Pixel_Pointer(dst_srfc, dst_srfc.w/2, dst_srfc.h/2)=0xffffff^*Pixel_Pointer(dst_srfc, dst_srfc.w/2, dst_srfc.h/2);*/
 }
 
+void MenuElement_draw(MenuElement_t* e) {
+	if(e.inactive()) {
+		return;
+	}
+	SDL_Rect r={e.xpos,e.ypos,e.xsize,e.ysize};
+	if((e.icolor_mod&0x00ffffff)!=0x00ffffff) { //bcolor_mod exists
+		ubyte[3] cmod=e.bcolor_mod; cmod.reverse;
+		Renderer_Blit2D(Mod_Pictures[e.picture_index], &Mod_Picture_Sizes[e.picture_index], &r, e.transparency, &cmod);
+	} else {
+		Renderer_Blit2D(Mod_Pictures[e.picture_index], &Mod_Picture_Sizes[e.picture_index], &r, e.transparency);
+	}
+}
+
+void MenuElement_draw(MenuElement_t* e, int x, int y, int w, int h) {
+	if(e.inactive() || !w || !h) {
+		return;
+	}
+	SDL_Rect r={x, y, w, h};
+	if((e.icolor_mod&0x00ffffff)!=0x00ffffff) { //bcolor_mod exists
+		ubyte[3] cmod=e.bcolor_mod; cmod.reverse;
+		Renderer_Blit2D(Mod_Pictures[e.picture_index], &Mod_Picture_Sizes[e.picture_index], &r, e.transparency, &cmod);
+	} else {
+		Renderer_Blit2D(Mod_Pictures[e.picture_index], &Mod_Picture_Sizes[e.picture_index], &r, e.transparency);
+	}
+}
 
 void Render_Screen(){
-	//Fill_Screen(null, SDL_MapRGB(scrn_surface.format, 0, 255, 255));
+	Renderer_SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, CameraPos.x, CameraPos.y, CameraPos.z);
+	if(LoadedCompleteMap){
+		Renderer_StartRendering(true);
+		Render_World(false);
+	} else {
+		Renderer_StartRendering(false);
+	}
 	bool Render_Local_Player=false;
 	bool Render_Scope=false;
 	if(Joined_Game()){
 		Render_Local_Player|=Players[LocalPlayerID].Spawned && Players[LocalPlayerID].InGame;
 	}
-	Set_Frame_Buffer(scrn_surface);
 	if(LoadedCompleteMap){
 		Vector3_t pos;
 		if(Render_Local_Player){
@@ -440,11 +419,10 @@ void Render_Screen(){
 			rt.z=MouseRot.z;
 			if(Render_Local_Player)
 				Players[LocalPlayerID].dir=rt.RotationAsDirection;
-			//Limiting to 100.0°, not 90.0°, so shooting vertically will be easier
-			if(MouseRot.y<-100.0)
-				MouseRot.y=-100.0;
-			if(MouseRot.y>100.0)
-				MouseRot.y=100.0;
+			if(MouseRot.y<-89.0)
+				MouseRot.y=-89.0;
+			if(MouseRot.y>89.0)
+				MouseRot.y=89.0;
 			pos=Players[LocalPlayerID].pos;
 			CameraPos=pos;
 			CameraRot=MouseRot;
@@ -463,12 +441,10 @@ void Render_Screen(){
 		CameraPos.x+=(uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount);
 		CameraPos.y+=(uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount);
 		CameraPos.z+=(uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount);
-		SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, CameraPos.x, CameraPos.y, CameraPos.z);
+		Renderer_SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, CameraPos.x, CameraPos.y, CameraPos.z);
 		if(Render_Local_Player)
 			Update_Rotation_Data();
-		Prepare_Render();
 		Do_Sprite_Visibility_Checks=true;
-		Render_World(scrn_surface, false);
 		{
 			if(Render_Local_Player){
 				if(Players[LocalPlayerID].item_types.length){
@@ -482,48 +458,12 @@ void Render_Screen(){
 				}
 			}
 		}
-		Render_FinishRendering();
 	}
-	SDL_SetRenderTarget(scrn_renderer, scrn_texture);
-	{
-		SDL_Rect dstrect;
-		SDL_SetRenderTarget(scrn_renderer, scrn_texture);
-		dstrect.w=ScreenXSize; dstrect.h=ScreenYSize;
-		//I already had implemented screen space shake, when I found out that camera position shake is much better
-		int shakex=toint((uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount)*ScreenXSize)*0;
-		int shakey=toint((uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount)*ScreenYSize)*0;
-		dstrect.x=shakex; dstrect.y=shakey;
-		if(dstrect.x){
-			SDL_Rect srcr, lnrct;
-			lnrct.y=0; lnrct.h=ScreenYSize;
-			srcr.y=0; srcr.h=ScreenYSize; srcr.w=1;
-			if(dstrect.x>0){
-				lnrct.x=0; lnrct.w=dstrect.x;
-				srcr.x=0;
-			}
-			else{
-				lnrct.w=-dstrect.x; lnrct.x=ScreenXSize-lnrct.w;
-				srcr.x=ScreenXSize-srcr.w;
-			}
-			SDL_RenderCopy(scrn_renderer, vxrend_texture, &srcr, &lnrct);
-		}
-		if(dstrect.y){
-			SDL_Rect srcr, lnrct;
-			lnrct.x=0; lnrct.w=ScreenXSize;
-			srcr.x=0; srcr.w=ScreenXSize; srcr.h=1;
-			if(dstrect.y>0){
-				lnrct.y=0; lnrct.h=dstrect.y;
-				srcr.y=0;
-			}
-			else{
-				lnrct.h=-dstrect.y; lnrct.y=ScreenYSize-lnrct.h;
-				srcr.y=ScreenYSize-srcr.h;
-			}
-			SDL_RenderCopy(scrn_renderer, vxrend_texture, &srcr, &lnrct);
-		}
-		SDL_SetRenderTarget(scrn_renderer, scrn_texture);
+	
+	//SDL_SetRenderTarget(scrn_renderer, scrn_texture);
+	/*{
 		//SDL_SetTextureColorMod(vxrend_texture, (VoxlapInterface.fogcol>>16)&255, (VoxlapInterface.fogcol>>8)&255, (VoxlapInterface.fogcol>>0)&255);
-		{
+		/*{
 			float fr=(Fog_Color>>16)&255, fg=(Fog_Color>>8)&255, fb=(Fog_Color>>0)&255;
 			immutable float fog_alpha=.15;
 			float r=fr*fog_alpha+255.0*(1.0-fog_alpha), g=fg*fog_alpha+255.0*(1.0-fog_alpha), b=fb*fog_alpha+255.0*(1.0-fog_alpha);
@@ -543,32 +483,11 @@ void Render_Screen(){
 			if(e.transparency<255)
 				SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
 		}
-	}
-	{
-		SDL_Rect r;
-		foreach(ref elements; Z_MenuElements[0..254]){
-			foreach(e_index; elements){
-				MenuElement_t *e=&MenuElements[e_index];
-				if(e.inactive())
-					continue;
-				r.x=e.xpos; r.y=e.ypos; r.w=e.xsize; r.h=e.ysize;
-				if(!r.w || !r.h)
-					continue;
-				if(e.transparency<255)
-					SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
-				ubyte rmod, gmod, bmod;
-				bool color_mod=(e.icolor_mod&0x00ffffff)!=0x00ffffff;
-				if(color_mod){
-					SDL_GetTextureColorMod(Mod_Pictures[e.picture_index], &rmod, &gmod, &bmod);
-					SDL_SetTextureColorMod(Mod_Pictures[e.picture_index], e.bcolor_mod[2], e.bcolor_mod[1], e.bcolor_mod[0]);
-				}
-				SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
-				if(color_mod){
-					SDL_SetTextureColorMod(Mod_Pictures[e.picture_index], rmod, gmod, bmod);
-				}
-				if(e.transparency<255)
-					SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
-			}
+	}*/
+	Renderer_Start2D();
+	foreach(ref elements; Z_MenuElements[0..254]) {
+		foreach(e_index; elements) {
+			MenuElement_draw(&MenuElements[e_index]);
 		}
 	}
 	Render_HUD();
@@ -576,12 +495,14 @@ void Render_Screen(){
 	if(Render_MiniMap && Joined_Game()){
 		SDL_Rect minimap_rect;
 		Team_t *team=&Teams[Players[LocalPlayerID].team];
-		minimap_rect.x=0; minimap_rect.y=0; minimap_rect.w=scrn_surface.w; minimap_rect.h=scrn_surface.h;
-		SDL_SetTextureAlphaMod(minimap_texture, minimap_alpha);
-		SDL_SetTextureBlendMode(minimap_texture, SDL_BLENDMODE_BLEND);
-		SDL_RenderCopy(scrn_renderer, minimap_texture, null, null);
-		SDL_SetRenderDrawColor(scrn_renderer, team.color[2], team.color[1], team.color[0], 255);
-		foreach(ref plr; Players){
+		minimap_rect.x=0; minimap_rect.y=0; minimap_rect.w=ScreenXSize; minimap_rect.h=ScreenYSize;
+		//SDL_SetTextureAlphaMod(minimap_texture, minimap_alpha);
+		//SDL_SetTextureBlendMode(minimap_texture, SDL_BLENDMODE_BLEND);
+		//SDL_RenderCopy(scrn_renderer, minimap_texture, null, null);
+		uint[2] minimap_size=[minimap_srfc.w, minimap_srfc.h];
+		Renderer_Blit2D(minimap_texture, &minimap_size, &minimap_rect, 255);
+		//SDL_SetRenderDrawColor(scrn_renderer, team.color[2], team.color[1], team.color[0], 255);
+		/*foreach(ref plr; Players){
 			if(!plr.Spawned || !plr.InGame || plr.team!=Players[LocalPlayerID].team)
 				continue;
 			int xpos=cast(int)(plr.pos.x*cast(float)(minimap_rect.w)/cast(float)(MapXSize))+minimap_rect.x;
@@ -589,7 +510,7 @@ void Render_Screen(){
 			SDL_Rect prct;
 			prct.w=4; prct.h=4;
 			prct.x=xpos-prct.w/2; prct.y=zpos-prct.h/2;
-			SDL_RenderFillRect(scrn_renderer, &prct);
+			//SDL_RenderFillRect(scrn_renderer, &prct);
 		}
 		foreach(ref obj; Objects){
 			if(!obj.visible || obj.minimap_img==255)
@@ -599,9 +520,9 @@ void Render_Screen(){
 			bool restore_color_mod=false;
 			if(obj.color){
 				if(obj.color&0xff000000){
-					SDL_GetTextureColorMod(Mod_Pictures[obj.minimap_img], &r, &g, &b);
-					SDL_SetTextureColorMod(Mod_Pictures[obj.minimap_img], (obj.color>>16)&255, (obj.color>>8)&255, (obj.color>>0)&255);
-					restore_color_mod=true;
+					//SDL_GetTextureColorMod(Mod_Pictures[obj.minimap_img], &r, &g, &b);
+					//SDL_SetTextureColorMod(Mod_Pictures[obj.minimap_img], (obj.color>>16)&255, (obj.color>>8)&255, (obj.color>>0)&255);
+					//restore_color_mod=true;
 				}
 				else{
 					//Replace black: hmmmm
@@ -612,10 +533,10 @@ void Render_Screen(){
 			int xpos=cast(int)(obj.pos.x*cast(float)(minimap_rect.w)/cast(float)(MapXSize))+minimap_rect.x;
 			int zpos=cast(int)(obj.pos.z*cast(float)(minimap_rect.h)/cast(float)(MapZSize))+minimap_rect.y;
 			orct.x=xpos-orct.w/2; orct.y=zpos-orct.h/2;
-			SDL_RenderCopy(scrn_renderer, Mod_Pictures[obj.minimap_img], null, &orct);
-			if(restore_color_mod)
-				SDL_SetTextureColorMod(Mod_Pictures[obj.minimap_img], r, g, b);
-		}
+			//SDL_RenderCopy(scrn_renderer, Mod_Pictures[obj.minimap_img], null, &orct);
+			//if(restore_color_mod)
+			//	SDL_SetTextureColorMod(Mod_Pictures[obj.minimap_img], r, g, b);
+		}*/
 	}
 	if(List_Players){
 		//Some random optimization cause I don't want to have to allocate the same stuff on each frame
@@ -633,7 +554,7 @@ void Render_Screen(){
 			list_player_amount[p.team]++;
 			Player_List_Table[p.team][list_player_amount[p.team]-1]=p.player_id;
 		}
-		uint teamlist_w=cast(uint)(scrn_surface.w/Teams.length); //cast for 64 bit systems
+		uint teamlist_w=cast(uint)(ScreenXSize/Teams.length); //cast for 64 bit systems
 		for(uint t=0; t<Teams.length; t++){
 			for(uint plist_index=0; plist_index<list_player_amount[t]; plist_index++){
 				Player_t *plr=&Players[Player_List_Table[t][plist_index]];
@@ -642,9 +563,12 @@ void Render_Screen(){
 			}
 		}
 	}
-	BlurAmount*=BlurAmountDecay;
+	if(!Render_Local_Player)
+		Renderer_ShowInfo();
+	Renderer_Finish2D();
+	/*BlurAmount*=BlurAmountDecay;
 	ShakeAmount*=ShakeAmountDecay;
-	Set_Blur(BlurAmount+BaseBlurAmount);
+	Set_Blur(BlurAmount+BaseBlurAmount);*/
 }
 
 KV6Sprite_t Get_Object_Sprite(uint obj_id){
@@ -667,42 +591,28 @@ KV6Sprite_t Get_Object_Sprite(uint obj_id){
 	
 }
 
-void Render_Object(uint obj_id){
-	Object_t *obj=&Objects[obj_id];
-	KV6Sprite_t spr=Get_Object_Sprite(obj_id);
-	Render_Sprite(&spr);
-	if(false){
-		foreach(uint vi, ref model_vertex; obj.Vertices){
-			float dst;
-			int scrx, scry;
-			Vector3_t worldvertex=model_vertex.rotate_raw(obj.rot)+obj.pos;
-			if(!Project2D(worldvertex.x, worldvertex.y, worldvertex.z, &dst, scrx, scry))
-				continue;
-			if(dst<0.0)
-				continue;
-			int rect_w=cast(int)(50.0/(dst+1.0))+1, rect_h=rect_w;
-			scrx-=rect_w/2; scry-=rect_h/2;
-			if(obj.Vertex_Collisions[vi][0] || obj.Vertex_Collisions[vi][1] || obj.Vertex_Collisions[vi][2])
-				Render_Rectangle(scrx, scry, rect_w, rect_h, 0x00ff8000, 0.0);
-			else
-				Render_Rectangle(scrx, scry, rect_w, rect_h, 0x00ffff00, 0.0);
-		}
-	}
-}
-
 void Finish_Render(){
-	SDL_SetRenderTarget(scrn_renderer, null);
+	//printf("fullness: %i\n",overlay_bind_fullness());
+	/*SDL_SetRenderTarget(scrn_renderer, null);
 	SDL_RenderCopy(scrn_renderer, scrn_texture, null, null);
-	SDL_RenderPresent(scrn_renderer);
+	SDL_RenderPresent(scrn_renderer);*/
+	Renderer_FinishRendering();
 }
 
 void UnInit_Gfx(){
-	UnInit_Renderer();
-	SDL_DestroyTexture(scrn_texture);
-	SDL_DestroyTexture(font_texture);
-	SDL_DestroyTexture(borderless_font_texture);
+	if(font_texture)
+		Renderer_DestroyTexture(font_texture);
+	if(borderless_font_texture)
+		Renderer_DestroyTexture(borderless_font_texture);
+	Renderer_UnInit();
 	IMG_Quit();
 	SDL_Quit();
+}
+
+void Render_Object(uint obj_id){
+	Object_t *obj=&Objects[obj_id];
+	KV6Sprite_t spr=Get_Object_Sprite(obj_id);
+	Renderer_DrawSprite(&spr);
 }
 
 void Render_Player(uint player_id){
@@ -712,92 +622,13 @@ void Render_Player(uint player_id){
 	sprites~=Get_Player_Attached_Sprites(player_id);
 	foreach(ref spr; sprites){
 		spr.replace_black=Teams[Players[player_id].team].icolor;
-		Render_Sprite(&spr);
+		Renderer_DrawSprite(&spr);
 	}
 }
 
-SDL_Surface* ScopeSurface=null;
-void Render_Round_ZoomedIn(int scrx, int scry, int radius, float xzoom, float yzoom){
-	{
-		bool new_srfc=false;
-		if(!ScopeSurface)
-			new_srfc=true;
-		else
-			new_srfc=ScopeSurface.w!=radius*2 || ScopeSurface.h!=radius*2;
-		if(new_srfc){
-			if(ScopeSurface){
-				SDL_FreeSurface(ScopeSurface);
-				ScopeSurface=null;
-			}
-			ScopeSurface=SDL_CreateRGBSurface(0, radius*2, radius*2, 32, 0, 0, 0, 0);
-		}
-	}
-	Set_Frame_Buffer(ScopeSurface);
-	//SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV/xzoom/tofloat(scrn_surface.w/radius), Y_FOV/yzoom/tofloat(scrn_surface.h/radius), CameraPos.x, CameraPos.y, CameraPos.z);
-	auto scp=Get_Player_Scope(LocalPlayerID);
-	Vector3_t scpp=scp.pos, scpr=scp.rot;
-	SetCamera(scpr.y, scpr.x, scpr.z, X_FOV/xzoom/tofloat(scrn_surface.w/radius), Y_FOV/yzoom/tofloat(scrn_surface.h/radius), scpp.x, scpp.y, scpp.z);
-	Do_Sprite_Visibility_Checks=true;
-	Render_World(ScopeSurface, true);
-	int pow_radius=radius*radius;
-	SDL_Rect src, dst;
-	src.h=dst.h=1;
-	src.y=0;
-	for(int y=scry-radius; y<scry+radius; y++){
-		int pow_y=(scry-y)*(scry-y);
-		src.w=dst.w=(cast(uint)sqrt(tofloat(pow_radius-pow_y)))<<1;
-		dst.y=y; src.y=y-(scry-radius);
-		src.x=radius-(src.w>>1);
-		dst.x=src.x+scrx-radius;
-		SDL_BlitSurface(ScopeSurface, &src, scrn_surface, &dst);
-	}
-	//SDL_BlitSurface(ScopeSurface, null, scrn_surface, &screen_rect);
+void Render_Round_ZoomedIn(int scrx, int scry, int radius, float xzoom, float yzoom) {
+		
 }
-
-//Other note: this system is only WIP and will be replaced with server-side stuff someday
-//Note: already done (why do I even still have this commented-out scrap)
-
-/*Documentation Note:
- * If you want to change the way player KV6 sprites are positioned, 
- * rotated or resized when rendering, use this function and Get_Player_Attached_Sprites.
- * They return an array of all sprites that have to be rendered for this player.
- * Mod_Models (stupid name ikr, suggestions are welcome) contains all models
- * that the server tells the client to load.
-*/
-//Get_Player_Sprites returns sprites that are rendered AND checked for hits when shooting
-//Use it for any body parts
-//Get_Player_Attached_Sprites returns sprites that are ONLY rendered and NOT checked for hits
-//Use it for things like weapons/items and miscellaneous attachments
-/*KV6Sprite_t[] Get_Player_Sprites(uint player_id){
-	//Keep this line and assign this rotation at least for the head
-	//(spr.rhe=rot.y, spr.rst=rot.x, spr.rti=rot.z)
-	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
-	Vector3_t pos=Players[player_id].pos;
-	//"Placeholder"; if you are going to change the way players look as described above,
-	//feel free to throw out the following few lines and insert your
-	//awesome-looking stuff
-	KV6Sprite_t[] sprarr;
-	KV6Sprite_t spr;
-	if(player_id!=LocalPlayerID){
-		spr.rst=rot.z; spr.rti=rot.y; spr.rhe=rot.x;
-		spr.xpos=pos.x; spr.ypos=pos.y; spr.zpos=pos.z;
-		spr.xdensity=.2; spr.ydensity=.2; spr.zdensity=.2;
-		if(Players[player_id].Model!=-1){
-			spr.model=Mod_Models[Players[player_id].Model];
-			sprarr~=spr;
-		}
-	}
-	float player_offset=tofloat(player_id==LocalPlayerID)*1.0;
-	//offset coords: forwards, y-wards, sidewards
-	Vector3_t arm_offset=Vector3_t(player_offset, -.4, .4);
-	spr.rst=rot.z; spr.rhe=rot.x; spr.rti=rot.y;
-	Vector3_t armpos=pos+arm_offset.rotate_raw(Vector3_t(0.0, 90.0-rot.x, 90.0)).rotate_raw(Vector3_t(0.0, 270.0-rot.y, 0.0));
-	spr.xpos=armpos.x; spr.ypos=armpos.y; spr.zpos=armpos.z;
-	spr.xdensity=.05; spr.ydensity=.05; spr.zdensity=.05;
-	spr.model=Mod_Models[Players[player_id].Arm_Model];
-	sprarr~=spr;
-	return sprarr;
-}*/
 
 KV6Sprite_t[] Get_Player_Sprites(uint player_id){
 	Player_t *plr=&Players[player_id];
@@ -959,6 +790,7 @@ int SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t 
 	return 0;
 }
 
+
 struct Particle_t{
 	Vector3_t pos, vel;
 	uint col;
@@ -1085,14 +917,12 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount+1, 0xff808080, radius);
 }
 
+
 //Be careful: this is evil
 Vector3_t Get_Absolute_Sprite_Coord(KV6Sprite_t *spr, Vector3_t coord){
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
 	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
-	/*float fnx=(coord.x-spr.model.xpivot+.5)*spr.xdensity;
-	float fny=(coord.y-spr.model.ypivot+.5)*spr.ydensity;
-	float fnz=(coord.z-spr.model.zpivot-.5)*spr.zdensity;*/
 	float fnx=(coord.x-spr.model.xpivot)*spr.xdensity;
 	float fny=(coord.y-spr.model.ypivot)*spr.ydensity;
 	float fnz=(coord.z-spr.model.zpivot)*spr.zdensity;
@@ -1127,11 +957,13 @@ bool Sprite_Visible(KV6Sprite_t *spr){
 		fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
 		fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
 		int screenx, screeny;
-		float renddist=Vox_Project2D(fnx, fnz, fny, &screenx, &screeny);
-		if(renddist<0.0 || renddist>Visibility_Range)
+		float renddist;
+		if(!Project2D(fnx, fnz, fny, &renddist, screenx, screeny) && 0)
 			continue;
-		if(screenx<0 || screeny<0 || screenx>=FrameBuf.w || screeny>=FrameBuf.h)
+		/*if(renddist<0.0 || renddist>Visibility_Range)
 			continue;
+		if(screenx<0 || screeny<0 || screenx>=ScreenXSize || ScreenYSize)
+			continue;*/
 		//Only after I fixed raycasting code
 		Vector3_t vpos=Vector3_t(fnx, fny, fnz);
 		Vector3_t vdist=vpos-CameraPos;
