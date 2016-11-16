@@ -854,7 +854,7 @@ struct Object_t{
 	bool visible;
 	bool Is_Solid;
 	float weightfactor, bouncefactor, frictionfactor;
-	Vector3_t pos, vel, rot, density;
+	Vector3_t acl, pos, vel, rot, density;
 	//Maybe move this in its own struct - I'm planning even more advanced vertex stuff
 	Vector3_t[] Vertices;
 	bool[3][] Vertex_Collisions;
@@ -872,7 +872,7 @@ struct Object_t{
 			Solid_Objects.remove(index);
 		if(Hittable_Objects.canFind(index))
 			Hittable_Objects.remove(index);
-		vel=Vector3_t(0.0, 0.0, 0.0); rot=vel;
+		vel=Vector3_t(0.0, 0.0, 0.0); rot=vel; acl=vel;
 	}
 	
 	void Update(){
@@ -886,6 +886,7 @@ struct Object_t{
 		bool collision=false;
 		if(!Collision[0]){
 			pos.x+=deltapos.x;
+			vel.x+=acl.x;
 		}
 		else{
 			vel.x*=-bouncefactor;
@@ -893,6 +894,7 @@ struct Object_t{
 		}
 		if(!Collision[1]){
 			pos.y+=deltapos.y;
+			vel.y+=acl.y;
 			vel.y+=weightfactor*WorldSpeed*Gravity;
 		}
 		else{
@@ -901,6 +903,7 @@ struct Object_t{
 		}
 		if(!Collision[2]){
 			pos.z+=deltapos.z;
+			vel.z+=acl.z;
 		}
 		else{
 			vel.z*=-bouncefactor;
@@ -908,6 +911,8 @@ struct Object_t{
 		}
 		if(collision)
 			vel*=bouncefactor;
+		else
+			vel/=1.0+frictionfactor;
 	}
 	
 	Vector3_t Check_Vertex_Collisions(){

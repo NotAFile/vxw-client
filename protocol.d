@@ -744,6 +744,11 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				Loaded_Scripts[packet.scr_index].Call_Func("On_Packet_Receive", cast(ubyte[])packet.data);
 				break;
 			}
+			case SetObjectAclPacketID:{
+				auto packet=UnpackPacketToStruct!(SetObjectAclPacketLayout)(PacketData);
+				Objects[packet.obj_id].acl=Vector3_t(packet.x, packet.y, packet.z);
+				break;
+			}
 			default:{
 				writeflnlog("Invalid packet ID %d", id);
 				break;

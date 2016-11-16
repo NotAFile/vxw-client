@@ -395,6 +395,12 @@ struct CustomScriptPacketLayout{
 
 immutable PacketID_t CustomScriptPacketID=45;
 
+struct SetObjectAclPacketLayout{
+	ushort obj_id;
+	float x, y, z;
+}
+immutable PacketID_t SetObjectAclPacketID=46;
+
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)
 

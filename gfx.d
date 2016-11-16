@@ -496,13 +496,10 @@ void Render_Screen(){
 		SDL_Rect minimap_rect;
 		Team_t *team=&Teams[Players[LocalPlayerID].team];
 		minimap_rect.x=0; minimap_rect.y=0; minimap_rect.w=ScreenXSize; minimap_rect.h=ScreenYSize;
-		//SDL_SetTextureAlphaMod(minimap_texture, minimap_alpha);
-		//SDL_SetTextureBlendMode(minimap_texture, SDL_BLENDMODE_BLEND);
-		//SDL_RenderCopy(scrn_renderer, minimap_texture, null, null);
 		uint[2] minimap_size=[minimap_srfc.w, minimap_srfc.h];
 		Renderer_Blit2D(minimap_texture, &minimap_size, &minimap_rect, 255);
-		//SDL_SetRenderDrawColor(scrn_renderer, team.color[2], team.color[1], team.color[0], 255);
-		/*foreach(ref plr; Players){
+		ubyte[4] col=[team.color[2], team.color[1], team.color[0], 255];
+		foreach(ref plr; Players){
 			if(!plr.Spawned || !plr.InGame || plr.team!=Players[LocalPlayerID].team)
 				continue;
 			int xpos=cast(int)(plr.pos.x*cast(float)(minimap_rect.w)/cast(float)(MapXSize))+minimap_rect.x;
@@ -510,7 +507,7 @@ void Render_Screen(){
 			SDL_Rect prct;
 			prct.w=4; prct.h=4;
 			prct.x=xpos-prct.w/2; prct.y=zpos-prct.h/2;
-			//SDL_RenderFillRect(scrn_renderer, &prct);
+			Renderer_FillRect(&prct, &col);
 		}
 		foreach(ref obj; Objects){
 			if(!obj.visible || obj.minimap_img==255)
@@ -518,14 +515,13 @@ void Render_Screen(){
 			SDL_Rect orct;
 			ubyte r, g, b;
 			bool restore_color_mod=false;
+			ubyte[3] colormod=[255, 255, 255];
 			if(obj.color){
-				if(obj.color&0xff000000){
-					//SDL_GetTextureColorMod(Mod_Pictures[obj.minimap_img], &r, &g, &b);
-					//SDL_SetTextureColorMod(Mod_Pictures[obj.minimap_img], (obj.color>>16)&255, (obj.color>>8)&255, (obj.color>>0)&255);
-					//restore_color_mod=true;
+				if(obj.color&0x00ffffff){
+					colormod=[(obj.color>>16)&255, (obj.color>>8)&255, (obj.color>>0)&255];
 				}
 				else{
-					//Replace black: hmmmm
+					colormod=[128, 128, 128];
 				}
 			}
 			orct.w=Mod_Picture_Sizes[obj.minimap_img][0]*minimap_rect.w/MapXSize;
@@ -533,10 +529,8 @@ void Render_Screen(){
 			int xpos=cast(int)(obj.pos.x*cast(float)(minimap_rect.w)/cast(float)(MapXSize))+minimap_rect.x;
 			int zpos=cast(int)(obj.pos.z*cast(float)(minimap_rect.h)/cast(float)(MapZSize))+minimap_rect.y;
 			orct.x=xpos-orct.w/2; orct.y=zpos-orct.h/2;
-			//SDL_RenderCopy(scrn_renderer, Mod_Pictures[obj.minimap_img], null, &orct);
-			//if(restore_color_mod)
-			//	SDL_SetTextureColorMod(Mod_Pictures[obj.minimap_img], r, g, b);
-		}*/
+			Renderer_Blit2D(Mod_Pictures[obj.minimap_img], &Mod_Picture_Sizes[obj.minimap_img], &orct, 255, &colormod);
+		}
 	}
 	if(List_Players){
 		//Some random optimization cause I don't want to have to allocate the same stuff on each frame
