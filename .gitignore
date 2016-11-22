@@ -1,0 +1,15 @@
+Thumbs.db
+Desktop.ini
+derelict/
+Ressources/
+*.o
+*.vxl
+*.exe
+*.zip
+*.kv6
+*.lib
+*.o
+*.dll
+*.obj
+renderer.d
+*.bat

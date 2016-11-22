@@ -647,16 +647,17 @@ uint Hash_Coordinates(uint x, uint y, uint z){
 	return x+y*MapXSize+z*MapXSize*MapYSize;
 }
 
-immutable uint MaxDamageParticlesPerBlock=1024;
+immutable uint MaxDamageParticlesPerBlock=64;
 
 struct DamageParticle_t{
 	float x, y, z;
 	uint col;
+	ubyte side;
 	void Init(uint ix, uint iy, uint iz, uint icol, uint[] free_sides){
 		float vx=tofloat(ix)+.5, vy=tofloat(iy)+.5, vz=tofloat(iz)+.5;
 		/*uint side=uniform(0, 3);
 		float sidesgn=tofloat(toint(uniform(0, 2))*2-1)*.5;*/
-		uint side=free_sides[uniform(0, free_sides.length)];
+		side=cast(ubyte)free_sides[uniform(0, free_sides.length)];
 		x=vx+uniform01()-.5;
 		y=vy+uniform01()-.5;
 		z=vz+uniform01()-.5;
@@ -705,7 +706,7 @@ struct BlockDamage_t{
 				uint oldlen=cast(uint)particles.length;
 				particles.length=newc;
 				for(uint i=oldlen; i<newc; i++){
-					particles[i].Init(x, y, z, 0, free_sides);
+					particles[i].Init(x, y, z, orig_color, free_sides);
 				}
 			}
 		}

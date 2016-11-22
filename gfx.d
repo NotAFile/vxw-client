@@ -230,7 +230,7 @@ void Render_World(bool Render_Cursor){
 		Render_Player(p);
 	foreach(ref bdmg; BlockDamage){
 		foreach(ref prtcl; bdmg.particles){
-			Renderer_Draw3DParticle(prtcl.x, prtcl.y, prtcl.z, 20, 20, prtcl.col);
+			Renderer_Draw3DBlockDamage(prtcl.x, prtcl.y, prtcl.z, prtcl.col, prtcl.side);
 		}
 	}
 	foreach(ref dmgobj_id; DamagedObjects){
