@@ -16,28 +16,34 @@ Follow the compile steps for your choosen renderer module and procede here after
 
 #### On Linux
 1. If you are using Debian or Ubuntu and don't have these installed already:
+	```
+	sudo apt-get install libsdl2-dev
 
-sudo apt-get install libsdl2-dev
+	sudo apt-get install libenet-dev
 
-sudo apt-get install libenet-dev
-
-sudo apt-get install git
-
-If not, install SDL2, ENet and git the way you would do it on your distribution.
+	sudo apt-get install git
+	```
+	If not, install SDL2, ENet and git the way you would do it on your distribution.
 
 2. Open a terminal in this directory and write
 
-```./configure```
+	```
+	./configure
+	```
 
-to download derelict files
+	to download derelict files
 
-```./compile-derelict```
+	```
+	./compile-derelict
+	```
 
-to compile the derelict files into a compact .a file
+	to compile the derelict files into a compact .a file
 
-```./compile```
+	```
+	./compile
+	```
 
-to compile the source
+	to compile the source
 
 
 #### On Windows
@@ -46,17 +52,19 @@ to compile the source
 
 2. Download the contents of:
 
-```http://github.com/DerelictOrg/DerelictSDL2```
+	```
+	http://github.com/DerelictOrg/DerelictSDL2
 
-```http://github.com/DerelictOrg/DerelictENet```
+	http://github.com/DerelictOrg/DerelictENet
 
-```http://github.com/DerelictOrg/DerelictUtil```
+	http://github.com/DerelictOrg/DerelictUtil
+	```
 
 3. Create a directory called "derelict" here.
 
 4. Paste the contents of the derelict directories from the repositories from 2.
 
-(sdl2, enet, util)
+	(sdl2, enet, util)
 
 5. Run compile.bat
 
