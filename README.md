@@ -8,6 +8,7 @@ If you haven't already installed DMD, you can download the latest version here:
 http://dlang.org/download.html
 
 You need at least one renderer module.
+
 There are two right now, first the software based voxlap renderer and a much newer OpenGL renderer which is faster on new and **OLD** hardware.
 - *Voxlap*: http://github.com/LeComm/aofclient-voxlap-renderer
 - *OpenGL*: http://github.com/xtreme8000/aof-opengl
@@ -17,11 +18,7 @@ Follow the compile steps for your choosen renderer module and procede here after
 #### On Linux
 1. If you are using Debian or Ubuntu and don't have these installed already:
 	```
-	sudo apt-get install libsdl2-dev
-
-	sudo apt-get install libenet-dev
-
-	sudo apt-get install git
+	sudo apt-get install libsdl2-dev libenet-dev git -y
 	```
 	If not, install SDL2, ENet and git the way you would do it on your distribution.
 
@@ -69,6 +66,6 @@ Follow the compile steps for your choosen renderer module and procede here after
 5. Run compile.bat
 
 
-#### Notes
+## Notes
 
 The "derelict/" folder contains D bindings to both ENet and SDL. This is not the usual way of using derelict, but *DUB* is a nightmare to use and We would rather not rely on such kinds of packaging programs.
