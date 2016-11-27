@@ -39,7 +39,6 @@ immutable PacketID_t MapChunkPacketID=1;
 //NOTE: Importance approved
 struct PlayerJoinPacketLayout{
 	PlayerID_t player_id;
-	TeamID_t team_id;
 	string name;
 }
 immutable PacketID_t PlayerJoinPacketID=2;
@@ -265,7 +264,7 @@ struct SetTextBoxTextPacketLayout{
 immutable PacketID_t SetTextBoxTextPacketID=29;
 
 enum SetObjectFlags{
-	Solid=(1<<0), ModelModification=(1<<1), BulletHoles=(1<<2)
+	Solid=(1<<0), ModelModification=(1<<1), BulletHoles=(1<<2), SendHits=(1<<3)
 }
 
 struct SetObjectPacketLayout{
@@ -378,7 +377,7 @@ struct SetShakePacketLayout{
 immutable PacketID_t SetShakePacketID=43;
 
 enum ToggleScriptPacketFlags{
-	Run=(1<<0), Repeat=(1<<1)
+	Run=(1<<0), Repeat=(1<<1), MiniMap_Renderer=(1<<2)
 }
 
 struct ToggleScriptPacketLayout{
@@ -400,6 +399,11 @@ struct SetObjectAclPacketLayout{
 	float x, y, z;
 }
 immutable PacketID_t SetObjectAclPacketID=46;
+
+struct ObjectHitPacketLayout{
+	ushort object_index;
+}
+immutable PacketID_t ObjectHitPacketID=47;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)

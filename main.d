@@ -60,7 +60,7 @@ void main(string[] args){
 			else
 				break;
 		}
-		Update_Script();
+		Script_OnFrame();
 		Update_World();
 		Render_Screen();
 		Finish_Render();

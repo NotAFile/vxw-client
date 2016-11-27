@@ -3,6 +3,7 @@ import std.string;
 import std.algorithm;
 import std.conv;
 import gfx;
+import main;
 import misc;
 import network;
 import protocol;
@@ -66,6 +67,11 @@ struct MenuElement_t{
 		picture_index=picindex;
 		ConvertScreenCoords(sxpos, sypos, xpos, ypos);
 		ConvertScreenCoords(sxsize, sysize, xsize, ysize);
+		transparency=inittransparency;
+		icolor_mod=colormod;
+		move_z(zval);
+	}
+	void move_z(ubyte zval){
 		if(zpos!=zval){
 			int arrind=cast(int)countUntil(Z_MenuElements[zpos], index);
 			if(arrind>=0)
@@ -73,8 +79,6 @@ struct MenuElement_t{
 			Z_MenuElements[zval]~=index;
 		}
 		zpos=zval;
-		transparency=inittransparency;
-		icolor_mod=colormod;
 	}
 	bool inactive(){
 		return this.picture_index==255 || this.transparency==0 || !this.xsize || !this.ysize;
@@ -202,7 +206,6 @@ void Check_Input(){
 							if(true){
 								ItemReloadPacketLayout packet;
 								Send_Packet(ItemReloadPacketID, packet);
-								Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading=true;
 							}
 						}
 						break;
@@ -280,6 +283,23 @@ void Check_Input(){
 								SDL_free(txt);
 							}
 						}
+						break;
+					}
+					case SDLK_PLUS:{
+						if(!TypingChat){
+							TargetFPS+=5;
+							WriteMsg(format("[GAME]Set target FPS to %d", TargetFPS), Font_SpecialColor);
+						}
+						break;
+					}
+					case SDLK_MINUS:{
+						if(!TypingChat){
+							if(TargetFPS>=5)
+								TargetFPS-=5;
+							if(!TargetFPS)
+								TargetFPS=1;
+							WriteMsg(format("[GAME]Set target FPS to %d", TargetFPS), Font_SpecialColor);
+						 }
 						break;
 					}
 					default:{break;}

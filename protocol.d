@@ -46,7 +46,7 @@ ubyte[] CurrentLoadingMap;
 
 uint MapXSize, MapYSize, MapZSize;
 
-uint Client_Version=4;
+uint Client_Version=6;
 
 uint JoinedGameMaxPhases=4;
 uint JoinedGamePhase=0;
@@ -277,13 +277,13 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case PlayerJoinPacketID:{
 				auto packet=UnpackPacketToStruct!(PlayerJoinPacketLayout)(PacketData);
-				if(packet.team_id<255){
+				/*if(packet.team_id<255){
 					writeflnlog("%s", packet.team_id);
 					writeflnlog("Player #%d %s joined %s", packet.player_id, packet.name, Teams[packet.team_id].name);
 				}
 				else{
 					writeflnlog("Player #%d %s joined the game", packet.player_id, packet.name);
-				}
+				}*/
 				Init_Player(packet.name, packet.player_id);
 				if(packet.player_id==LocalPlayerID)
 					Join_Game();
@@ -475,7 +475,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case ItemReloadPacketID:{
 				auto packet=UnpackPacketToStruct!(ItemReloadPacketLayout)(PacketData);
 				Player_t *plr=&Players[LocalPlayerID];
-				if(packet.amount1!=0xffffffff || packet.amount2!=0xffffffff){
+				if(packet.amount1!=0xffffffff && packet.amount2!=0xffffffff){
 					plr.items[packet.item_id].amount1=packet.amount1;
 					plr.items[packet.item_id].amount2=packet.amount2;
 					plr.items[packet.item_id].Reloading=false;
@@ -552,7 +552,8 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				if(!was_solid && obj.Is_Solid)
 					Solid_Objects~=packet.obj_id;
 				obj.enable_bullet_holes=cast(bool)(packet.flags&SetObjectFlags.BulletHoles);
-				if(obj.enable_bullet_holes){
+				obj.send_hits=cast(bool)(packet.flags&SetObjectFlags.SendHits);
+				if(obj.enable_bullet_holes || obj.send_hits){
 					if(!Hittable_Objects.canFind(packet.obj_id))
 						Hittable_Objects~=packet.obj_id;
 				}
@@ -629,6 +630,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					}
 					case AssignBuiltinTypes.Sent_Image:{
 						MenuElement_t *element=&MenuElements[packet.index];
+						element.move_z(InvisibleZPos);
 						switch(packet.target){
 							case AssignBuiltinSentImageTypes.AmmoCounterBG:{
 								AmmoCounterBG=element;
@@ -673,17 +675,23 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					obj_id_bytes.reverse;
 				obj_id=*(cast(ushort*)obj_id_bytes.ptr);
 				uint vertices_count=cast(uint)(PacketData.length-2)/12;
+				writeflnlog("v: %s", vertices_count);
 				Vector3_t[] vertices;
-				vertices.length=vertices_count;
-				ubyte *xptr=&PacketData[2], yptr=&PacketData[2+4], zptr=&PacketData[2+8];
-				for(uint v=0; v<vertices_count; v++){
-					float xv=ConvertArrayToVariable!(float)(xptr[0..4]);
-					float yv=ConvertArrayToVariable!(float)(yptr[0..4]);
-					float zv=ConvertArrayToVariable!(float)(zptr[0..4]);
-					vertices[v]=Vector3_t(xv, yv, zv);
-					xptr+=4*3; yptr+=4*3; zptr+=4*3;
+				if(vertices_count){
+					vertices.length=vertices_count;
+					ubyte *xptr=&PacketData[2], yptr=&PacketData[2+4], zptr=&PacketData[2+8];
+					for(uint v=0; v<vertices_count; v++){
+						float xv=ConvertArrayToVariable!(float)(xptr[0..4]);
+						float yv=ConvertArrayToVariable!(float)(yptr[0..4]);
+						float zv=ConvertArrayToVariable!(float)(zptr[0..4]);
+						vertices[v]=Vector3_t(xv, yv, zv);
+						xptr+=4*3; yptr+=4*3; zptr+=4*3;
+					}
+					Objects[obj_id].Vertices=vertices;
 				}
-				Objects[obj_id].Vertices=vertices;
+				else{
+					Objects[obj_id].Vertices=[];
+				}
 				break;
 			}
 			case SetPlayerModelPacketID:{
@@ -718,7 +726,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case SetPlayerModePacketID:{
 				auto packet=UnpackPacketToStruct!(SetPlayerModePacketLayout)(PacketData);
-				Players[packet.player_id].InGame=Players[packet.player_id].Spawned=cast(bool)packet.mode;
+				Players[packet.player_id].Spawned=Players[packet.player_id].Spawned=cast(bool)packet.mode;
 				break;
 			}
 			case SetBlurPacketID:{
@@ -736,7 +744,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case ToggleScriptPacketID:{
 				auto packet=UnpackPacketToStruct!(ToggleScriptPacketLayout)(PacketData);
 				Loaded_Scripts[packet.index].Set_Enabled(cast(bool)(packet.flags&ToggleScriptPacketFlags.Run),
-				cast(bool)(packet.flags&ToggleScriptPacketFlags.Repeat));
+				cast(bool)(packet.flags&ToggleScriptPacketFlags.Repeat), cast(bool)(packet.flags&ToggleScriptPacketFlags.MiniMap_Renderer));
 				break;
 			}
 			case CustomScriptPacketID:{
@@ -812,12 +820,6 @@ void Update_Position_Data(bool force_update=false){
 	}
 }
 
-void Join_Team(TeamID_t team_id){
-	PlayerJoinPacketLayout packet;
-	packet.team_id=team_id;
-	Send_Packet(PlayerJoinPacketID, packet);
-}
-
 bool Joined_Game(){
 	if(!JoinedGame)
 		return false;
@@ -851,7 +853,7 @@ uint Get_Ping(){
 	return Ping_Overall_Delay/(Pings_Sent+1);
 }
 
-//We're using a packet format here. I think that 3 numbers after the comma is enough for orientation data transfer
+//We're using a packed format here. I think that 3 numbers after the comma is enough for orientation data transfer
 //However, if I want to transfer signs, I'd have to use 11 bit variables. Since I can transfer 32 but not 33 bits,
 //the poor Y coordinate will only have 10 bits
 uint Convert_Unit_Vec_To_NetFP(Vector3_t vec){
