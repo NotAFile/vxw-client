@@ -3,12 +3,13 @@ Desktop.ini
 derelict/
 Ressources/
 *.o
+*.a
+main
 *.vxl
 *.exe
 *.zip
 *.kv6
 *.lib
-*.o
 *.dll
 *.obj
 renderer.d
