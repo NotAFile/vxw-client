@@ -51,6 +51,8 @@ return [
 	MAKE_INTRINSIC_1(cast(char*)toStringz("TextBox_Update"), &ScrGuiLib_TextBoxUpdate, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
 	MAKE_INTRINSIC_1(cast(char*)toStringz("TextBox_Delete"), &ScrGuiLib_TextBoxDelete, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
 	MAKE_INTRINSIC_0(cast(char*)toStringz("PictureColor_Get"), &ScrGuiLib_PictureColorGet, SLANG_UINT_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("MiniMap_Shown"), &ScrGuiLib_MiniMap_Shown, SLANG_UCHAR_TYPE),
+	MAKE_INTRINSIC_1(cast(char*)toStringz("MenuElement_Render"), &ScrGuiLib_MenuElementRender, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
 	SLANG_END_INTRIN_FUN_TABLE()
 ];
 }
@@ -63,6 +65,8 @@ return[
 	MAKE_INTRINSIC_0(cast(char*)toStringz("VisibilityRange_Set"), &ScrWorldLib_VisibilityRangeSet, SLANG_VOID_TYPE)
 ];
 }
+
+SLang_NameSpace_Type *ScrStdLib_Ns;
 
 struct ScriptLib_t{
 	string typename;
@@ -80,7 +84,12 @@ struct ScriptLib_t{
 		switch(nsname){
 			case "scrgui":{
 				intr_func_table=ScrGuiLib_Funcs();
-				SLns_add_intrinsic_variable(ns, toStringz("Font_SpecialColor"), &Font_SpecialColor, SLANG_UINT_TYPE, 1);
+				SLns_add_intrinsic_variable(ns, toStringz("Font_SpecialColor"), &Font_SpecialColor, DLangType_To_SLangType!(typeof(Font_SpecialColor))(), 1);
+				SLns_add_intrinsic_variable(ns, toStringz("StartZPos"), &StartZPos, DLangType_To_SLangType!(typeof(StartZPos))(), 1);
+				SLns_add_intrinsic_variable(ns, toStringz("MiniMapZPos"), &MiniMapZPos, DLangType_To_SLangType!(typeof(MiniMapZPos))(), 1);
+				SLns_add_intrinsic_variable(ns, toStringz("InvisibleZPos"), &InvisibleZPos, DLangType_To_SLangType!(typeof(InvisibleZPos))(), 1);
+				SLns_add_intrinsic_variable(ns, toStringz("ScreenXSize"), &ScreenXSize, DLangType_To_SLangType!(typeof(ScreenXSize))(), 1);
+				SLns_add_intrinsic_variable(ns, toStringz("ScreenYSize"), &ScreenYSize, DLangType_To_SLangType!(typeof(ScreenYSize))(), 1);
 				SLns_add_intrinsic_function(ns, toStringz("MenuMode_Set"), &ScrGuiLib_MenuMode_Set, SLANG_VOID_TYPE, 0);
 				break;
 			}
@@ -100,13 +109,23 @@ struct ScriptLib_t{
 
 private ScriptLib_t[] ScriptLibraries=[];
 
+SLtype DLangType_To_SLangType(type)(){
+	static if(is(type==uint))
+		return SLANG_UINT_TYPE;
+	static if(is(type==int))
+		return SLANG_INT_TYPE;
+	static if(is(type==ubyte))
+		return SLANG_UCHAR_TYPE;
+	assert(0);
+}
+
 struct Script_t{
 	ushort index;
 	bool initialized;
 	bool has_exception;
 	string name, content;
 	string nsname;
-	bool enabled;
+	bool enabled, call_on_frame, call_on_minimap_render;
 	SLang_NameSpace_Type *localns;
 	ScriptLib_t *sclibrary;
 	this(ushort initindex, string filename, string initcontent){
@@ -167,9 +186,9 @@ struct Script_t{
 	void Uninit(){
 		SLns_delete_namespace(localns);
 	}
-	void Set_Enabled(bool run, bool repeat){
-		enabled=run;
-		if(run && !repeat){
+	void Set_Enabled(bool run, bool repeat, bool minimap){
+		call_on_frame=repeat; call_on_minimap_render=minimap;
+		if(run){
 			Call_Func("RunScript");
 			enabled=false;
 			return;
@@ -205,11 +224,11 @@ struct Script_t{
 		if(ret<1){
 			if(!ret){
 				has_exception=true;
-				writeflnerr("SLang function %s doesn't exist", funcname);
+				writeflnerr("SLang function %s doesn't exist in script %s", funcname, name);
 			}
 			else{
 				has_exception=true;
-				writeflnerr("Exception while executing SLang function %s", funcname);
+				writeflnerr("Exception while executing SLang function %s in script %s", funcname, name);
 			}
 		}
 		if(sclibrary){
@@ -273,18 +292,30 @@ void Init_Script(){
 		SLadd_intrinsic_function(cast(const(char*))toStringz(funcname), &SLStdLib_DisabledFunc, SLANG_VOID_TYPE, 0);
 	foreach(varname; SLStdLib_DisabledVars)
 		SLadd_intrinsic_variable(cast(const(char*))toStringz(varname), &SLStdLib_DisabledVar, SLANG_UINT_TYPE, 1);
-	SLadd_intrinsic_function(cast(const(char*))toStringz("rand"), &ScrStdLib_Rand, SLANG_UINT_TYPE, 0);
-	SLadd_intrinsic_function(cast(const(char*))toStringz("Send_Packet"), &ScrStdLib_SendPacket, SLANG_VOID_TYPE, 1, SLANG_BSTRING_TYPE);
-	SLadd_intrinsic_function(cast(const(char*))toStringz("Key_Pressed"), &ScrStdLib_KeyPressed, SLANG_UCHAR_TYPE, 0);
-	SLadd_intrinsic_function(cast(const(char*))toStringz("plog"), &ScrStdLib_PrintLog, SLANG_VOID_TYPE, 0);
+	ScrStdLib_Ns=SLns_create_namespace(toStringz("scrstd"));
+	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("rand"), &ScrStdLib_Rand, SLANG_UINT_TYPE, 0);
+	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("Send_Packet"), &ScrStdLib_SendPacket, SLANG_VOID_TYPE, 1, SLANG_BSTRING_TYPE);
+	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("Key_Pressed"), &ScrStdLib_KeyPressed, SLANG_UCHAR_TYPE, 0);
+	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("plog"), &ScrStdLib_PrintLog, SLANG_VOID_TYPE, 0);
+	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapXSize"), &MapXSize, DLangType_To_SLangType!(typeof(MapXSize))(), 1);
+	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapYSize"), &MapYSize, DLangType_To_SLangType!(typeof(MapYSize))(), 1);
+	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapZSize"), &MapZSize, DLangType_To_SLangType!(typeof(MapZSize))(), 1);
 	ScriptLibraries=[ScriptLib_t("None", ""), ScriptLib_t("GUI", "scrgui"), ScriptLib_t("World", "scrworld")];
 }
 
-void Update_Script(){
+void Script_OnFrame(){
 	foreach(ref scr; Loaded_Scripts){
-		if(!scr.enabled)
+		if(!scr.call_on_frame)
 			continue;
 		scr.Call_Func("On_Frame_Update", delta_time);
+	}
+}
+
+void Script_OnMiniMapRender(){
+	foreach(ref scr; Loaded_Scripts){
+		if(!scr.call_on_minimap_render)
+			continue;
+		scr.Call_Func("On_Minimap_Render", delta_time);
 	}
 }
 
@@ -448,6 +479,18 @@ uint ScrGuiLib_PictureColorGet(){
 	uint xp=to!uint(xcoord*(pic.w-1)), yp=to!uint(ycoord*(pic.h-1));
 	uint col=*(cast(uint*)(&((pic.pixels))[(xp<<2)+yp*pic.pitch]));
 	return col;
+}
+
+ubyte ScrGuiLib_MiniMap_Shown(){
+	return Render_MiniMap;
+}
+
+void ScrGuiLib_MenuElementRender(SLang_Struct_Type *slelement){
+	ScrGuiLib_MenuElementUpdate(slelement);
+	SLang_push_struct_field(slelement, cast(char*)toStringz("elementindex"));
+	ubyte elementindex;
+	SLang_pop_uchar(&elementindex);
+	MenuElement_draw(&MenuElements[elementindex]);
 }
 
 uint ScrWorldLib_FogColorGet(){return Fog_Color;}

@@ -37,7 +37,7 @@ struct Connection_t{
 					if(ret==1)
 						writeflnlog("Connected to server!");
 					else
-						writeflnlog("[WARNING] ENet returned %d when trying to connect", ret);
+							writeflnlog("[WARNING] ENet returned %d when trying to connect", ret);
 					break;
 				}
 				case ENET_EVENT_TYPE_DISCONNECT:{

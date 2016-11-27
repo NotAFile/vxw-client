@@ -69,12 +69,18 @@ struct Player_t{
 	void Init(string initname, PlayerID_t initplayer_id){
 		name=initname;
 		player_id=initplayer_id;
+		team=255;
 		Spawned=false;
 		InGame=true;
 		KeysChanged=false;
 		pos=Vector3_t(0.0); vel=Vector3_t(0.0); acl=Vector3_t(0.0); dir=Vector3_t(1.0, 0.0, 0.0);
 		Model=-1;
 		Gun_Timer=0;
+	}
+	Team_t *Get_Team(){
+		if(team==255)
+			return null;
+		return &Teams[team];
 	}
 	void Spawn(Vector3_t location, TeamID_t spteam){
 		if(player_id==LocalPlayerID)
@@ -94,6 +100,9 @@ struct Player_t{
 	void On_Disconnect(){
 		InGame=false;
 		Spawned=false;
+		if(Players.length==this.player_id){
+			Players.length--;
+		}
 	}
 	void Update(){
 		Update_Physics();
@@ -437,6 +446,11 @@ struct Player_t{
 			else
 			if(Objects[object_hit_id].modify_model)
 				object_hit_vx.color=0;
+			if(Objects[object_hit_id].send_hits){
+				ObjectHitPacketLayout packet;
+				packet.object_index=object_hit_id;
+				Send_Packet(ObjectHitPacketID, packet);
+			}
 		}
 		if(ItemTypes[current_item.type].repeated_use)
 			current_item.use_timer=current_tick;
@@ -647,17 +661,16 @@ uint Hash_Coordinates(uint x, uint y, uint z){
 	return x+y*MapXSize+z*MapXSize*MapYSize;
 }
 
-immutable uint MaxDamageParticlesPerBlock=64;
+immutable uint MaxDamageParticlesPerBlock=1024;
 
 struct DamageParticle_t{
 	float x, y, z;
 	uint col;
-	ubyte side;
 	void Init(uint ix, uint iy, uint iz, uint icol, uint[] free_sides){
 		float vx=tofloat(ix)+.5, vy=tofloat(iy)+.5, vz=tofloat(iz)+.5;
 		/*uint side=uniform(0, 3);
 		float sidesgn=tofloat(toint(uniform(0, 2))*2-1)*.5;*/
-		side=cast(ubyte)free_sides[uniform(0, free_sides.length)];
+		uint side=free_sides[uniform(0, free_sides.length)];
 		x=vx+uniform01()-.5;
 		y=vy+uniform01()-.5;
 		z=vz+uniform01()-.5;
@@ -706,7 +719,7 @@ struct BlockDamage_t{
 				uint oldlen=cast(uint)particles.length;
 				particles.length=newc;
 				for(uint i=oldlen; i<newc; i++){
-					particles[i].Init(x, y, z, orig_color, free_sides);
+					particles[i].Init(x, y, z, 0, free_sides);
 				}
 			}
 		}
@@ -756,24 +769,26 @@ void Damage_Block(PlayerID_t player_id, uint xpos, uint ypos, uint zpos, ubyte v
 }
 
 void Break_Block(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, uint zpos){
-	uint col=Voxel_GetColor(xpos, ypos, zpos);
-	Voxel_Remove(xpos, ypos, zpos);
-	uint x, y, z;
-	uint particle_amount=touint(1.0/BlockBreakParticleSize)+1;
-	for(x=0; x<particle_amount; x++){
-		for(y=0; y<particle_amount; y++){
-			for(z=0; z<particle_amount; z++){
-				BlockBreakParticles.length++;
-				Particle_t *p=&BlockBreakParticles[$-1];
-				p.vel=Vector3_t(uniform01()*(uniform(0, 2)?1.0:-1.0)*.02, 0.0, uniform01()*(uniform(0, 2)?1.0:-1.0)*.02);
-				p.pos=Vector3_t(tofloat(xpos)+tofloat(x)*BlockBreakParticleSize,
-				tofloat(ypos)+tofloat(y)*BlockBreakParticleSize,
-				tofloat(zpos)+tofloat(z)*BlockBreakParticleSize);
-				p.col=col;
-				p.timer=uniform(550, 650);
+	if(!break_type){
+		uint col=Voxel_GetColor(xpos, ypos, zpos);
+		uint x, y, z;
+		uint particle_amount=touint(1.0/BlockBreakParticleSize)+1;
+		for(x=0; x<particle_amount; x++){
+			for(y=0; y<particle_amount; y++){
+				for(z=0; z<particle_amount; z++){
+					BlockBreakParticles.length++;
+					Particle_t *p=&BlockBreakParticles[$-1];
+					p.vel=Vector3_t(uniform01()*(uniform(0, 2)?1.0:-1.0)*.075, 0.0, uniform01()*(uniform(0, 2)?1.0:-1.0)*.075);
+					p.pos=Vector3_t(tofloat(xpos)+tofloat(x)*BlockBreakParticleSize,
+					tofloat(ypos)+tofloat(y)*BlockBreakParticleSize,
+					tofloat(zpos)+tofloat(z)*BlockBreakParticleSize);
+					p.col=col;
+					p.timer=uniform(550, 650);
+				}
 			}
 		}
 	}
+	Voxel_Remove(xpos, ypos, zpos);
 	uint hash=Hash_Coordinates(xpos, ypos, zpos);
 	if(hash in BlockDamage)
 		BlockDamage.remove(hash);
@@ -851,7 +866,7 @@ struct Object_t{
 	KV6Model_t *model;
 	ubyte minimap_img;
 	uint color;
-	bool modify_model, enable_bullet_holes;
+	bool modify_model, enable_bullet_holes, send_hits;
 	bool visible;
 	bool Is_Solid;
 	float weightfactor, bouncefactor, frictionfactor;

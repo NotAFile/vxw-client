@@ -12,4 +12,5 @@ Ressources/
 *.dll
 *.obj
 renderer.d
+voxlap.di
 *.bat

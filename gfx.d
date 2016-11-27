@@ -5,12 +5,14 @@ import std.format;
 import std.algorithm;
 import std.conv;
 import std.random;
+import std.traits;
 import renderer;
 import protocol;
 import misc;
 import world;
 import ui;
 import vector;
+import script;
 version(LDC){
 	import ldc_stdlib;
 }
@@ -39,6 +41,8 @@ Vector3_t CameraRot=Vector3_t(0.0, 0.0, 0.0), CameraPos=Vector3_t(0.0, 0.0, 0.0)
 Vector3_t MouseRot=Vector3_t(0.0, -90.0, 0.0);
 float X_FOV=90.0, Y_FOV=90.0;
 
+float[3][ParticleSizeTypes] ParticleSizeRatios;
+
 KV6Model_t*[] Mod_Models;
 RendererTexture_t[] Mod_Pictures;
 SDL_Surface*[] Mod_Picture_Surfaces;
@@ -57,6 +61,8 @@ immutable bool Enable_Object_Model_Modification=true;
 float BlurAmount=0.0, BaseBlurAmount=0.0, BlurAmountDecay=.99;
 float ShakeAmount=0.0, BaseShakeAmount=0.0, ShakeAmountDecay=.9;
 
+ubyte MiniMapZPos=250, InvisibleZPos=0, StartZPos=1;
+
 void Init_Gfx(){
 	DerelictSDL2.load();
 	DerelictSDL2Image.load();
@@ -73,6 +79,17 @@ void Init_Gfx(){
 			Set_Font(font_surface);
 			SDL_FreeSurface(font_surface);
 		}
+	}
+	ParticleSizeRatios=[
+		ParticleSizeTypes.Normal: [.1, .1, .1],
+		ParticleSizeTypes.BlockDamageParticle: [.05, .05, .05],
+		ParticleSizeTypes.DamagedObjectParticle: [.1, .1, .1],
+		ParticleSizeTypes.BlockBreakParticle: [.25, .25, .25]
+	];
+	foreach(sizetype; EnumMembers!ParticleSizeTypes){
+		uint[3] pixelsize=Renderer_GetParticleSize(ParticleSizeRatios[sizetype][0], ParticleSizeRatios[sizetype][1], ParticleSizeRatios[sizetype][2]);
+		ParticleSizes[sizetype]=ParticleSize_t();
+		ParticleSizes[sizetype].w=pixelsize[0]; ParticleSizes[sizetype].h=pixelsize[1]; ParticleSizes[sizetype].l=pixelsize[2];
 	}
 }
 
@@ -222,23 +239,40 @@ void Render_Text_Line(uint xpos, uint ypos, uint color, string line, RendererTex
 	}
 }
 
+enum ParticleSizeTypes{
+	Normal=0, BlockDamageParticle=1, DamagedObjectParticle=2, BlockBreakParticle=3
+}
+
+struct ParticleSize_t{
+	uint w, h, l;
+}
+
+ParticleSize_t[ParticleSizeTypes] ParticleSizes;
+
 uint[][] Player_List_Table;
 
 void Render_World(bool Render_Cursor){
 	Renderer_DrawVoxels();
-	for(uint p=0; p<Players.length; p++)
+	for(uint p=0; p<Players.length; p++){
 		Render_Player(p);
+	}
+	uint particle_w=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].h,
+	particle_l=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].l;
 	foreach(ref bdmg; BlockDamage){
 		foreach(ref prtcl; bdmg.particles){
-			Renderer_Draw3DBlockDamage(prtcl.x, prtcl.y, prtcl.z, prtcl.col, prtcl.side);
+			Renderer_Draw3DParticle(prtcl.x, prtcl.y, prtcl.z, particle_w, particle_h, particle_l, prtcl.col);
 		}
 	}
+	particle_w=ParticleSizes[ParticleSizeTypes.DamagedObjectParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.DamagedObjectParticle].h,
+	particle_l=ParticleSizes[ParticleSizeTypes.DamagedObjectParticle].l;
 	foreach(ref dmgobj_id; DamagedObjects){
 		Object_t *dmgobj=&Objects[dmgobj_id];
 		foreach(ref prtcl; dmgobj.particles){
-			Renderer_Draw3DParticle(prtcl.x, prtcl.y, prtcl.z, 20, 20, prtcl.col);
+			Renderer_Draw3DParticle(prtcl.x, prtcl.y, prtcl.z, particle_w, particle_h, particle_l, prtcl.col);
 		}
 	}
+	particle_w=ParticleSizes[ParticleSizeTypes.Normal].w, particle_h=ParticleSizes[ParticleSizeTypes.Normal].h,
+	particle_l=ParticleSizes[ParticleSizeTypes.Normal].l;
 	foreach(ref p; Particles){
 		if(!p.timer)
 			continue;
@@ -269,9 +303,10 @@ void Render_World(bool Render_Cursor){
 			p.pos+=p.vel;
 		}
 		p.vel.y+=.005;
-		Renderer_Draw3DParticle(&p.pos, 20, 20, p.col);
+		Renderer_Draw3DParticle(&p.pos, particle_w, particle_h, particle_l, p.col);
 	}
-	float particle_size=BlockBreakParticleSize*ScreenXSize;
+	particle_w=ParticleSizes[ParticleSizeTypes.BlockBreakParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.BlockBreakParticle].h,
+	particle_l=ParticleSizes[ParticleSizeTypes.BlockBreakParticle].l;
 	foreach(ref p; BlockBreakParticles){
 		if(!p.timer)
 			continue;
@@ -294,7 +329,7 @@ void Render_World(bool Render_Cursor){
 			p.pos+=p.vel;
 		}
 		p.vel.y+=.005;
-		Renderer_Draw3DParticle(&p.pos, 50, 50, p.col);
+		Renderer_Draw3DParticle(&p.pos, particle_w, particle_h, particle_l, p.col);
 	}
 	while(Particles.length){
 		if(!Particles[$-1].timer)
@@ -355,8 +390,6 @@ void Render_World(bool Render_Cursor){
 		else
 			break;
 	}
-	/*if(Render_Cursor)
-		*Pixel_Pointer(dst_srfc, dst_srfc.w/2, dst_srfc.h/2)=0xffffff^*Pixel_Pointer(dst_srfc, dst_srfc.w/2, dst_srfc.h/2);*/
 }
 
 void MenuElement_draw(MenuElement_t* e) {
@@ -485,7 +518,7 @@ void Render_Screen(){
 		}
 	}*/
 	Renderer_Start2D();
-	foreach(ref elements; Z_MenuElements[0..254]) {
+	foreach(ref elements; Z_MenuElements[StartZPos..MiniMapZPos]) {
 		foreach(e_index; elements) {
 			MenuElement_draw(&MenuElements[e_index]);
 		}
@@ -499,6 +532,7 @@ void Render_Screen(){
 		uint[2] minimap_size=[minimap_srfc.w, minimap_srfc.h];
 		Renderer_Blit2D(minimap_texture, &minimap_size, &minimap_rect, 255);
 		ubyte[4] col=[team.color[2], team.color[1], team.color[0], 255];
+		ubyte[4] plrcol=0xff^col[];
 		foreach(ref plr; Players){
 			if(!plr.Spawned || !plr.InGame || plr.team!=Players[LocalPlayerID].team)
 				continue;
@@ -507,7 +541,10 @@ void Render_Screen(){
 			SDL_Rect prct;
 			prct.w=4; prct.h=4;
 			prct.x=xpos-prct.w/2; prct.y=zpos-prct.h/2;
-			Renderer_FillRect(&prct, &col);
+			if(plr.player_id!=LocalPlayerID)
+				Renderer_FillRect(&prct, &col);
+			else
+				Renderer_FillRect(&prct, &plrcol);
 		}
 		foreach(ref obj; Objects){
 			if(!obj.visible || obj.minimap_img==255)
@@ -518,7 +555,16 @@ void Render_Screen(){
 			ubyte[3] colormod=[255, 255, 255];
 			if(obj.color){
 				if(obj.color&0x00ffffff){
-					colormod=[(obj.color>>16)&255, (obj.color>>8)&255, (obj.color>>0)&255];
+					if(!(obj.color&0xff000000)){
+						colormod=[(obj.color>>16)&255, (obj.color>>8)&255, (obj.color>>0)&255];
+					}
+					else{
+						int alpha=obj.color>>24;
+						int[3] cmarr=[(obj.color>>16)&255, (obj.color>>8)&255, (obj.color>>0)&255];
+						cmarr=[255, 255, 255]-cmarr[];
+						cmarr=[255, 255, 255]-((cmarr[]*[alpha, alpha, alpha])/[256, 256, 256]);
+						colormod=[cast(ubyte)cmarr[0], cast(ubyte)cmarr[1], cast(ubyte)cmarr[2]];
+					}
 				}
 				else{
 					colormod=[128, 128, 128];
@@ -530,6 +576,12 @@ void Render_Screen(){
 			int zpos=cast(int)(obj.pos.z*cast(float)(minimap_rect.h)/cast(float)(MapZSize))+minimap_rect.y;
 			orct.x=xpos-orct.w/2; orct.y=zpos-orct.h/2;
 			Renderer_Blit2D(Mod_Pictures[obj.minimap_img], &Mod_Picture_Sizes[obj.minimap_img], &orct, 255, &colormod);
+		}
+		Script_OnMiniMapRender();
+	}
+	foreach(ref elements; Z_MenuElements[MiniMapZPos..$]) {
+		foreach(e_index; elements) {
+			MenuElement_draw(&MenuElements[e_index]);
 		}
 	}
 	if(List_Players){
@@ -543,7 +595,7 @@ void Render_Screen(){
 				arr.length=Players.length;
 		}
 		foreach(ref p; Players){
-			if(p.team==255)
+			if(p.team==255 || !p.InGame)
 				continue;
 			list_player_amount[p.team]++;
 			Player_List_Table[p.team][list_player_amount[p.team]-1]=p.player_id;
@@ -577,9 +629,7 @@ KV6Sprite_t Get_Object_Sprite(uint obj_id){
 		if(obj.color&0xff000000){
 			spr.color_mod=obj.color;
 		}
-		else{
-			spr.replace_black=obj.color;
-		}
+		spr.replace_black=obj.color;
 	}
 	return spr;
 	
@@ -971,7 +1021,9 @@ bool Sprite_Visible(KV6Sprite_t *spr){
 	return false;
 }
 
+//Ok yeah, this code sux
 bool Sprite_BoundHitCheck(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir){
+	return true;
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
 	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
