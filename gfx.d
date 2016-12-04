@@ -755,16 +755,6 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	return sprarr;
 }
 
-uint Count_KV6Blocks(Model_t *model, uint dstx, uint dsty){
-	uint index=0;
-	for(uint x=0; x<dstx; x++)
-		index+=model.xlength[x];
-	uint xy=dstx*model.ysize;
-	for(uint y=0; y<dsty; y++)
-		index+=model.ylength[dstx][y];
-	return index;
-}
-
 int SpriteHitScan(Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out ModelVoxel_t *outvoxptr, float vox_size=1.0){
 	uint x, z;
 	ModelVoxel_t *sblk, blk, eblk;
@@ -779,11 +769,11 @@ int SpriteHitScan(Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t vox
 	float minvxdist=10e99;
 	for(x=0; x<spr.model.xsize; ++x){
 		for(z=0; z<spr.model.zsize; ++z){
-			uint index=Count_KV6Blocks(spr.model, x, z);
+			uint index=spr.model.offsets[x+z*spr.model.xsize];
 			if(index>=spr.model.voxelcount)
 				continue;
 			sblk=&spr.model.voxels[index];
-			eblk=&sblk[cast(uint)spr.model.ylength[x][z]];
+			eblk=&sblk[cast(uint)spr.model.column_lengths[x+z*spr.model.xsize]];
 			for(blk=sblk; blk<eblk; ++blk){
 				float fnx=(x-spr.model.xpivot+.5)*spr.xdensity;
 				float fny=(blk.ypos-spr.model.ypivot+.5)*spr.ydensity;
@@ -910,11 +900,11 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 				float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
 				for(uint blkx=0; blkx<spr.model.xsize; ++blkx){
 					for(uint blkz=0; blkz<spr.model.zsize; ++blkz){
-						uint index=Count_KV6Blocks(spr.model, blkx, blkz);
+						uint index=spr.model.offsets[blkx+blkz*spr.model.xsize];
 						if(index>=spr.model.voxelcount)
 							continue;
 						ModelVoxel_t *sblk=&spr.model.voxels[index];
-						ModelVoxel_t *eblk=&sblk[cast(uint)spr.model.ylength[blkx][blkz]];
+						ModelVoxel_t *eblk=&sblk[cast(uint)spr.model.column_lengths[blkx+blkz*spr.model.xsize]];
 						for(ModelVoxel_t *blk=sblk; blk<eblk; ++blk){
 							if(!blk.visiblefaces)
 								continue;
