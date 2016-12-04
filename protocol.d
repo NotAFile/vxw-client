@@ -11,7 +11,6 @@ import std.array;
 import std.exception;
 import std.math;
 import std.string;
-import std.meta;
 import network;
 import renderer;
 import packettypes;
@@ -23,6 +22,9 @@ import gfx;
 import script;
 version(LDC){
 	import ldc_stdlib;
+}
+else{
+	import std.meta;
 }
 
 uint Server_Ping_Delay=0;
@@ -43,7 +45,7 @@ bool LoadedCompleteMap=false;
 uint ModFileBytes=0;
 
 ubyte[] CurrentLoadingMap;
-
+ubyte MapEncoding;
 uint MapXSize, MapYSize, MapZSize;
 
 uint Client_Version=6;
@@ -52,7 +54,7 @@ uint JoinedGameMaxPhases=4;
 uint JoinedGamePhase=0;
 bool JoinedGame;
 
-immutable bool Freeze_Mod_Directories[string];
+immutable bool[string] Freeze_Mod_Directories;
 
 static this(){
 	Freeze_Mod_Directories=[
@@ -251,7 +253,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case MapChangePacketID:{
 				auto packet=UnpackPacketToStruct!(MapChangePacketLayout)(PacketData);
 				MapXSize=packet.xsize; MapYSize=packet.ysize; MapZSize=packet.zsize;
-				MapTargetSize=packet.datasize;
+				MapTargetSize=packet.datasize; MapEncoding=packet.encoding;
 				CurrentMapName=packet.mapname;
 				writeflnlog("Loading map %s of size %d and dimensions %dx%dx%d", CurrentMapName, MapTargetSize, MapXSize, MapYSize, MapZSize);
 				LoadingMap=true;
@@ -267,6 +269,14 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				writeflnlog("Received map chunk of size %s (%s/%s)", packet.data.length, CurrentLoadingMap.length, MapTargetSize);
 				if(CurrentLoadingMap.length==MapTargetSize){
 					Set_MiniMap_Size(MapXSize, MapZSize);
+					switch(MapEncoding){
+						case DataEncodingTypes.raw:
+						default: break;
+						case DataEncodingTypes.gzip:{
+							import std.zlib;
+							CurrentLoadingMap=cast(ubyte[])uncompress(CurrentLoadingMap);
+						}
+					}
 					Renderer_LoadMap(CurrentLoadingMap);
 					TerrainOverview=Vector3_t(MapXSize/2, 0.0, MapZSize/2);
 					LoadingMap=false;
@@ -362,7 +372,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				ushort PlayersExisting;
 				ubyte[2] PlayersExistingBytes=PacketData[0..2];
 				if(EnableByteFlip)
-					PlayersExistingBytes.reverse;
+					proper_reverse_overwrite(PlayersExistingBytes);
 				PlayersExisting=*(cast(ushort*)PlayersExistingBytes.ptr);
 				uint PlayerArraySize=(PlayersExisting/8)+(cast(int)((PlayersExisting%8)!=0));
 				uint[] PlayerTable;
@@ -383,7 +393,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					if(EnableByteFlip){
 						foreach(ref coord;pos){
 							ubyte[4] content=ConvertVariableToArray(coord);
-							content.reverse;
+							proper_reverse_overwrite(content);
 							coord=ConvertArrayToVariable!(float)(content);
 						}
 					
@@ -602,8 +612,6 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case ExplosionEffectPacketID:{
 				auto packet=UnpackPacketToStruct!(ExplosionEffectPacketLayout)(PacketData);
-				Create_Particles(Vector3_t(packet.xpos, packet.ypos, packet.zpos), Vector3_t(packet.xvel, packet.yvel, packet.zvel),
-				packet.radius, packet.spread, packet.amount, packet.col);
 				Create_Explosion(Vector3_t(packet.xpos, packet.ypos, packet.zpos), Vector3_t(packet.xvel, packet.yvel, packet.zvel),
 				packet.radius, packet.spread, packet.amount, packet.col);
 				break;
@@ -672,10 +680,9 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				ushort obj_id;
 				ubyte[2] obj_id_bytes=PacketData[0..2];
 				if(EnableByteFlip)
-					obj_id_bytes.reverse;
+					proper_reverse_overwrite(obj_id_bytes);
 				obj_id=*(cast(ushort*)obj_id_bytes.ptr);
 				uint vertices_count=cast(uint)(PacketData.length-2)/12;
-				writeflnlog("v: %s", vertices_count);
 				Vector3_t[] vertices;
 				if(vertices_count){
 					vertices.length=vertices_count;

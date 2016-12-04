@@ -104,7 +104,7 @@ struct _pSLang_Array_Type
    void* data;
    SLuindex_Type num_elements;
    uint num_dims;
-   SLindex_Type dims [SLARRAY_MAX_DIMS];
+   SLindex_Type[SLARRAY_MAX_DIMS] dims;
    void **index_fun(_pSLang_Array_Type *, SLindex_Type *);
    /* This function is designed to allow a type to store an array in
     * any manner it chooses.  This function returns the address of the data
@@ -183,7 +183,7 @@ struct SLang_Load_Type
     */
 
    const char *namespace_name;
-   uint reserved[3];
+   uint[3] reserved;
    /* For future expansion */
 }
 
@@ -259,7 +259,7 @@ struct _pSLang_BString_Type
    int ptr_type;
    union
      {
-	ubyte bytes[1];
+	ubyte[1] bytes;
 	ubyte *ptr;
      }
 }
@@ -283,7 +283,7 @@ struct SLang_Intrin_Fun_Type
    char name_type;
 
    void * i_fun;		       /* address of object */
-   SLtype arg_types [SLANG_MAX_INTRIN_ARGS];
+   SLtype[SLANG_MAX_INTRIN_ARGS] arg_types;
    ubyte num_args;
    SLtype return_type;
 }

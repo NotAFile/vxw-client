@@ -386,6 +386,7 @@ struct Player_t{
 								LastHitDist=hitdist;
 							}
 						}
+						Create_Particles(vxpos, Vector3_t(0.0), 0.0, .075, 10, 0x00ff0000);
 					}
 				}
 			}
@@ -911,7 +912,7 @@ struct Object_t{
 		if(!Collision[1]){
 			pos.y+=deltapos.y;
 			vel.y+=acl.y;
-			vel.y+=weightfactor*WorldSpeed*Gravity;
+			vel.y+=(1.0+weightfactor*.001)*WorldSpeed*Gravity;
 		}
 		else{
 			vel.y*=-bouncefactor;
@@ -928,7 +929,7 @@ struct Object_t{
 		if(collision)
 			vel*=bouncefactor;
 		else
-			vel/=1.0+frictionfactor;
+			vel/=1.0+frictionfactor*WorldSpeed;
 	}
 	
 	Vector3_t Check_Vertex_Collisions(){

@@ -3,6 +3,7 @@ import derelict.sdl2.image;
 import std.math;
 import std.format;
 import std.algorithm;
+import std.range;
 import std.conv;
 import std.random;
 import std.traits;
@@ -87,7 +88,7 @@ void Init_Gfx(){
 		ParticleSizeTypes.BlockBreakParticle: [.25, .25, .25]
 	];
 	foreach(sizetype; EnumMembers!ParticleSizeTypes){
-		uint[3] pixelsize=Renderer_GetParticleSize(ParticleSizeRatios[sizetype][0], ParticleSizeRatios[sizetype][1], ParticleSizeRatios[sizetype][2]);
+		RendererParticleSize_t[3] pixelsize=Renderer_GetParticleSize(ParticleSizeRatios[sizetype][0], ParticleSizeRatios[sizetype][1], ParticleSizeRatios[sizetype][2]);
 		ParticleSizes[sizetype]=ParticleSize_t();
 		ParticleSizes[sizetype].w=pixelsize[0]; ParticleSizes[sizetype].h=pixelsize[1]; ParticleSizes[sizetype].l=pixelsize[2];
 	}
@@ -244,7 +245,7 @@ enum ParticleSizeTypes{
 }
 
 struct ParticleSize_t{
-	uint w, h, l;
+	RendererParticleSize_t w, h, l;
 }
 
 ParticleSize_t[ParticleSizeTypes] ParticleSizes;
@@ -256,7 +257,7 @@ void Render_World(bool Render_Cursor){
 	for(uint p=0; p<Players.length; p++){
 		Render_Player(p);
 	}
-	uint particle_w=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].h,
+	RendererParticleSize_t particle_w=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].h,
 	particle_l=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].l;
 	foreach(ref bdmg; BlockDamage){
 		foreach(ref prtcl; bdmg.particles){
@@ -278,10 +279,10 @@ void Render_World(bool Render_Cursor){
 			continue;
 		if(p.timer)
 			p.timer--;
-		bool in_solid=Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(p.pos.z));
 		Vector3_t newpos=p.pos+p.vel;
 		bool y_coll=false;
 		if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
+			bool in_solid=Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(p.pos.z));
 			if(Voxel_IsSolid(toint(newpos.x), toint(p.pos.y), toint(p.pos.z)))
 				p.vel.x=-p.vel.x;
 			if(Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(newpos.z)))
@@ -289,12 +290,12 @@ void Render_World(bool Render_Cursor){
 			if(Voxel_IsSolid(toint(p.pos.x), toint(newpos.y), toint(p.pos.z))){
 				y_coll=true;
 				p.vel.y=-p.vel.y*.9;
-				p.vel*=.7;
+				p.vel*=.5;
 			}
 			else{
-				p.vel*=.7;
+				p.vel*=.5;
 			}
-			if(in_solid){
+			if(in_solid && (p.col&0xff000000)!=0xff000000){
 				p.timer=0;
 				continue;
 			}
@@ -398,7 +399,7 @@ void MenuElement_draw(MenuElement_t* e) {
 	}
 	SDL_Rect r={e.xpos,e.ypos,e.xsize,e.ysize};
 	if((e.icolor_mod&0x00ffffff)!=0x00ffffff) { //bcolor_mod exists
-		ubyte[3] cmod=e.bcolor_mod; cmod.reverse;
+		ubyte[3] cmod=proper_reverse(e.bcolor_mod);
 		Renderer_Blit2D(Mod_Pictures[e.picture_index], &Mod_Picture_Sizes[e.picture_index], &r, e.transparency, &cmod);
 	} else {
 		Renderer_Blit2D(Mod_Pictures[e.picture_index], &Mod_Picture_Sizes[e.picture_index], &r, e.transparency);
@@ -411,7 +412,7 @@ void MenuElement_draw(MenuElement_t* e, int x, int y, int w, int h) {
 	}
 	SDL_Rect r={x, y, w, h};
 	if((e.icolor_mod&0x00ffffff)!=0x00ffffff) { //bcolor_mod exists
-		ubyte[3] cmod=e.bcolor_mod; cmod.reverse;
+		ubyte[3] cmod=proper_reverse(e.bcolor_mod);
 		Renderer_Blit2D(Mod_Pictures[e.picture_index], &Mod_Picture_Sizes[e.picture_index], &r, e.transparency, &cmod);
 	} else {
 		Renderer_Blit2D(Mod_Pictures[e.picture_index], &Mod_Picture_Sizes[e.picture_index], &r, e.transparency);
@@ -485,7 +486,8 @@ void Render_Screen(){
 					&& !Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading && MouseRightClick){
 						if(ProtocolBuiltin_ScopePicture){
 							Render_Scope=true;
-							Render_Round_ZoomedIn(400, 300, Mod_Picture_Sizes[ProtocolBuiltin_ScopePicture.picture_index][0]/2, 1.1, 1.1);
+							MenuElement_t *e=ProtocolBuiltin_ScopePicture;
+							Renderer_DrawRoundZoomedIn(e.xpos, e.ypos, e.xsize/2, 1.1, 1.1);
 						}
 					}
 				}
@@ -494,30 +496,16 @@ void Render_Screen(){
 	}
 	
 	//SDL_SetRenderTarget(scrn_renderer, scrn_texture);
-	/*{
-		//SDL_SetTextureColorMod(vxrend_texture, (VoxlapInterface.fogcol>>16)&255, (VoxlapInterface.fogcol>>8)&255, (VoxlapInterface.fogcol>>0)&255);
-		/*{
-			float fr=(Fog_Color>>16)&255, fg=(Fog_Color>>8)&255, fb=(Fog_Color>>0)&255;
-			immutable float fog_alpha=.15;
-			float r=fr*fog_alpha+255.0*(1.0-fog_alpha), g=fg*fog_alpha+255.0*(1.0-fog_alpha), b=fb*fog_alpha+255.0*(1.0-fog_alpha);
-			SDL_SetTextureColorMod(vxrend_texture, cast(ubyte)r, cast(ubyte)g, cast(ubyte)b);
-		}
-		SDL_SetTextureBlendMode(vxrend_texture, SDL_BLENDMODE_BLEND);
-		SDL_SetTextureAlphaMod(vxrend_texture, cast(ubyte)(32+(tofloat(255-32)/(1.0+BlurAmount+BaseBlurAmount))));
-		SDL_RenderCopy(scrn_renderer, vxrend_texture, null, &dstrect);
+	Renderer_Start2D();
+	{
 		if(Render_Scope){
 			MenuElement_t *e=ProtocolBuiltin_ScopePicture;
-			SDL_Rect r;
-			r.w=Mod_Picture_Sizes[e.picture_index][0]; r.h=Mod_Picture_Sizes[e.picture_index][1];			
-			r.x=e.xpos-r.w/2+shakex; r.y=e.ypos-r.h/2+shakey;
-			if(e.transparency<255)
-				SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], e.transparency);
-			SDL_RenderCopy(scrn_renderer, Mod_Pictures[e.picture_index], null, &r);
-			if(e.transparency<255)
-				SDL_SetTextureAlphaMod(Mod_Pictures[e.picture_index], 255);
+			uint[2] size=[Mod_Picture_Sizes[e.picture_index][0], Mod_Picture_Sizes[e.picture_index][0]];
+			SDL_Rect rct;
+			rct.x=e.xpos; rct.y=e.ypos; rct.w=e.xsize; rct.h=e.xsize;
+			Renderer_Blit2D(Mod_Pictures[e.picture_index], &size, &rct);
 		}
-	}*/
-	Renderer_Start2D();
+	}
 	foreach(ref elements; Z_MenuElements[StartZPos..MiniMapZPos]) {
 		foreach(e_index; elements) {
 			MenuElement_draw(&MenuElements[e_index]);
@@ -668,10 +656,6 @@ void Render_Player(uint player_id){
 		spr.replace_black=Teams[Players[player_id].team].icolor;
 		Renderer_DrawSprite(&spr);
 	}
-}
-
-void Render_Round_ZoomedIn(int scrx, int scry, int radius, float xzoom, float yzoom) {
-		
 }
 
 KV6Sprite_t[] Get_Player_Sprites(uint player_id){
@@ -864,12 +848,12 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	uint[] colors;
 	pos.y+=.1;
 	if(radius && sent_col_chance<255){
-		for(int x=toint(pos.x-1.0); x<toint(pos.x+1.0); x++){
-			for(int y=toint(pos.y-1.0); y<toint(pos.y+1.0); y++){
-				for(int z=toint(pos.z-1.0); z<toint(pos.z+1.0); z++){
+		for(int x=toint(pos.x-radius); x<toint(pos.x+radius); x++){
+			for(int y=toint(pos.y-radius); y<toint(pos.y+radius); y++){
+				for(int z=toint(pos.z-radius); z<toint(pos.z+radius); z++){
 					if(!Valid_Coord(x, y, z))
 						continue;
-					if(Voxel_IsSolid(x, y, z) && Voxel_IsSurface(x, y, z)){
+					if(Voxel_IsSolid(x, y, z)){
 						colors~=Voxel_GetColor(x, y, z);
 					}
 				}
@@ -883,11 +867,13 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	pos.y-=.1;
 	if(!colors.length)
 		sent_col_chance=256;
+	col|=0xff000000;
+	colors[]|=0xff000000;
 	for(uint i=old_size; i<old_size+amount; i++){
 		Vector3_t vspr=Vector3_t(spread*(uniform01()*2.0-1.0), spread*(uniform01()*2.0-1.0), spread*(uniform01()*2.0-1.0));
 		Particles[i].pos=pos;
 		Particles[i].vel=vel+vspr;
-		if(uniform(0, 256)<sent_col_chance)
+		if(uniform(1, 256)<sent_col_chance)
 			Particles[i].col=col;
 		else
 			Particles[i].col=colors[uniform(0, colors.length)];
@@ -898,10 +884,11 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 void Create_Smoke(Vector3_t pos, uint amount, uint col, float size){
 	uint old_size=cast(uint)SmokeParticles.length;
 	SmokeParticles.length+=amount;
+	float sizeratio=pow(size, .2);
 	for(uint i=old_size; i<old_size+amount; i++){
-		Vector3_t spos=pos+RandomVector()*size*.1;
-		Vector3_t vel=RandomVector()*size*.01;
-		SmokeParticles[i].Init(spos, vel, col, size*30.0);
+		Vector3_t spos=pos+RandomVector()*.12*size;
+		Vector3_t vel=RandomVector()*size*.01+(spos-pos)*(.5+sizeratio*.4);
+		SmokeParticles[i].Init(spos, vel, col, size*80.0*uniform(50, 150)*.01);
 	}
 }
 
@@ -959,6 +946,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 		}
 	}
 	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount+1, 0xff808080, radius);
+	Create_Particles(pos, vel, radius, spread, amount*7, col);
 }
 
 

@@ -11,7 +11,12 @@ import std.traits;
 import std.format;
 import std.datetime;
 import std.algorithm;
-import std.meta;
+version(LDC){
+	import ldc_stdlib;
+}
+else{
+	import std.meta;
+}
 import std.conv;
 import std.stdio;
 import std.random;
@@ -95,6 +100,7 @@ struct ScriptLib_t{
 			}
 			case "scrworld":{
 				intr_func_table=ScrWorldLib_Funcs();
+				break;
 			}
 			default:break;
 		}
@@ -512,7 +518,7 @@ void ScrStdLib_SendPacket(SLang_BString_Type *bstr){
 	packet.scr_index=Current_Script_Index;
 	ubyte *content; SLstrlen_Type len;
 	content=SLbstring_get_pointer(bstr, &len);
-	packet.data=(cast(char*)content)[0..len].dup();
+	packet.data=to!string((cast(char*)content)[0..len].dup());
 	Send_Packet(CustomScriptPacketID, packet);
 }
 void ScrStdLib_PrintLog(){

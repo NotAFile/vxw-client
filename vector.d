@@ -40,7 +40,7 @@ struct Vector3_t{
 	Vector3_t opBinary(string op)(Vector3_t arg){
 		return Vector3_t(mixin("x"~op~"arg.x"), mixin("y"~op~"arg.y"), mixin("z"~op~"arg.z"));
 	}
-	Vector3_t opBinary(string op, T)(T arg[]){
+	Vector3_t opBinary(string op, T)(T[] arg){
 		return Vector3_t(mixin("x"~op~"arg[0]"), mixin("y"~op~"arg[1]"), mixin("z"~op~"arg[2]"));
 	}
 	Vector3_t opBinary(string op, T)(T arg){

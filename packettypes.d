@@ -21,11 +21,16 @@ struct ServerVersionPacketLayout{
 	PlayerID_t player_id;
 }
 
+enum DataEncodingTypes{
+	raw=0, gzip=1
+}
+
 //TODO: Make an array/enum/sth out of all these packets; D can do lots of wonderful things in that direction
 //NOTE: Importance approved
 struct MapChangePacketLayout{
 	uint xsize, ysize, zsize;
 	uint datasize;
+	ubyte encoding;
 	string mapname;
 }
 immutable PacketID_t MapChangePacketID=0;
@@ -417,7 +422,7 @@ T ConvertArrayToVariable(T)(ubyte[] array){
 	ArrayVariableAssignUnion!(T) unionvar;
 	unionvar.array[]=array[];
 	if(EnableByteFlip)
-		unionvar.array.reverse;
+		proper_reverse_overwrite(unionvar.array);
 	return unionvar.variable;
 }
 
@@ -448,7 +453,7 @@ ubyte[] ConvertVariableToArray(T)(T var){
 	ret.length=T.sizeof;
 	ret[]=unionvar.array[];
 	if(EnableByteFlip)
-		ret.reverse;
+		proper_reverse_overwrite(ret);
 	return ret;
 }
 

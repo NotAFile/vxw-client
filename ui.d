@@ -193,6 +193,7 @@ void Check_Input(){
 								CurrentChatCursor=0;
 							}
 						}
+						break;
 					}
 					case SDLK_BACKSPACE:{
 						if(TypingChat && CurrentChatCursor){
@@ -589,7 +590,7 @@ void Render_All_Text(){
 		float delta_t=1000.0/tofloat(current_tick-__hud_prev_tick);
 		__hud_avg_delta_ticks+=delta_t;
 		float avg=__hud_avg_delta_ticks/tofloat(__hud_tick_amount);
-		string fps_ping_str=format("%.2f FPS|%d ms", avg, Get_Ping());
+		string fps_ping_str=format("%.2f FPS|%s ms", avg, Get_Ping());
 		Render_Text_Line(cast(int)(ScreenXSize-(FontWidth/16-LetterPadding*2)*fps_ping_str.length), 0, Font_SpecialColor, fps_ping_str, font_texture, FontWidth, FontHeight, LetterPadding);
 		if(__hud_tick_amount>avg*5){
 			__hud_tick_amount=0;

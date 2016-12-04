@@ -1,0 +1,7 @@
+#!/bin/bash
+git clone http://github.com/LeComm/aofclient-voxlap-renderer
+cd aofclient-voxlap-renderer
+./compile
+cp voxlap.di renderer.d voxlap5.a compile_with_voxlap ..
+cd ..
+rm -rf aofclient-voxlap-renderer

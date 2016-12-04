@@ -9,7 +9,7 @@ http://dlang.org/download.html
 
 You need at least one renderer module.
 
-There are two right now, first the software based voxlap renderer and a much newer OpenGL renderer which is faster on new and **OLD** hardware.
+There are two right now, first the software based voxlap renderer and a much newer OpenGL renderer which is faster on new and just as fast on old hardware.
 - *Voxlap*: http://github.com/LeComm/aofclient-voxlap-renderer
 - *OpenGL*: http://github.com/xtreme8000/aof-opengl
 
@@ -21,6 +21,8 @@ Follow the compile steps for your choosen renderer module and procede here after
 	sudo apt-get install libsdl2-dev libenet-dev git -y
 	```
 	If not, install SDL2, ENet and git the way you would do it on your distribution.
+	
+	You can get the Voxlap renderer with ./setup_voxlap_renderer
 
 2. Open a terminal in this directory and write
 
@@ -37,10 +39,10 @@ Follow the compile steps for your choosen renderer module and procede here after
 	to compile the derelict files into a compact .a file
 
 	```
-	./compile
+	./compile_***
 	```
 
-	to compile the source
+	to compile the source (instead of "compile_***", use the name of the corresponding renderer compilation script)
 
 
 #### On Windows
