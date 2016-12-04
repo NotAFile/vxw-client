@@ -386,7 +386,7 @@ struct Player_t{
 								LastHitDist=hitdist;
 							}
 						}
-						Create_Particles(vxpos, Vector3_t(0.0), 0.0, .075, 10, 0x00ff0000);
+						Create_Particles(vxpos, Vector3_t(0.0), 0.0, .075, 10, [0x00ff0000]);
 					}
 				}
 			}
@@ -742,7 +742,7 @@ void Damage_Block(PlayerID_t player_id, uint xpos, uint ypos, uint zpos, ubyte v
 	if(Voxel_IsWater(xpos, ypos, zpos)){
 		for(uint side=0; side<4; side++){
 			Create_Particles(Vector3_t(xpos+toint(cast(bool)(side&1)), ypos, zpos+toint(cast(bool)(side&2)))
-			, Vector3_t(0.0), 1.0, .1, 1, col, 25);
+			, Vector3_t(0.0), 1.0, .1, 1, [col], 25);
 		}
 		return;
 	}
@@ -756,7 +756,7 @@ void Damage_Block(PlayerID_t player_id, uint xpos, uint ypos, uint zpos, ubyte v
 	uint dmgdiff=dmg.damage-old_dmg;
 	for(uint side=0; side<6; side++){
 		Create_Particles(Vector3_t(xpos+toint(cast(bool)(side&1)), ypos+toint(cast(bool)(side&2)), zpos+toint(cast(bool)(side&4)))
-		, Vector3_t(0.0), 1.0, .1, dmgdiff/3/6, col);
+		, Vector3_t(0.0), 1.0, .1, dmgdiff/3/6, [col]);
 	}
 	if(dmg.broken){
 		if(player_id==LocalPlayerID){

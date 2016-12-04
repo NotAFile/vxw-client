@@ -332,6 +332,20 @@ void Render_World(bool Render_Cursor){
 		p.vel.y+=.005;
 		Renderer_Draw3DParticle(&p.pos, particle_w, particle_h, particle_l, p.col);
 	}
+	foreach(ref effect; ExplosionEffectSprites){
+		if(effect.size>=1.0)
+			continue;
+		Renderer_DrawSprite(&effect.spr);
+		float size=effect.maxsize*effect.size;
+		effect.spr.xdensity=size/effect.spr.model.xsize; effect.spr.ydensity=size/effect.spr.model.ysize; effect.spr.zdensity=size/effect.spr.model.zsize;
+		effect.size+=WorldSpeed*.5/(1.0+effect.size*10.0);
+	}
+	while(ExplosionEffectSprites.length){
+		if(ExplosionEffectSprites[$-1].size>=1.0)
+			ExplosionEffectSprites.length--;
+		else
+			break;
+	}
 	while(Particles.length){
 		if(!Particles[$-1].timer)
 			Particles.length--;
@@ -358,9 +372,21 @@ void Render_World(bool Render_Cursor){
 		}
 		DrawSmokeCircleParams[] params;
 		float SmokeParticleSizeIncrease=1.0f+WorldSpeed*.09f, SmokeParticleAlphaDecay=(1.0f*.99f)/SmokeParticleSizeIncrease;
+		float DenseSmokeParticleSizeIncrease=1.0f+WorldSpeed*.03f, DenseSmokeParticleAlphaDecay=(1.0f*.99f)/DenseSmokeParticleSizeIncrease;
 		foreach(ref p; SmokeParticles){
-			p.size*=SmokeParticleSizeIncrease; p.alpha*=SmokeParticleAlphaDecay;
-			p.pos+=p.vel;
+			if(!p.alpha)
+				continue;
+			Vector3_t npos=p.pos+p.vel;
+			if(!Voxel_IsSolid(npos.x, npos.y, npos.z)){
+				p.pos=npos;
+				p.size*=SmokeParticleSizeIncrease; p.alpha*=SmokeParticleAlphaDecay;
+			}
+			else{
+				p.size*=DenseSmokeParticleSizeIncrease; p.alpha*=DenseSmokeParticleAlphaDecay;
+			}
+			if(p.alpha<1.0f/256.0f)
+				p.alpha=0.0;
+			p.vel+=RandomVector()*.00001*p.size;	
 			p.vel*=.96f;
 			float dst;
 			int scrx, scry;
@@ -375,8 +401,6 @@ void Render_World(bool Render_Cursor){
 			params~=DrawSmokeCircleParams(dst, color, alpha, size, p.pos.x, p.pos.y, p.pos.z);
 			if(p.size>p.remove_size)
 				p.alpha=0f;
-			if(!alpha)
-				p.alpha=0f;
 		}
 		params.sort!("a.dst>b.dst");
 		for(uint i=0; i<params.length; i++){
@@ -384,12 +408,12 @@ void Render_World(bool Render_Cursor){
 			Renderer_DrawSmokeCircle(p.xpos, p.ypos, p.zpos, p.size, p.color, p.alpha, p.dst);
 		}
 		params.length=0;
-	}
-	while(SmokeParticles.length){
-		if(!SmokeParticles[$-1].alpha)
-			SmokeParticles.length--;
-		else
-			break;
+		while(SmokeParticles.length){
+			if(!SmokeParticles[$-1].alpha)
+				SmokeParticles.length--;
+			else
+				break;
+		}
 	}
 }
 
@@ -770,7 +794,7 @@ int SpriteHitScan(Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t vox
 	for(x=0; x<spr.model.xsize; ++x){
 		for(z=0; z<spr.model.zsize; ++z){
 			uint index=spr.model.offsets[x+z*spr.model.xsize];
-			if(index>=spr.model.voxelcount)
+			if(index>=spr.model.voxels.length)
 				continue;
 			sblk=&spr.model.voxels[index];
 			eblk=&sblk[cast(uint)spr.model.column_lengths[x+z*spr.model.xsize]];
@@ -831,13 +855,19 @@ struct SmokeParticle_t{
 }
 SmokeParticle_t[] SmokeParticles;
 
-void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint col, uint timer=0){
+struct ExplosionSprite_t{
+	Sprite_t spr;
+	float size, maxsize;
+}
+ExplosionSprite_t[] ExplosionEffectSprites;
+
+void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint[] col, float timer_ratio=1.0){
 	uint old_size=cast(uint)Particles.length;
-	uint sent_col_chance=(col>>24)&255;
+	bool use_sent_cols=radius==0;
 	Particles.length+=amount;
 	uint[] colors;
 	pos.y+=.1;
-	if(radius && sent_col_chance<255){
+	if(radius){
 		for(int x=toint(pos.x-radius); x<toint(pos.x+radius); x++){
 			for(int y=toint(pos.y-radius); y<toint(pos.y+radius); y++){
 				for(int z=toint(pos.z-radius); z<toint(pos.z+radius); z++){
@@ -851,23 +881,23 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 		}
 	}
 	if(Voxel_IsWater(pos.x, pos.y, pos.z)){
-		sent_col_chance=0;
+		use_sent_cols=true;
 		pos.y-=1.0;
 	}
 	pos.y-=.1;
 	if(!colors.length)
-		sent_col_chance=256;
-	col|=0xff000000;
+		use_sent_cols=true;
+	col[]|=0xff000000;
 	colors[]|=0xff000000;
 	for(uint i=old_size; i<old_size+amount; i++){
 		Vector3_t vspr=Vector3_t(spread*(uniform01()*2.0-1.0), spread*(uniform01()*2.0-1.0), spread*(uniform01()*2.0-1.0));
 		Particles[i].pos=pos;
 		Particles[i].vel=vel+vspr;
-		if(uniform(1, 256)<sent_col_chance)
-			Particles[i].col=col;
+		if((uniform(0, 2) || use_sent_cols) && col.length)
+			Particles[i].col=col[uniform(0, col.length)];
 		else
 			Particles[i].col=colors[uniform(0, colors.length)];
-		Particles[i].timer=!timer ? uniform(300, 400) : timer;
+		Particles[i].timer=cast(uint)(uniform(300, 400)*timer_ratio);
 	}
 }
 
@@ -901,7 +931,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 				for(uint blkx=0; blkx<spr.model.xsize; ++blkx){
 					for(uint blkz=0; blkz<spr.model.zsize; ++blkz){
 						uint index=spr.model.offsets[blkx+blkz*spr.model.xsize];
-						if(index>=spr.model.voxelcount)
+						if(index>=spr.model.voxels.length)
 							continue;
 						ModelVoxel_t *sblk=&spr.model.voxels[index];
 						ModelVoxel_t *eblk=&sblk[cast(uint)spr.model.column_lengths[blkx+blkz*spr.model.xsize]];
@@ -936,7 +966,45 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 		}
 	}
 	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount+1, 0xff808080, radius);
-	Create_Particles(pos, vel, radius, spread, amount*7, col);
+	Create_Particles(pos, vel, radius, spread, amount*7, [], 1.0/(1.0+amount*.001));
+	Create_Particles(pos, vel, 0, spread*3.0, amount*10, [0x00ffff00, 0x00ffa000], .05);
+	//Not ready yet
+	/*ExplosionSprite_t effect;
+	Model_t *model=new Model_t;
+	model.xsize=32; model.ysize=32; model.zsize=32;
+	model.xpivot=model.xsize/2; model.ypivot=model.ysize/2; model.zpivot=model.zsize/2;
+	model.lowermip=null;
+	ModelVoxel_t[][] voxels;
+	voxels.length=model.xsize*model.zsize;
+	Vector3_t hsize=Vector3_t(model.xsize, model.ysize, model.zsize)/2.0;
+	for(uint i=0; i<to!uint((uniform01()+.5)*(model.xsize*model.ysize*model.zsize)*.1); i++){
+		ModelVoxel_t vox;
+		Vector3_t vpos=RandomVector()*hsize;
+		vpos=vpos.abs()*uniform01()*uniform01()*hsize+hsize;
+		vox.color=0x00ffff00;
+		vox.ypos=cast(typeof(vox.ypos))vpos.y;
+		vox.normalindex=0;
+		vox.visiblefaces=1|2|4|8|16|32;
+		voxels[to!uint(vpos.x)+to!uint(vpos.z)*model.xsize]~=vox;
+	}
+	model.offsets.length=model.xsize*model.zsize; model.column_lengths.length=model.offsets.length;
+	for(uint z=0; z<model.zsize; z++){
+		for(uint x=0; x<model.xsize; x++){
+			model.offsets[x+z*model.xsize]=model.voxels.length;
+			model.column_lengths[x+z*model.xsize]=cast(typeof(model.column_lengths[0]))voxels[x+z*model.xsize].length;
+			foreach(vox; voxels)
+				model.voxels~=vox;
+		}
+	}
+	effect.spr.rhe=0.0; effect.spr.rti=0.0; effect.spr.rst=0.0;
+	effect.spr.xpos=pos.x; effect.spr.ypos=pos.y; effect.spr.zpos=pos.z;
+	effect.spr.xdensity=1.0/model.xsize; effect.spr.ydensity=1.0/model.ysize; effect.spr.zdensity=1.0/model.zsize;
+	effect.spr.color_mod=0; effect.spr.replace_black=0;
+	effect.spr.check_visibility=1;
+	effect.spr.model=model;
+	effect.size=0.0;
+	effect.maxsize=radius*8.0;
+	ExplosionEffectSprites~=effect;*/
 }
 
 

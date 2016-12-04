@@ -327,12 +327,12 @@ enum AssignBuiltinTypes{
 	Model=0, Picture=1, Sent_Image=2
 }
 
-enum AssignBuiltinSentImageTypes{
-	AmmoCounterBG=0, AmmoCounterBullet=1, Palette_HBorder=2, Palette_HFG=3, Palette_VBorder=4, Palette_VFG=5, ScopeGfx=6
-}
-
 enum AssignBuiltinPictureTypes{
 	Font=0
+}
+
+enum AssignBuiltinSentImageTypes{
+	AmmoCounterBG=0, AmmoCounterBullet=1, Palette_HBorder=2, Palette_HFG=3, Palette_VBorder=4, Palette_VFG=5, ScopeGfx=6
 }
 
 struct AssignBuiltinPacketLayout{
