@@ -371,9 +371,9 @@ struct Player_t{
 					continue;
 				if((plr.pos-pos).length>min(Visibility_Range+5, block_hit_dist+5))
 					continue;
-				KV6Sprite_t[] sprites=Get_Player_Sprites(pid);
+				Sprite_t[] sprites=Get_Player_Sprites(pid);
 				foreach(ubyte spindex, ref spr; sprites){
-					Vector3_t vxpos; KV6Voxel_t *vx;
+					Vector3_t vxpos; ModelVoxel_t *vx;
 					if(SpriteHitScan(&spr, usepos, spreadeddir, vxpos, vx, 3.0)){
 						//vx.color=0x00ff0000;
 						if(player_id==LocalPlayerID){
@@ -398,7 +398,7 @@ struct Player_t{
 		}
 		float object_hit_dist=10e99;
 		ushort object_hit_id;
-		KV6Voxel_t *object_hit_vx;
+		ModelVoxel_t *object_hit_vx;
 		Vector3_t object_hit_pos;
 		if(itemtype.is_weapon){
 			bool hit_object=false;
@@ -406,8 +406,8 @@ struct Player_t{
 			ushort LastHitID;
 			foreach(obj_id; Hittable_Objects){
 				Object_t *obj=&Objects[obj_id];
-				KV6Sprite_t objspr=Get_Object_Sprite(obj_id);
-				KV6Voxel_t *vx;
+				Sprite_t objspr=Get_Object_Sprite(obj_id);
+				ModelVoxel_t *vx;
 				Vector3_t hit_pos;
 				if(SpriteHitScan(&objspr, usepos, spreadeddir, hit_pos, vx)){
 					float vxdist=(hit_pos-usepos).length;
@@ -864,7 +864,7 @@ RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
 
 struct Object_t{
 	uint index;
-	KV6Model_t *model;
+	Model_t *model;
 	ubyte minimap_img;
 	uint color;
 	bool modify_model, enable_bullet_holes, send_hits;

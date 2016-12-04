@@ -142,7 +142,7 @@ struct ModFile_t{
 				break;
 			}
 			case ModDataTypes.Model:{
-				KV6Model_t *model=Load_KV6(fname);
+				Model_t *model=Load_KV6(fname);
 				if(!model){
 					writeflnerr("Couldn't load %s", fname);
 					break;

@@ -44,7 +44,7 @@ float X_FOV=90.0, Y_FOV=90.0;
 
 float[3][ParticleSizeTypes] ParticleSizeRatios;
 
-KV6Model_t*[] Mod_Models;
+Model_t*[] Mod_Models;
 RendererTexture_t[] Mod_Pictures;
 SDL_Surface*[] Mod_Picture_Surfaces;
 uint[2][] Mod_Picture_Sizes;
@@ -605,9 +605,9 @@ void Render_Screen(){
 	Set_Blur(BlurAmount+BaseBlurAmount);*/
 }
 
-KV6Sprite_t Get_Object_Sprite(uint obj_id){
+Sprite_t Get_Object_Sprite(uint obj_id){
 	Object_t *obj=&Objects[obj_id];
-	KV6Sprite_t spr;
+	Sprite_t spr;
 	spr.xpos=obj.pos.x+obj.density.x; spr.ypos=obj.pos.y; spr.zpos=obj.pos.z;
 	float xrot=obj.rot.x, yrot=obj.rot.y, zrot=obj.rot.z;
 	spr.rti=yrot; spr.rhe=xrot; spr.rst=zrot;
@@ -643,14 +643,14 @@ void UnInit_Gfx(){
 
 void Render_Object(uint obj_id){
 	Object_t *obj=&Objects[obj_id];
-	KV6Sprite_t spr=Get_Object_Sprite(obj_id);
+	Sprite_t spr=Get_Object_Sprite(obj_id);
 	Renderer_DrawSprite(&spr);
 }
 
 void Render_Player(uint player_id){
 	if(!Players[player_id].Spawned)
 		return;
-	KV6Sprite_t[] sprites=Get_Player_Sprites(player_id);
+	Sprite_t[] sprites=Get_Player_Sprites(player_id);
 	sprites~=Get_Player_Attached_Sprites(player_id);
 	foreach(ref spr; sprites){
 		spr.replace_black=Teams[Players[player_id].team].icolor;
@@ -658,14 +658,14 @@ void Render_Player(uint player_id){
 	}
 }
 
-KV6Sprite_t[] Get_Player_Sprites(uint player_id){
+Sprite_t[] Get_Player_Sprites(uint player_id){
 	Player_t *plr=&Players[player_id];
 	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
 	Vector3_t pos=Players[player_id].pos;
 	if(player_id==LocalPlayerID)
 		pos=CameraPos;
-	KV6Sprite_t[] sprarr;
-	KV6Sprite_t spr;
+	Sprite_t[] sprarr;
+	Sprite_t spr;
 	foreach(ref model; plr.models){
 		if(player_id==LocalPlayerID && !model.FirstPersonModel)
 			continue;
@@ -678,7 +678,7 @@ KV6Sprite_t[] Get_Player_Sprites(uint player_id){
 			spr.rhe+=sin(plr.Walk_Forwards_Timer)*model.WalkRotate;
 			spr.rst+=sin(plr.Walk_Sidewards_Timer)*model.WalkRotate;
 		}
-		KV6Model_t *modelfile=Mod_Models[model.model_id];
+		Model_t *modelfile=Mod_Models[model.model_id];
 		spr.xdensity=model.size.x/tofloat(modelfile.xsize);
 		spr.ydensity=model.size.y/tofloat(modelfile.ysize); spr.zdensity=model.size.z/tofloat(modelfile.zsize);
 		spr.model=modelfile;
@@ -699,22 +699,22 @@ auto Get_Player_Scope(uint player_id){
 		Vector3_t pos, rot;
 	}
 	Result_t result;
-	KV6Sprite_t spr=Get_Player_Attached_Sprites(player_id)[0];
+	Sprite_t spr=Get_Player_Attached_Sprites(player_id)[0];
 	result.rot=Vector3_t(spr.rhe, spr.rti, spr.rst);
 	result.pos=Get_Absolute_Sprite_Coord(&spr, Vector3_t(spr.model.xsize, spr.model.ysize/2.0, spr.model.zsize/2.0));
 	return result;
 }
 
 //Note: Sprite number zero has to be the weapon when scoping
-KV6Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
+Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	if(!Players[player_id].item_types.length || !Players[player_id].Spawned)
 		return [];
 	if(ItemTypes[Players[player_id].items[Players[player_id].item].type].model_id==255)
 		return[];
 	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
 	Vector3_t pos=Players[player_id].pos;
-	KV6Sprite_t[] sprarr;
-	KV6Sprite_t spr;
+	Sprite_t[] sprarr;
+	Sprite_t spr;
 	Vector3_t item_offset;
 	if(player_id==LocalPlayerID){
 		pos=CameraPos;
@@ -755,7 +755,7 @@ KV6Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	return sprarr;
 }
 
-uint Count_KV6Blocks(KV6Model_t *model, uint dstx, uint dsty){
+uint Count_KV6Blocks(Model_t *model, uint dstx, uint dsty){
 	uint index=0;
 	for(uint x=0; x<dstx; x++)
 		index+=model.xlength[x];
@@ -765,9 +765,9 @@ uint Count_KV6Blocks(KV6Model_t *model, uint dstx, uint dsty){
 	return index;
 }
 
-int SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out KV6Voxel_t *outvoxptr, float vox_size=1.0){
+int SpriteHitScan(Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out ModelVoxel_t *outvoxptr, float vox_size=1.0){
 	uint x, z;
-	KV6Voxel_t *sblk, blk, eblk;
+	ModelVoxel_t *sblk, blk, eblk;
 	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
 	rot_sx=sin((spr.rhe)*PI/180.0); rot_cx=cos((spr.rhe)*PI/180.0);
 	rot_sy=sin(-(spr.rti+90.0)*PI/180.0); rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
@@ -775,7 +775,7 @@ int SpriteHitScan(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t 
 	if(!Sprite_BoundHitCheck(spr, pos, dir))
 		return 0;
 	float voxxsize=fabs(spr.xdensity)*vox_size, voxysize=fabs(spr.ydensity)*vox_size, voxzsize=fabs(spr.zdensity)*vox_size;
-	KV6Voxel_t *voxptr=null;
+	ModelVoxel_t *voxptr=null;
 	float minvxdist=10e99;
 	for(x=0; x<spr.model.xsize; ++x){
 		for(z=0; z<spr.model.zsize; ++z){
@@ -903,7 +903,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 			Vector3_t dist=(obj.pos-pos).vecabs();
 			if(dist.x>radius+size.x*2.0 || dist.y>radius+size.y*2.0 || dist.z>radius+size.z*2.0)
 				continue;
-			KV6Sprite_t spr=Get_Object_Sprite(obj_id);
+			Sprite_t spr=Get_Object_Sprite(obj_id);
 			{
 				float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 				float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
@@ -913,9 +913,9 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 						uint index=Count_KV6Blocks(spr.model, blkx, blkz);
 						if(index>=spr.model.voxelcount)
 							continue;
-						KV6Voxel_t *sblk=&spr.model.voxels[index];
-						KV6Voxel_t *eblk=&sblk[cast(uint)spr.model.ylength[blkx][blkz]];
-						for(KV6Voxel_t *blk=sblk; blk<eblk; ++blk){
+						ModelVoxel_t *sblk=&spr.model.voxels[index];
+						ModelVoxel_t *eblk=&sblk[cast(uint)spr.model.ylength[blkx][blkz]];
+						for(ModelVoxel_t *blk=sblk; blk<eblk; ++blk){
 							if(!blk.visiblefaces)
 								continue;
 							float fnx=(blkx-spr.model.xpivot+.5)*spr.xdensity;
@@ -951,7 +951,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 
 
 //Be careful: this is evil
-Vector3_t Get_Absolute_Sprite_Coord(KV6Sprite_t *spr, Vector3_t coord){
+Vector3_t Get_Absolute_Sprite_Coord(Sprite_t *spr, Vector3_t coord){
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
 	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
@@ -968,7 +968,7 @@ Vector3_t Get_Absolute_Sprite_Coord(KV6Sprite_t *spr, Vector3_t coord){
 	return Vector3_t(fnx, fny, fnz);
 }
 
-bool Sprite_Visible(KV6Sprite_t *spr){
+bool Sprite_Visible(Sprite_t *spr){
 	if(!Do_Sprite_Visibility_Checks)
 		return true;
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
@@ -1010,7 +1010,7 @@ bool Sprite_Visible(KV6Sprite_t *spr){
 }
 
 //Ok yeah, this code sux
-bool Sprite_BoundHitCheck(KV6Sprite_t *spr, Vector3_t pos, Vector3_t dir){
+bool Sprite_BoundHitCheck(Sprite_t *spr, Vector3_t pos, Vector3_t dir){
 	return true;
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
