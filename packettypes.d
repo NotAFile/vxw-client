@@ -9,16 +9,25 @@ version(LDC){
 alias PlayerID_t=ubyte;
 alias PacketID_t=ubyte;
 alias TeamID_t=ubyte;
+alias ModelID_t=ubyte;
+
+ModelID_t VoidModelID=255;
 
 struct ClientVersionPacketLayout{
-	uint client_version;
+	uint Protocol_Version;
 	string name;
 }
 
 struct ServerVersionPacketLayout{
+	ubyte may_connect;
 	uint server_version;
 	uint ping_delay;
 	PlayerID_t player_id;
+}
+
+struct ServerConnectionDenyPacketLayout{
+	ubyte may_connect;
+	string reason;
 }
 
 enum DataEncodingTypes{
@@ -68,6 +77,7 @@ struct MapEnvironmentPacketLayout{
 	uint visibility_range;
 	float base_blur;
 	float base_shake;
+	float blur_decay, shake_decay;
 }
 immutable PacketID_t MapEnvironmentPacketID=5;
 
@@ -203,8 +213,10 @@ struct ItemTypePacketLayout{
 	float recoil_yc, recoil_ym;
 	ubyte block_damage;
 	short block_damage_range;
+	float power;
 	ubyte typeflags;
-	ubyte model_id;
+	ModelID_t model_id;
+	ModelID_t bullet_model_id;
 }
 immutable PacketID_t ItemTypePacketID=21;
 
@@ -327,6 +339,10 @@ enum AssignBuiltinTypes{
 	Model=0, Picture=1, Sent_Image=2
 }
 
+enum AssignBuiltinModelTypes{
+	BlockBuild_Wireframe=0, Bullet_Tracer=1
+}
+
 enum AssignBuiltinPictureTypes{
 	Font=0
 }
@@ -370,13 +386,13 @@ struct SetPlayerModePacketLayout{
 immutable PacketID_t SetPlayerModePacketID=41;
 
 struct SetBlurPacketLayout{
-	float blur, decay;
+	float blur;
 }
 
 immutable PacketID_t SetBlurPacketID=42;
 
 struct SetShakePacketLayout{
-	float shake, decay;
+	float shake;
 }
 
 immutable PacketID_t SetShakePacketID=43;
@@ -409,6 +425,12 @@ struct ObjectHitPacketLayout{
 	ushort object_index;
 }
 immutable PacketID_t ObjectHitPacketID=47;
+
+struct SetScorePacketLayout{
+	PlayerID_t player_id;
+	uint score;
+}
+immutable PacketID_t SetScorePacketID=48;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)

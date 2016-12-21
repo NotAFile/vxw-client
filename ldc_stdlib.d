@@ -2,6 +2,7 @@
 import core.stdc.string;
 import std.random;
 import std.math;
+import std.traits;
 import misc;
 
 const(char)[] fromStringz(const(char)* cstr){
@@ -18,4 +19,8 @@ T[] dup(T)(T[] arr){
 	ret.length=arr.length;
 	ret[]=arr[];
 	return ret;
+}
+
+template Parameters(alias func){
+	alias ParameterTypeTuple!(func) Parameters;
 }

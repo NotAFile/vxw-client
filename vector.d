@@ -1,6 +1,9 @@
 import std.math;
 import std.random;
+import std.algorithm;
 import misc;
+
+
 version(LDC){
 	import ldc_stdlib;
 }
@@ -41,20 +44,20 @@ struct Vector3_t{
 		return Vector3_t(mixin("x"~op~"arg.x"), mixin("y"~op~"arg.y"), mixin("z"~op~"arg.z"));
 	}
 	Vector3_t opBinary(string op, T)(T[] arg){
-		return Vector3_t(mixin("x"~op~"arg[0]"), mixin("y"~op~"arg[1]"), mixin("z"~op~"arg[2]"));
 	}
 	Vector3_t opBinary(string op, T)(T arg){
-		return Vector3_t(mixin("x"~op~"arg"), mixin("y"~op~"arg"), mixin("z"~op~"arg"));
+		static if(__traits(compiles, arg[0]) && __traits(compiles, arg[1]) && __traits(compiles, arg[2]) && !is(T==Vector3_t)){
+			return Vector3_t(mixin("x"~op~"arg[0]"), mixin("y"~op~"arg[1]"), mixin("z"~op~"arg[2]"));
+		}
+		else{
+			return Vector3_t(mixin("x"~op~"arg"), mixin("y"~op~"arg"), mixin("z"~op~"arg"));
+		}
 	}
 	Vector3_t opOpAssign(string op)(Vector3_t arg){
 		this=this.opBinary!(op)(arg);
 		return this;
 	}
 	Vector3_t opOpAssign(string op, T)(T arg){
-		this=this.opBinary!(op)(arg);
-		return this;
-	}
-	Vector3_t opOpAssign(string op, T)(T[] arg){
 		this=this.opBinary!(op)(arg);
 		return this;
 	}
@@ -173,6 +176,14 @@ struct Vector3_t{
 	Vector3_t sgn(){
 		return Vector3_t(SGN(x), SGN(y), SGN(z));
 	}
+}
+
+Vector3_t vmin(Vector3_t vec1, Vector3_t vec2){
+	return Vector3_t(min(vec1.x, vec2.x), min(vec1.y, vec2.y), min(vec1.z, vec2.z));
+}
+
+Vector3_t vmax(Vector3_t vec1, Vector3_t vec2){
+	return Vector3_t(max(vec1.x, vec2.x), max(vec1.y, vec2.y), max(vec1.z, vec2.z));
 }
 
 Vector3_t RandomVector(){

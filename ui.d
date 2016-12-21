@@ -41,6 +41,8 @@ bool Render_MiniMap;
 
 string LastSentLine="";
 
+float RendererQualitySet=1.0;
+
 bool Changed_Palette_Color=false;
 SDL_Surface *Palette_V_Colors, Palette_H_Colors;
 
@@ -57,6 +59,8 @@ struct MenuElement_t{
 	bool reserved;
 	int xpos, ypos;
 	int xsize, ysize;
+	float fxpos, fypos;
+	float fxsize, fysize;
 	union{
 		uint icolor_mod;
 		ubyte[3] bcolor_mod;
@@ -65,6 +69,8 @@ struct MenuElement_t{
 	void set(ubyte initindex, ubyte picindex, ubyte zval, float sxpos, float sypos, float sxsize, float sysize, ubyte inittransparency, uint colormod=0x00ffffff){
 		index=initindex;
 		picture_index=picindex;
+		fxpos=sxpos; fypos=sypos;
+		fxsize=sxsize; fysize=sysize;
 		ConvertScreenCoords(sxpos, sypos, xpos, ypos);
 		ConvertScreenCoords(sxsize, sysize, xsize, ysize);
 		transparency=inittransparency;
@@ -89,9 +95,8 @@ uint[][256] Z_MenuElements;
 
 MenuElement_t[] MenuElements;
 
-MenuElement_t *AmmoCounterBG;
-MenuElement_t *AmmoCounterBullet;
-
+MenuElement_t *ProtocolBuiltin_AmmoCounterBG;
+MenuElement_t *ProtocolBuiltin_AmmoCounterBullet;
 MenuElement_t *ProtocolBuiltin_PaletteHFG;
 MenuElement_t *ProtocolBuiltin_PaletteVFG;
 
@@ -221,7 +226,7 @@ void Check_Input(){
 					case SDLK_8:number_key_pressed=8; break;
 					case SDLK_9:number_key_pressed=9; break;
 					case SDLK_0:number_key_pressed=10; break;
-					case SDLK_F10:{
+					case SDLK_HOME:{
 						Lock_Mouse=!Lock_Mouse;
 						if(Menu_Mode)
 							Lock_Mouse=false;
@@ -288,18 +293,33 @@ void Check_Input(){
 					}
 					case SDLK_PLUS:{
 						if(!TypingChat){
-							TargetFPS+=5;
-							WriteMsg(format("[GAME]Set target FPS to %d", TargetFPS), Font_SpecialColor);
+							if(KeyState[SDL_SCANCODE_LCTRL]){
+								RendererQualitySet+=.1;
+								Renderer_SetQuality(RendererQualitySet);
+								WriteMsg(format("[GAME]Set renderer quality to %.2f", RendererQualitySet), Font_SpecialColor);
+							}
+							else{
+								TargetFPS+=5;
+								WriteMsg(format("[GAME]Set target FPS to %d", TargetFPS), Font_SpecialColor);
+							}
 						}
 						break;
 					}
 					case SDLK_MINUS:{
 						if(!TypingChat){
-							if(TargetFPS>=5)
-								TargetFPS-=5;
-							if(!TargetFPS)
-								TargetFPS=1;
-							WriteMsg(format("[GAME]Set target FPS to %d", TargetFPS), Font_SpecialColor);
+							if(KeyState[SDL_SCANCODE_LCTRL]){
+								if(RendererQualitySet>1.1)
+									RendererQualitySet-=.1;
+								Renderer_SetQuality(RendererQualitySet);
+								WriteMsg(format("[GAME]Set renderer quality to %.2f", RendererQualitySet), Font_SpecialColor);
+							}
+							else{
+								if(TargetFPS>=5)
+									TargetFPS-=5;
+								if(!TargetFPS)
+									TargetFPS=1;
+								WriteMsg(format("[GAME]Set target FPS to %d", TargetFPS), Font_SpecialColor);
+							}
 						 }
 						break;
 					}
@@ -332,11 +352,23 @@ void Check_Input(){
 						MouseRightClick=true;
 					MouseLeftChanged=old_left_click!=MouseLeftClick;
 					MouseRightChanged=old_right_click!=MouseRightClick;
+					if(MouseLeftChanged && MouseLeftClick && JoinedGame){
+						if(Players[LocalPlayerID].items.length){
+							if(Players[LocalPlayerID].items[Players[LocalPlayerID].item].Can_Use()){
+								Update_Position_Data(true);
+								Update_Rotation_Data(true);
+							}
+						}
+					}
 					if(MouseLeftChanged || MouseRightChanged){
 						Send_Mouse_Click(MouseLeftClick, MouseRightClick, event.button.x, event.button.y);
 					}
 					if(Menu_Mode)
 						Script_OnMouseClick(MouseLeftClick, MouseRightClick);
+					if(Joined_Game()){
+						Players[LocalPlayerID].left_click=MouseLeftClick;
+						Players[LocalPlayerID].right_click=MouseRightClick;
+					}
 				}
 				break;
 			}
@@ -356,6 +388,10 @@ void Check_Input(){
 					}
 					if(Menu_Mode)
 						Script_OnMouseClick(MouseLeftClick, MouseRightClick);
+					if(Joined_Game()){
+						Players[LocalPlayerID].left_click=MouseLeftClick;
+						Players[LocalPlayerID].right_click=MouseRightClick;
+					}
 				}
 				break;
 			}
@@ -368,11 +404,20 @@ void Check_Input(){
 				break;
 			}
 			case SDL_TEXTEDITING:{
-				writeflnlog("O.O omg I just received an SDL2 text editing event omg does that thing suddenly work now or what...");
-				writeflnlog("I wonder whether you see an IME text input bar now :O");
 				if(TypingChat){
 					CurrentChatLine=cast(string)fromStringz(event.edit.text.ptr);
 					CurrentChatCursor=event.edit.start;
+				}
+				break;
+			}
+			case SDL_WINDOWEVENT:{
+				switch(event.window.event){
+					case SDL_WINDOWEVENT_RESIZED:
+					case SDL_WINDOWEVENT_SIZE_CHANGED:{
+						Change_Resolution(event.window.data1, event.window.data2);
+						break;
+					}
+					default:{break;}
 				}
 				break;
 			}
@@ -423,7 +468,7 @@ void Check_Input(){
 		}*/
 	}
 	if(Joined_Game()){
-		if(Players[LocalPlayerID].item_types.length){
+		if(Players[LocalPlayerID].items.length){
 			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].show_palette && ProtocolBuiltin_PaletteHFG && ProtocolBuiltin_PaletteVFG){
 				float scrollspeed=WorldSpeed*15.0;
 				if(KeyState[SDL_SCANCODE_LEFT] && Palette_Color_HIndex>=scrollspeed){
@@ -500,14 +545,14 @@ float Palette_Color_HPos=0.0, Palette_Color_VPos=0.0;
 void Render_HUD(){
 	//TODO: fix array out of bounds exception
 	if(Joined_Game()){
-		if(Players[LocalPlayerID].item_types.length){
+		if(Players[LocalPlayerID].items.length){
 			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon){
 				Item_t *item=&Players[LocalPlayerID].items[Players[LocalPlayerID].item];
-				if(AmmoCounterBG){
-					MenuElement_draw(AmmoCounterBG);
+				if(ProtocolBuiltin_AmmoCounterBG){
+					MenuElement_draw(ProtocolBuiltin_AmmoCounterBG);
 				}
-				if(AmmoCounterBullet){
-					MenuElement_t *e=AmmoCounterBullet;
+				if(ProtocolBuiltin_AmmoCounterBullet){
+					MenuElement_t *e=ProtocolBuiltin_AmmoCounterBullet;
 					int xsizechange=0, ysizechange=0;
 					if(e.xsize>=e.ysize){
 						ysizechange=e.ysize;

@@ -112,14 +112,19 @@ struct Connection_t{
 				}
 				case ENET_EVENT_TYPE_DISCONNECT:{
 					if(event.peer==peer){
-						writeflnlog("Server disconnected");
-						ServerDisconnected=true;
+						switch(event.data){
+							case 0:writeflnlog("Server disconnected: Disconnect");break;
+							case 1:writeflnlog("Server disconnected: Kicked from server!");break;
+							case 2:writeflnlog("Server disconnected: Banned from server!");break;
+							default:break;
+						}
+						//ServerDisconnected=true;
 					}
 					else{
 						writeflnlog("Some peer disconnected: %s", *event.peer);
 					}
 					event.peer.data=null;
-					enet_peer_reset(peer);
+					//enet_peer_reset(peer);
 					break;
 				}
 				default:{
@@ -159,6 +164,7 @@ void Init_Netcode(){
 }
 
 void UnInit_Netcode(){
+	Disconnect();
 	enet_deinitialize();
 }
 

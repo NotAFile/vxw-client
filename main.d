@@ -50,7 +50,7 @@ void main(string[] args){
 	}
 	Send_Identification_Packet(requested_name);
 	while(!QuitGame){
-		uint t1=SDL_GetTicks(), t2;
+		uint t_before_frame=SDL_GetTicks();
 		Check_Input();
 		while(true){
 			auto ret=Update_Network();
@@ -62,12 +62,14 @@ void main(string[] args){
 		}
 		Script_OnFrame();
 		Update_World();
+		uint t_after_update=SDL_GetTicks();
 		Render_Screen();
 		Finish_Render();
-		t2=SDL_GetTicks();
-		uint tdiff=t2-t1;
+		uint t_after_rendering=SDL_GetTicks();
+		uint tdiff=t_after_rendering-t_before_frame;
 		if(tdiff<1000/TargetFPS)
 			SDL_Delay(1000/TargetFPS-tdiff);
+		//writeflnlog("%s %s", t_after_rendering-t_after_update, t_after_update-t_before_frame);
 	}
 	Send_Disconnect_Packet();
 	UnInit_Game();

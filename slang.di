@@ -380,4 +380,11 @@ immutable SL_TB_PARTIAL=0x4;    /* show just on line of traceback */
 extern __gshared int SLang_Num_Function_Args;
 
 void SLfree(void *);	       /* This function handles NULL */
+
+int SLang_get_error ();
+int SLang_set_error (int);
+char *SLerr_strerror (int errcode);
+int SLerr_new_exception (int baseclass, const char *name, const char *descript);
+int SLerr_exception_eqs (int, int);
+
 }

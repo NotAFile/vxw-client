@@ -11,6 +11,7 @@ import std.traits;
 import std.format;
 import std.datetime;
 import std.algorithm;
+import std.typetuple;
 version(LDC){
 	import ldc_stdlib;
 }
@@ -24,6 +25,7 @@ import std.random;
 extern(C){
 
 ushort Current_Script_Index=0;
+char* toCString(string st){return cast(char*)toStringz(st);}
 
 void SLStdLib_DisabledFunc(){}
 string[] SLStdLib_DisabledFuncs=["get_doc_string_from_file", "add_doc_file", "get_doc_files", "set_doc_files", "autoload", "getenv", "putenv",
@@ -67,9 +69,33 @@ return[
 	MAKE_INTRINSIC_0(cast(char*)toStringz("FogColor_Get"), &ScrWorldLib_FogColorGet, SLANG_UINT_TYPE),
 	MAKE_INTRINSIC_0(cast(char*)toStringz("FogColor_Set"), &ScrWorldLib_FogColorSet, SLANG_VOID_TYPE),
 	MAKE_INTRINSIC_0(cast(char*)toStringz("VisibilityRange_Get"), &ScrWorldLib_VisibilityRangeGet, SLANG_UINT_TYPE),
-	MAKE_INTRINSIC_0(cast(char*)toStringz("VisibilityRange_Set"), &ScrWorldLib_VisibilityRangeSet, SLANG_VOID_TYPE)
+	MAKE_INTRINSIC_0(cast(char*)toStringz("VisibilityRange_Set"), &ScrWorldLib_VisibilityRangeSet, SLANG_VOID_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("EnvEffectSlot_Alloc"), &ScrWorldLib_EnvEffectSlotAlloc, SLANG_UINT_TYPE),
+	MAKE_INTRINSIC_1(cast(char*)toStringz("EnvEffectSlot_Set"), &ScrWorldLib_EnvEffectSlotSet, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
+	SLANG_END_INTRIN_FUN_TABLE()
 ];
 }
+
+struct SLIntrinFunc_t{
+	string name;
+	void *funcptr;
+	SLtype[SLANG_MAX_INTRIN_ARGS] arg_types;
+	uint num_args;
+	SLtype ret_type;
+}
+
+template Make_SLang_Func_Intrinsic(alias name, alias func){
+	private SLIntrinFunc_t make_intr(){
+		SLIntrinFunc_t intr=SLIntrinFunc_t(name, &func, 0, 0, DLangType_To_SLangType!(ReturnType!func)());
+		foreach(ind, param; Parameters!func)
+			intr.arg_types[ind]=DLangType_To_SLangType!(param)();
+		intr.num_args=Parameters!func.length;
+		return intr;
+	}
+	enum Make_SLang_Func_Intrinsic=make_intr();
+}
+
+SLIntrinFunc_t[] ScrWorldLibFuncs=[Make_SLang_Func_Intrinsic!("FogColor_Get", ScrWorldLib_FogColorGet)];
 
 SLang_NameSpace_Type *ScrStdLib_Ns;
 
@@ -122,7 +148,10 @@ SLtype DLangType_To_SLangType(type)(){
 		return SLANG_INT_TYPE;
 	static if(is(type==ubyte))
 		return SLANG_UCHAR_TYPE;
-	assert(0);
+	static if(is(type==SLang_Struct_Type*))
+		return SLANG_STRUCT_TYPE;
+	static if(is(type==void))
+		return SLANG_VOID_TYPE;
 }
 
 struct Script_t{
@@ -259,6 +288,25 @@ struct Script_t{
 	}
 }
 
+T Script_GetSafeStructValue(T)(SLang_Struct_Type *strct, string valname, T defaultval){
+	if(!SLang_push_struct_field(strct, toCString(valname))){
+		T ret;
+		static if(is(T==float)){
+			if(!SLang_pop_float(&ret))return ret;
+		}
+		else
+		static if(is(T==uint)){
+			if(!SLang_pop_uint(&ret))return ret;
+		}
+		else
+		static if(is(T==int)){
+			if(!SLang_pop_int(&ret))return ret;
+		}
+	}
+	SLang_set_error(0);
+	return defaultval;
+}
+
 Script_t[] Loaded_Scripts;
 
 void Init_Script(){
@@ -303,6 +351,7 @@ void Init_Script(){
 	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("Send_Packet"), &ScrStdLib_SendPacket, SLANG_VOID_TYPE, 1, SLANG_BSTRING_TYPE);
 	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("Key_Pressed"), &ScrStdLib_KeyPressed, SLANG_UCHAR_TYPE, 0);
 	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("plog"), &ScrStdLib_PrintLog, SLANG_VOID_TYPE, 0);
+	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("Ping"), &Get_Ping, SLANG_UINT_TYPE, 0);
 	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapXSize"), &MapXSize, DLangType_To_SLangType!(typeof(MapXSize))(), 1);
 	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapYSize"), &MapYSize, DLangType_To_SLangType!(typeof(MapYSize))(), 1);
 	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapZSize"), &MapZSize, DLangType_To_SLangType!(typeof(MapZSize))(), 1);
@@ -499,10 +548,33 @@ void ScrGuiLib_MenuElementRender(SLang_Struct_Type *slelement){
 	MenuElement_draw(&MenuElements[elementindex]);
 }
 
-uint ScrWorldLib_FogColorGet(){return Fog_Color;}
-void ScrWorldLib_FogColorSet(){SLang_pop_uint(&Fog_Color);}
-uint ScrWorldLib_VisibilityRangeGet(){return Visibility_Range;}
-void ScrWorldLib_VisibilityRangeSet(){SLang_pop_uint(&Visibility_Range);}
+uint ScrWorldLib_EnvEffectSlotAlloc(){
+	EnvironmentEffectSlots.length++;
+	EnvironmentEffectSlots[$-1].fog[3]=0;
+	EnvironmentEffectSlots[$-1].visibility=1.0;
+	return EnvironmentEffectSlots.length-1;
+}
+
+void ScrWorldLib_EnvEffectSlotSet(SLang_Struct_Type *effect_slot){
+	SLang_push_struct_field(effect_slot, toCString("index"));
+	uint slot_index;
+	SLang_pop_uint(&slot_index);
+	EnvEffectSlot_t *slot=&EnvironmentEffectSlots[slot_index];
+	SLang_push_struct_field(effect_slot, toCString("fog"));
+	SLang_Array_Type *fog_arr;
+	SLang_pop_array(&fog_arr, 0);
+	for(SLindex_Type fog_ind=0; fog_ind<4; fog_ind++)
+		SLang_get_array_element(fog_arr, &fog_ind, &slot.fog[fog_ind]);
+	slot.shake=Script_GetSafeStructValue!(float)(effect_slot, "shake", 0.0);
+	slot.blur=Script_GetSafeStructValue!(float)(effect_slot, "blur", 0.0);
+	slot.visibility=Script_GetSafeStructValue!(float)(effect_slot, "visibility", 1.0);
+	slot.brightness=Script_GetSafeStructValue!(float)(effect_slot, "brightness", 1.0);
+}
+
+uint ScrWorldLib_FogColorGet(){return Current_Fog_Color;}
+void ScrWorldLib_FogColorSet(){SLang_pop_uint(&Base_Fog_Color);}
+uint ScrWorldLib_VisibilityRangeGet(){return Current_Visibility_Range;}
+void ScrWorldLib_VisibilityRangeSet(){SLang_pop_uint(&Base_Visibility_Range);}
 
 ubyte ScrStdLib_KeyPressed(){
 	ubyte key;

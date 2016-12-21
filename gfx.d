@@ -19,7 +19,7 @@ version(LDC){
 }
 import core.stdc.stdio;
 
-SDL_Window *scrn_window;
+SDL_Window *scrn_window=null;
 
 RendererTexture_t font_texture=null;
 SDL_Surface *font_surface=null;
@@ -59,10 +59,12 @@ bool Do_Sprite_Visibility_Checks=true;
 
 immutable bool Enable_Object_Model_Modification=true;
 
-float BlurAmount=0.0, BaseBlurAmount=0.0, BlurAmountDecay=.99;
-float ShakeAmount=0.0, BaseShakeAmount=0.0, ShakeAmountDecay=.9;
+float Current_Blur_Amount=0.0, BlurAmount=0.0, BaseBlurAmount=0.0, BlurAmountDecay=.99;
+float Current_Shake_Amount=0.0, ShakeAmount=0.0, BaseShakeAmount=0.0, ShakeAmountDecay=.9;
 
 ubyte MiniMapZPos=250, InvisibleZPos=0, StartZPos=1;
+
+Model_t *ProtocolBuiltin_BlockBuildWireframe;
 
 void Init_Gfx(){
 	DerelictSDL2.load();
@@ -72,8 +74,8 @@ void Init_Gfx(){
 	if(IMG_Init(IMG_INIT_PNG)!=IMG_INIT_PNG)
 		writeflnlog("[WARNING] IMG for PNG didn't initialize properly: %s", IMG_GetError());
 	Renderer_Init();
-	scrn_window=SDL_CreateWindow("Voxelwar", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ScreenXSize, ScreenYSize, Renderer_WindowFlags);
-	Renderer_SetUp();
+	scrn_window=SDL_CreateWindow("Voxelwar", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ScreenXSize, ScreenYSize, Renderer_WindowFlags | SDL_WINDOW_RESIZABLE);
+	Renderer_SetUp(ScreenXSize, ScreenYSize);
 	{
 		SDL_Surface *font_surface=SDL_LoadBMP("./Ressources/Default/Font.png");
 		if(font_surface){
@@ -91,6 +93,15 @@ void Init_Gfx(){
 		RendererParticleSize_t[3] pixelsize=Renderer_GetParticleSize(ParticleSizeRatios[sizetype][0], ParticleSizeRatios[sizetype][1], ParticleSizeRatios[sizetype][2]);
 		ParticleSizes[sizetype]=ParticleSize_t();
 		ParticleSizes[sizetype].w=pixelsize[0]; ParticleSizes[sizetype].h=pixelsize[1]; ParticleSizes[sizetype].l=pixelsize[2];
+	}
+}
+
+void Change_Resolution(uint newxsize, uint newysize){
+	Renderer_SetUp(newxsize, newysize);
+	ScreenXSize=newxsize; ScreenYSize=newysize;
+	foreach(ref elem; MenuElements){
+		ConvertScreenCoords(elem.fxpos, elem.fypos, elem.xpos, elem.ypos);
+		ConvertScreenCoords(elem.fxsize, elem.fysize, elem.xsize, elem.ysize);
 	}
 }
 
@@ -134,20 +145,28 @@ void Set_MiniMap_Size(uint xsize, uint ysize){
 	SDL_Surface *tmp=SDL_CreateRGBSurface(0, xsize, ysize, 32, 0, 0, 0, 0);
 	minimap_srfc=SDL_ConvertSurfaceFormat(tmp, SDL_PIXELFORMAT_ABGR8888, 0);
 	SDL_FreeSurface(tmp);
-	minimap_texture=Renderer_TextureFromSurface(minimap_srfc);
+	minimap_texture=Renderer_NewTexture(minimap_srfc.w, minimap_srfc.h, true);
 }
 
+
+bool MiniMap_SurfaceChanged=false;
 void Update_MiniMap(){
 	uint x, y, z;
 	uint *pixel_ptr=cast(uint*)minimap_srfc.pixels;
 	for(z=0; z<MapZSize; z++){
 		for(x=0; x<MapXSize; x++){
 			uint col=Voxel_GetColor(x, Voxel_FindFloorZ(x, 0, z), z);
+			uint a=(col>>24)&255, r=(col>>16)&255, g=(col>>8)&255, b=col&255;
+			r*=a; g*=a; b*=a;
+			//r=min(r>>7, 255); g=min(g>>7, 255); b=min(b>>7, 255);
+			r>>=7; g>>=7; b>>=7;
+			r-=(r>255)*(r-255); g-=(g>255)*(g-255); b-=(b>255)*(b-255);
+			col=(r<<16) | (g<<8) | b;
 			pixel_ptr[x]=col&0x00ffffff;
 		}
 		pixel_ptr=cast(uint*)((cast(ubyte*)pixel_ptr)+minimap_srfc.pitch);
 	}
-	Renderer_UploadToTexture(minimap_srfc, minimap_texture);
+	MiniMap_SurfaceChanged=true;
 }
 
 uint *Pixel_Pointer(SDL_Surface *s, int x, int y){
@@ -210,22 +229,27 @@ void Render_Text_Line(uint xpos, uint ypos, uint color, string line, RendererTex
 	lrect.x=xpos; lrect.y=ypos;
 	uint padding;
 	ubyte old_r, old_g, old_b;
+	ubyte[3] cmod;
+	uint bgcol;
 	if(color!=Font_SpecialColor){
 		fontsrcrect.w=font_w/16; fontsrcrect.h=font_h/16;
 		padding=letter_padding*2;
+		cmod=[cast(ubyte)((color>>16)&255),cast(ubyte)((color>>8)&255),cast(ubyte)(color&255)];
 	}
 	else{
 		letter_padding=0;
 		fontsrcrect.w=borderless_font_surface.w/16-letter_padding*2; fontsrcrect.h=borderless_font_surface.h/16-letter_padding*2;
 		font=borderless_font_texture;
 		padding=0;
+		bgcol=0x00a00a0;
+		cmod=[(bgcol>>16)&255, (bgcol>>8)&255, bgcol&255];
+		cmod[]=~cmod[];
 	}
 	lrect.w=to!int(to!float(fontsrcrect.w)*xsizeratio); lrect.h=to!int(to!float(fontsrcrect.h)*ysizeratio);
 	if(Dank_Text){
 		lrect.w++; lrect.h++;
 	}
 	uint[2] texsize=[font_surface.w, font_surface.h];
-	ubyte[3] cmod=[cast(ubyte)((color>>16)&255),cast(ubyte)((color>>8)&255),cast(ubyte)(color&255)];
 	foreach(letter; line){
 		bool letter_processed=false;
 		switch(letter){
@@ -235,6 +259,8 @@ void Render_Text_Line(uint xpos, uint ypos, uint color, string line, RendererTex
 		if(letter_processed) continue;
 		fontsrcrect.x=(letter%16)*fontsrcrect.w;
 		fontsrcrect.y=(letter/16)*fontsrcrect.h;
+		if(color==Font_SpecialColor)
+			Renderer_FillRect(&lrect, bgcol);
 		Renderer_Blit2D(font, &texsize, &lrect, 255, &cmod, &fontsrcrect);
 		lrect.x+=lrect.w-padding*xsizeratio;
 	}
@@ -252,7 +278,7 @@ ParticleSize_t[ParticleSizeTypes] ParticleSizes;
 
 uint[][] Player_List_Table;
 
-void Render_World(bool Render_Cursor){
+void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 	Renderer_DrawVoxels();
 	for(uint p=0; p<Players.length; p++){
 		Render_Player(p);
@@ -277,33 +303,35 @@ void Render_World(bool Render_Cursor){
 	foreach(ref p; Particles){
 		if(!p.timer)
 			continue;
-		if(p.timer)
-			p.timer--;
-		Vector3_t newpos=p.pos+p.vel;
-		bool y_coll=false;
-		if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
-			bool in_solid=Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(p.pos.z));
-			if(Voxel_IsSolid(toint(newpos.x), toint(p.pos.y), toint(p.pos.z)))
-				p.vel.x=-p.vel.x;
-			if(Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(newpos.z)))
-				p.vel.z=-p.vel.z;
-			if(Voxel_IsSolid(toint(p.pos.x), toint(newpos.y), toint(p.pos.z))){
-				y_coll=true;
-				p.vel.y=-p.vel.y*.9;
-				p.vel*=.5;
+		static if(UpdateGfx){
+			if(p.timer)
+				p.timer--;
+			Vector3_t newpos=p.pos+p.vel;
+			bool y_coll=false;
+			if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
+				bool in_solid=Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(p.pos.z));
+				if(Voxel_IsSolid(toint(newpos.x), toint(p.pos.y), toint(p.pos.z)))
+					p.vel.x=-p.vel.x;
+				if(Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(newpos.z)))
+					p.vel.z=-p.vel.z;
+				if(Voxel_IsSolid(toint(p.pos.x), toint(newpos.y), toint(p.pos.z))){
+					y_coll=true;
+					p.vel.y=-p.vel.y*.9;
+					p.vel*=.5;
+				}
+				else{
+					p.vel*=.5;
+				}
+				if(in_solid && (p.col&0xff000000)!=0xff000000){
+					p.timer=0;
+					continue;
+				}
 			}
 			else{
-				p.vel*=.5;
+				p.pos+=p.vel;
 			}
-			if(in_solid && (p.col&0xff000000)!=0xff000000){
-				p.timer=0;
-				continue;
-			}
+			p.vel.y+=.005;
 		}
-		else{
-			p.pos+=p.vel;
-		}
-		p.vel.y+=.005;
 		Renderer_Draw3DParticle(&p.pos, particle_w, particle_h, particle_l, p.col);
 	}
 	particle_w=ParticleSizes[ParticleSizeTypes.BlockBreakParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.BlockBreakParticle].h,
@@ -311,34 +339,38 @@ void Render_World(bool Render_Cursor){
 	foreach(ref p; BlockBreakParticles){
 		if(!p.timer)
 			continue;
-		if(p.timer)
-			p.timer--;
-		Vector3_t newpos=p.pos+p.vel;
-		bool y_coll=false;
-		if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
-			if(Voxel_IsSolid(toint(newpos.x), toint(p.pos.y), toint(p.pos.z)))
-				p.vel.x=-p.vel.x;
-			if(Voxel_IsSolid(toint(p.pos.x), toint(newpos.y), toint(p.pos.z))){
-				y_coll=true;
-				p.vel.y=-p.vel.y;
+		static if(UpdateGfx){
+			if(p.timer)
+				p.timer--;
+			Vector3_t newpos=p.pos+p.vel;
+			bool y_coll=false;
+			if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
+				if(Voxel_IsSolid(toint(newpos.x), toint(p.pos.y), toint(p.pos.z)))
+					p.vel.x=-p.vel.x;
+				if(Voxel_IsSolid(toint(p.pos.x), toint(newpos.y), toint(p.pos.z))){
+					y_coll=true;
+					p.vel.y=-p.vel.y;
+				}
+				if(Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(newpos.z)))
+					p.vel.z=-p.vel.z;
+				p.vel*=.3;
 			}
-			if(Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(newpos.z)))
-				p.vel.z=-p.vel.z;
-			p.vel*=.3;
+			else{
+				p.pos+=p.vel;
+			}
+			p.vel.y+=.005;
 		}
-		else{
-			p.pos+=p.vel;
-		}
-		p.vel.y+=.005;
 		Renderer_Draw3DParticle(&p.pos, particle_w, particle_h, particle_l, p.col);
 	}
 	foreach(ref effect; ExplosionEffectSprites){
 		if(effect.size>=1.0)
 			continue;
 		Renderer_DrawSprite(&effect.spr);
-		float size=effect.maxsize*effect.size;
-		effect.spr.xdensity=size/effect.spr.model.xsize; effect.spr.ydensity=size/effect.spr.model.ysize; effect.spr.zdensity=size/effect.spr.model.zsize;
-		effect.size+=WorldSpeed*.5/(1.0+effect.size*10.0);
+		static if(UpdateGfx){
+			float size=effect.maxsize*effect.size;
+			effect.spr.xdensity=size/effect.spr.model.xsize; effect.spr.ydensity=size/effect.spr.model.ysize; effect.spr.zdensity=size/effect.spr.model.zsize;
+			effect.size+=WorldSpeed*.5/(1.0+effect.size*10.0);
+		}
 	}
 	while(ExplosionEffectSprites.length){
 		if(ExplosionEffectSprites[$-1].size>=1.0)
@@ -358,6 +390,27 @@ void Render_World(bool Render_Cursor){
 		else
 			break;
 	}
+	{
+		foreach(ref bullet; Bullets){
+			if(bullet.item_type_sprite==null)
+				continue;
+			bullet.dist+=WorldSpeed;
+			if(bullet.dist>=bullet.maxdist){
+				bullet.item_type_sprite=null;
+				continue;
+			}
+			Vector3_t pos=bullet.startpos+bullet.vel*bullet.dist;
+			bullet.item_type_sprite.xpos=pos.x; bullet.item_type_sprite.ypos=pos.y; bullet.item_type_sprite.zpos=pos.z;
+			bullet.item_type_sprite.rhe=bullet.sprrot.x; bullet.item_type_sprite.rti=bullet.sprrot.y; bullet.item_type_sprite.rst=bullet.sprrot.z;
+			Renderer_DrawSprite(bullet.item_type_sprite);
+		}
+		while(Bullets.length){
+			if(Bullets[$-1].item_type_sprite==null)
+				Bullets.length--;
+			else
+				break;
+		}
+	}
 	for(uint o=0; o<Objects.length; o++){
 		if(!Objects[o].visible)
 			continue;
@@ -371,36 +424,37 @@ void Render_World(bool Render_Cursor){
 			float xpos, ypos, zpos;
 		}
 		DrawSmokeCircleParams[] params;
-		float SmokeParticleSizeIncrease=1.0f+WorldSpeed*.09f, SmokeParticleAlphaDecay=(1.0f*.99f)/SmokeParticleSizeIncrease;
-		float DenseSmokeParticleSizeIncrease=1.0f+WorldSpeed*.03f, DenseSmokeParticleAlphaDecay=(1.0f*.99f)/DenseSmokeParticleSizeIncrease;
+		float SmokeParticleSizeIncrease=1.0f+WorldSpeed*.03f/Renderer_SmokeRenderSpeed, SmokeParticleAlphaDecay=(1.0f*.99f)/SmokeParticleSizeIncrease;
+		float DenseSmokeParticleSizeIncrease=1.0f+WorldSpeed*.01f/Renderer_SmokeRenderSpeed, DenseSmokeParticleAlphaDecay=(1.0f*.99f)/DenseSmokeParticleSizeIncrease;
 		foreach(ref p; SmokeParticles){
 			if(!p.alpha)
 				continue;
-			Vector3_t npos=p.pos+p.vel;
-			if(!Voxel_IsSolid(npos.x, npos.y, npos.z)){
-				p.pos=npos;
-				p.size*=SmokeParticleSizeIncrease; p.alpha*=SmokeParticleAlphaDecay;
+			static if(UpdateGfx){
+				Vector3_t npos=p.pos+p.vel;
+				if(!Voxel_IsSolid(npos.x, npos.y, npos.z)){
+					p.pos=npos;
+					p.size*=SmokeParticleSizeIncrease; p.alpha*=SmokeParticleAlphaDecay;
+				}
+				else{
+					p.size*=DenseSmokeParticleSizeIncrease; p.alpha*=DenseSmokeParticleAlphaDecay;
+				}
+				if(p.alpha<1.0f/256.0f)
+					p.alpha=0f;
+				if(p.size>p.remove_size)
+					p.alpha=0f;
+				p.vel+=RandomVector()*.00001f*p.size;	
+				p.vel*=.96f;
 			}
-			else{
-				p.size*=DenseSmokeParticleSizeIncrease; p.alpha*=DenseSmokeParticleAlphaDecay;
-			}
-			if(p.alpha<1.0f/256.0f)
-				p.alpha=0.0;
-			p.vel+=RandomVector()*.00001*p.size;	
-			p.vel*=.96f;
 			float dst;
 			int scrx, scry;
 			if(!Project2D(p.pos.x, p.pos.y, p.pos.z, &dst, scrx, scry))
 				continue;
 			if(dst<=0.0)
 				continue;
-			uint size=cast(uint)(p.size*90.0/X_FOV/dst);
+			uint size=cast(uint)(p.size*90.0f/X_FOV/dst);
 			uint color=p.col;
-			//Vox_Calculate_2DFog(cast(ubyte*)&color, p.pos.x-CameraPos.x, p.pos.y-CameraPos.y);
-			uint alpha=cast(uint)(p.alpha*256.0f);
+			uint alpha=cast(uint)(p.alpha*255.0f);
 			params~=DrawSmokeCircleParams(dst, color, alpha, size, p.pos.x, p.pos.y, p.pos.z);
-			if(p.size>p.remove_size)
-				p.alpha=0f;
 		}
 		params.sort!("a.dst>b.dst");
 		for(uint i=0; i<params.length; i++){
@@ -415,6 +469,7 @@ void Render_World(bool Render_Cursor){
 				break;
 		}
 	}
+	Renderer_UpdateFlashes!UpdateGfx(WorldSpeed);
 }
 
 void MenuElement_draw(MenuElement_t* e) {
@@ -444,24 +499,49 @@ void MenuElement_draw(MenuElement_t* e, int x, int y, int w, int h) {
 }
 
 void Render_Screen(){
-	Renderer_SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, CameraPos.x, CameraPos.y, CameraPos.z);
-	if(LoadedCompleteMap){
-		Renderer_StartRendering(true);
-		Render_World(false);
-	} else {
-		Renderer_StartRendering(false);
-	}
 	bool Render_Local_Player=false;
-	bool Render_Scope=false;
 	if(Joined_Game()){
 		Render_Local_Player|=Players[LocalPlayerID].Spawned && Players[LocalPlayerID].InGame;
 	}
 	if(LoadedCompleteMap){
-		Vector3_t pos;
+		Renderer_SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, CameraPos.x, CameraPos.y, CameraPos.z);
+		{
+			uint[3] fog=[(Base_Fog_Color>>16)&255, (Base_Fog_Color>>8)&255, Base_Fog_Color&255];
+			double fog_sum=1.0;
+			float visibility=Base_Visibility_Range;
+			float effect_blur=0.0;
+			float effect_shake=0.0;
+			float brightness=1.0;
+			foreach(effect; EnvironmentEffectSlots){
+				fog[0]+=effect.fog[0]*effect.fog[3]/255; fog[1]+=effect.fog[1]*effect.fog[3]/255; fog[2]+=effect.fog[2]*effect.fog[3]/255;
+				fog_sum+=effect.fog[3]/255.0;
+				visibility*=effect.visibility;
+				effect_blur+=effect.blur;
+				effect_shake+=effect.shake;
+				brightness*=effect.brightness;
+			}
+			fog_sum/=brightness*.5+.5;
+			fog[0]/=fog_sum; fog[1]/=fog_sum; fog[2]/=fog_sum;
+			uint visrange=to!uint(visibility);
+			uint fogcol=(fog[0]<<16) | (fog[1]<<8) | (fog[2]);
+			if(Current_Fog_Color!=fogcol || Current_Visibility_Range!=visrange){
+				Current_Fog_Color=fogcol; Current_Visibility_Range=visrange;
+				Renderer_SetFog(fogcol, visrange);
+			}
+			if(Current_Blur_Amount!=effect_blur+BlurAmount+BaseBlurAmount){
+				Current_Blur_Amount=effect_blur+BlurAmount+BaseBlurAmount;
+				Renderer_SetBlur(Current_Blur_Amount);
+			}
+			Current_Shake_Amount=effect_shake+ShakeAmount+BaseShakeAmount;
+			Set_Sun(Sun_Position, brightness);
+			BlurAmount*=BlurAmountDecay;
+			ShakeAmount*=ShakeAmountDecay;
+		}
+		
 		if(Render_Local_Player){
 			float mousexvel=MouseMovedX*.5*MouseAccuracyConst*X_FOV/90.0, mouseyvel=MouseMovedY*.5*MouseAccuracyConst*Y_FOV/90.0;
 			if(!Menu_Mode){
-				if(Players[LocalPlayerID].item_types.length){
+				if(Players[LocalPlayerID].items.length){
 					if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon){
 						if(MouseRightClick){
 							MouseRot.x+=mouseyvel*(uniform01()*2.0-1.0)*.75; MouseRot.y+=mousexvel*(uniform01()*2.0-1.0)*.75;
@@ -481,8 +561,7 @@ void Render_Screen(){
 				MouseRot.y=-89.0;
 			if(MouseRot.y>89.0)
 				MouseRot.y=89.0;
-			pos=Players[LocalPlayerID].pos;
-			CameraPos=pos;
+			CameraPos=Players[LocalPlayerID].pos;
 			CameraRot=MouseRot;
 		}
 		else{
@@ -490,28 +569,41 @@ void Render_Screen(){
 			TerrainOverview.y+=uniform01()*.5;
 			TerrainOverview.x+=cos(TerrainOverview.y*PI/180.0)*.3;
 			TerrainOverview.z+=sin(TerrainOverview.y*PI/180.0)*.3;
-			pos=TerrainOverview;
-			pos.y=-15.0;
+			CameraPos=TerrainOverview;
+			CameraPos.y=-15.0;
 			Vector3_t crot=MouseRot*.05+Vector3_t(0.0, 45.0, 0.0);
-			CameraPos=pos;
 			CameraRot=crot;
 		}
-		CameraPos.x+=(uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount);
-		CameraPos.y+=(uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount);
-		CameraPos.z+=(uniform01()*2.0-1.0)*(ShakeAmount+BaseShakeAmount);
-		Renderer_SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, CameraPos.x, CameraPos.y, CameraPos.z);
+		if(Current_Shake_Amount>0.0){
+			Vector3_t shake_cam=CameraPos;
+			shake_cam.x+=(uniform01()*2.0-1.0)*Current_Shake_Amount;
+			shake_cam.y+=(uniform01()*2.0-1.0)*Current_Shake_Amount;
+			shake_cam.z+=(uniform01()*2.0-1.0)*Current_Shake_Amount;
+			Renderer_SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, shake_cam.x, shake_cam.y, shake_cam.z);
+		}
+		else{
+			Renderer_SetCamera(CameraRot.x, CameraRot.y, CameraRot.z, X_FOV, Y_FOV, CameraPos.x, CameraPos.y, CameraPos.z);
+		}
 		if(Render_Local_Player)
 			Update_Rotation_Data();
+		Renderer_StartRendering(true);
+		Render_World(false);
+	} else {
+		Renderer_StartRendering(false);
+	}
+	bool Render_Scope=false;
+	SDL_Rect Scope_Pic_Pos;
+	if(LoadedCompleteMap){
 		Do_Sprite_Visibility_Checks=true;
 		{
 			if(Render_Local_Player){
-				if(Players[LocalPlayerID].item_types.length){
-					if(ItemTypes[Players[LocalPlayerID].item_types[Players[LocalPlayerID].item]].is_weapon
+				if(Players[LocalPlayerID].items.length){
+					if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon
 					&& !Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading && MouseRightClick){
 						if(ProtocolBuiltin_ScopePicture){
 							Render_Scope=true;
-							MenuElement_t *e=ProtocolBuiltin_ScopePicture;
-							Renderer_DrawRoundZoomedIn(e.xpos, e.ypos, e.xsize/2, 1.1, 1.1);
+							auto res=Get_Player_Scope(LocalPlayerID);
+							Scope_Pic_Pos=Renderer_DrawRoundZoomedIn(&res.pos, &res.rot, ProtocolBuiltin_ScopePicture, 1.1, 1.1);
 						}
 					}
 				}
@@ -525,9 +617,9 @@ void Render_Screen(){
 		if(Render_Scope){
 			MenuElement_t *e=ProtocolBuiltin_ScopePicture;
 			uint[2] size=[Mod_Picture_Sizes[e.picture_index][0], Mod_Picture_Sizes[e.picture_index][0]];
-			SDL_Rect rct;
-			rct.x=e.xpos; rct.y=e.ypos; rct.w=e.xsize; rct.h=e.xsize;
-			Renderer_Blit2D(Mod_Pictures[e.picture_index], &size, &rct);
+			/*SDL_Rect rct;
+			rct.x=e.xpos; rct.y=e.ypos; rct.w=e.xsize; rct.h=e.xsize;*/
+			Renderer_Blit2D(Mod_Pictures[e.picture_index], &size, &Scope_Pic_Pos);
 		}
 	}
 	foreach(ref elements; Z_MenuElements[StartZPos..MiniMapZPos]) {
@@ -538,25 +630,41 @@ void Render_Screen(){
 	Render_HUD();
 	immutable ubyte minimap_alpha=210;
 	if(Render_MiniMap && Joined_Game()){
+		if(MiniMap_SurfaceChanged)
+			Renderer_UploadToTexture(minimap_srfc, minimap_texture);
 		SDL_Rect minimap_rect;
-		Team_t *team=&Teams[Players[LocalPlayerID].team];
 		minimap_rect.x=0; minimap_rect.y=0; minimap_rect.w=ScreenXSize; minimap_rect.h=ScreenYSize;
 		uint[2] minimap_size=[minimap_srfc.w, minimap_srfc.h];
-		Renderer_Blit2D(minimap_texture, &minimap_size, &minimap_rect, 255);
-		ubyte[4] col=[team.color[2], team.color[1], team.color[0], 255];
-		ubyte[4] plrcol=0xff^col[];
-		foreach(ref plr; Players){
-			if(!plr.Spawned || !plr.InGame || plr.team!=Players[LocalPlayerID].team)
-				continue;
-			int xpos=cast(int)(plr.pos.x*cast(float)(minimap_rect.w)/cast(float)(MapXSize))+minimap_rect.x;
-			int zpos=cast(int)(plr.pos.z*cast(float)(minimap_rect.h)/cast(float)(MapZSize))+minimap_rect.y;
-			SDL_Rect prct;
-			prct.w=4; prct.h=4;
-			prct.x=xpos-prct.w/2; prct.y=zpos-prct.h/2;
-			if(plr.player_id!=LocalPlayerID)
-				Renderer_FillRect(&prct, &col);
-			else
-				Renderer_FillRect(&prct, &plrcol);
+		ubyte[3] colormod;
+		{
+			ubyte sun_brightness=to!ubyte((Sun_Vector.length*.9f+.1f)*255.0f);
+			colormod=[sun_brightness, sun_brightness, sun_brightness];
+		}
+		Renderer_Blit2D(minimap_texture, &minimap_size, &minimap_rect, 255, &colormod);
+		if(Players[LocalPlayerID].Spawned){
+			Team_t *team=&Teams[Players[LocalPlayerID].team];
+			ubyte[4] col=[team.color[2], team.color[1], team.color[0], 255];
+			ubyte[4] plrcol=0xff^col[]; plrcol[3]=255;
+			foreach(ref plr; Players){
+				if(!plr.Spawned || !plr.InGame || plr.team!=Players[LocalPlayerID].team)
+					continue;
+				int xpos=cast(int)(plr.pos.x*cast(float)(minimap_rect.w)/cast(float)(MapXSize))+minimap_rect.x;
+				int zpos=cast(int)(plr.pos.z*cast(float)(minimap_rect.h)/cast(float)(MapZSize))+minimap_rect.y;
+				SDL_Rect prct;
+				prct.w=4; prct.h=4;
+				prct.x=xpos-prct.w/2; prct.y=zpos-prct.h/2;
+				if(plr.player_id!=LocalPlayerID){
+					Renderer_FillRect(&prct, &col);
+				}
+				else{
+					prct.w+=2; prct.h+=2;
+					prct.x--; prct.y--;
+					Renderer_FillRect(&prct, &col);
+					prct.w-=2; prct.h-=2;
+					prct.x++; prct.y++;
+					Renderer_FillRect(&prct, &plrcol);
+				}
+			}
 		}
 		foreach(ref obj; Objects){
 			if(!obj.visible || obj.minimap_img==255)
@@ -564,7 +672,7 @@ void Render_Screen(){
 			SDL_Rect orct;
 			ubyte r, g, b;
 			bool restore_color_mod=false;
-			ubyte[3] colormod=[255, 255, 255];
+			colormod=[255, 255, 255];
 			if(obj.color){
 				if(obj.color&0x00ffffff){
 					if(!(obj.color&0xff000000)){
@@ -616,7 +724,7 @@ void Render_Screen(){
 		for(uint t=0; t<Teams.length; t++){
 			for(uint plist_index=0; plist_index<list_player_amount[t]; plist_index++){
 				Player_t *plr=&Players[Player_List_Table[t][plist_index]];
-				string plrentry=format("%s [#%s]", plr.name, plr.player_id);
+				string plrentry=format("%s [#%s] %d", plr.name, plr.player_id, plr.score);
 				Render_Text_Line(t*teamlist_w, plist_index*FontHeight/16, Teams[t].icolor, plrentry, font_texture, FontWidth, FontHeight, LetterPadding);
 			}
 		}
@@ -624,9 +732,6 @@ void Render_Screen(){
 	if(!Render_Local_Player)
 		Renderer_ShowInfo();
 	Renderer_Finish2D();
-	/*BlurAmount*=BlurAmountDecay;
-	ShakeAmount*=ShakeAmountDecay;
-	Set_Blur(BlurAmount+BaseBlurAmount);*/
 }
 
 Sprite_t Get_Object_Sprite(uint obj_id){
@@ -690,6 +795,10 @@ Sprite_t[] Get_Player_Sprites(uint player_id){
 		pos=CameraPos;
 	Sprite_t[] sprarr;
 	Sprite_t spr;
+	Sprite_t[] attached_sprites=Get_Player_Attached_Sprites(player_id);
+	Vector3_t hands_pos;
+	if(attached_sprites.length)
+		hands_pos=Vector3_t(attached_sprites[0].xpos, attached_sprites[0].ypos, attached_sprites[0].zpos);
 	foreach(ref model; plr.models){
 		if(player_id==LocalPlayerID && !model.FirstPersonModel)
 			continue;
@@ -712,6 +821,11 @@ Sprite_t[] Get_Player_Sprites(uint player_id){
 		Vector3_t offset=model.offset.rotate_raw(offsetrot);
 		mpos-=offset;
 		spr.xpos=mpos.x; spr.ypos=mpos.y; spr.zpos=mpos.z;
+		if(model.Rotate && model.FirstPersonModel){
+			Vector3_t hand_offset=(hands_pos-mpos).abs();
+			Vector3_t hand_rot=hand_offset.DirectionAsRotation;
+			spr.rst=hand_rot.z; spr.rti=hand_rot.y; spr.rhe=hand_rot.x;
+		}
 		sprarr~=spr;
 		Sprite_Visible(&spr);
 	}
@@ -725,13 +839,17 @@ auto Get_Player_Scope(uint player_id){
 	Result_t result;
 	Sprite_t spr=Get_Player_Attached_Sprites(player_id)[0];
 	result.rot=Vector3_t(spr.rhe, spr.rti, spr.rst);
-	result.pos=Get_Absolute_Sprite_Coord(&spr, Vector3_t(spr.model.xsize, spr.model.ysize/2.0, spr.model.zsize/2.0));
+	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, Vector3_t(spr.model.xsize, spr.model.ysize/2.0, spr.model.zsize/2.0)));
+	if(Voxel_IsSolid(result.pos.x, result.pos.y, result.pos.z)){
+		if(result.pos.y>=63.0)
+			result.pos.y=62.99;
+	}
 	return result;
 }
 
 //Note: Sprite number zero has to be the weapon when scoping
 Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
-	if(!Players[player_id].item_types.length || !Players[player_id].Spawned)
+	if(!Players[player_id].items.length || !Players[player_id].Spawned)
 		return [];
 	if(ItemTypes[Players[player_id].items[Players[player_id].item].type].model_id==255)
 		return[];
@@ -744,6 +862,17 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 		pos=CameraPos;
 	}
 	item_offset=Vector3_t(.8, 0.0, .4);
+	uint current_tick=SDL_GetTicks();
+	Item_t *item=&Players[player_id].items[Players[player_id].item];
+	if(player_id==LocalPlayerID && ItemTypes[item.type].is_weapon){
+		if(Players[player_id].right_click){
+			item_offset.z-=.3;
+			item_offset.x-=.2;
+		}
+		if(Players[player_id].left_click && item.amount1){
+			item_offset.x-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*-item.last_recoil*.1;
+		}
+	}
 	/*if(player_id==LocalPlayerID && false){
 		item_offset=Vector3_t(2.0, -.4, .4);
 		pos=CameraPos;
@@ -758,8 +887,6 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	spr.xpos=itempos.x; spr.ypos=itempos.y; spr.zpos=itempos.z;
 	spr.xdensity=.04; spr.ydensity=.04; spr.zdensity=.04;
 	//BIG WIP
-	uint current_tick=SDL_GetTicks();
-	Item_t *item=&Players[player_id].items[Players[player_id].item];
 	if(ItemTypes[item.type].is_weapon){
 		if(!item.Reloading && item.amount1){
 			if(current_tick-item.use_timer<ItemTypes[item.type].use_delay)
@@ -772,10 +899,30 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 			spr.rhe+=tofloat(current_tick-item.use_timer)*45.0/tofloat(ItemTypes[item.type].use_delay)*(ItemTypes[item.type].is_weapon ? 1.0 : -1.0);
 		}
 	}
-	if(ItemTypes[Players[player_id].items[Players[player_id].item].type].color_mod==true)
+	if(ItemTypes[item.type].color_mod==true)
 		spr.color_mod=(Players[player_id].color&0x00ffffff) | 0xff000000;
 	spr.model=Mod_Models[ItemTypes[Players[player_id].items[Players[player_id].item].type].model_id];
 	sprarr~=spr;
+	if(player_id==LocalPlayerID && ProtocolBuiltin_BlockBuildWireframe){
+		if(ItemTypes[item.type].block_damage_range){
+			auto rc=RayCast(pos, Players[player_id].dir, ItemTypes[item.type].block_damage_range);
+			if(rc.collside){
+				Vector3_t *dir=&Players[player_id].dir;
+				Vector3_t wfpos=Vector3_t(rc.x, rc.y, rc.z);
+				immutable float[3][] vec=[[sgn(dir.x), 0.0f, 0.0f], [0.0f, sgn(dir.y), 0.0f], [0.0f, 0.0f, sgn(dir.z)]];
+				wfpos-=vec[rc.collside-1];
+				wfpos+=.5;
+				spr.rhe=0.0; spr.rti=0.0; spr.rst=0.0;
+				spr.xpos=wfpos.x; spr.ypos=wfpos.y; spr.zpos=wfpos.z;
+				spr.xdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.xsize; spr.ydensity=1.0/ProtocolBuiltin_BlockBuildWireframe.ysize;
+				spr.zdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.zsize;
+				spr.color_mod=(Players[player_id].color&0x00ffffff) | 0xff000000;
+				spr.replace_black=spr.color_mod;
+				spr.model=ProtocolBuiltin_BlockBuildWireframe;
+				sprarr~=spr;
+			}
+		}
+	}
 	return sprarr;
 }
 
@@ -788,6 +935,8 @@ int SpriteHitScan(Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t vox
 	rot_sz=sin(spr.rst*PI/180.0); rot_cz=cos(-spr.rst*PI/180.0);
 	if(!Sprite_BoundHitCheck(spr, pos, dir))
 		return 0;
+	voxpos=Vector3_t(spr.xpos, spr.ypos, spr.zpos);
+	return 1;
 	float voxxsize=fabs(spr.xdensity)*vox_size, voxysize=fabs(spr.ydensity)*vox_size, voxzsize=fabs(spr.zdensity)*vox_size;
 	ModelVoxel_t *voxptr=null;
 	float minvxdist=10e99;
@@ -812,9 +961,6 @@ int SpriteHitScan(Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t vox
 				Vector3_t vpos=Vector3_t(fnx, fny, fnz);
 				float dist=(vpos-pos).length;
 				Vector3_t lookpos=pos+dir*dist;
-				/*if(x==spr.model.xsize/2 && y==spr.model.ysize/2 && blk==sblk){
-					writeflnlog("%s %s", lookpos, vpos);
-				}*/
 				Vector3_t cdist=(lookpos-vpos).vecabs;
 				if(cdist.x<voxxsize && cdist.y<voxxsize && cdist.z<voxzsize){
 					if(dist<minvxdist){
@@ -832,6 +978,20 @@ int SpriteHitScan(Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t vox
 	return 0;
 }
 
+struct Bullet_t{
+	Vector3_t startpos, vel;
+	Vector3_t sprrot;
+	float dist, maxdist;
+	Sprite_t *item_type_sprite;
+}
+Bullet_t[] Bullets;
+
+void Bullet_Shoot(Vector3_t pos, Vector3_t vel, float maxdist, Sprite_t *spr){
+	Bullet_t bullet;
+	bullet.startpos=pos; bullet.vel=vel; bullet.sprrot=(vel.abs()).DirectionAsRotation; bullet.dist=0.0; bullet.maxdist=maxdist;
+	bullet.item_type_sprite=spr;
+	Bullets~=bullet;
+}
 
 struct Particle_t{
 	Vector3_t pos, vel;
@@ -885,8 +1045,12 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 		pos.y-=1.0;
 	}
 	pos.y-=.1;
-	if(!colors.length)
-		use_sent_cols=true;
+	if(!colors.length){
+		if(col.length)
+			use_sent_cols=true;
+		else
+			colors~=0x00a0a0a0;
+	}
 	col[]|=0xff000000;
 	colors[]|=0xff000000;
 	for(uint i=old_size; i<old_size+amount; i++){
@@ -901,14 +1065,17 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	}
 }
 
-void Create_Smoke(Vector3_t pos, uint amount, uint col, float size){
+void Create_Smoke(Vector3_t pos, uint amount, uint col, float size, float speedspread=1.0, float alpha=1.0, Vector3_t cvel=Vector3_t(0)){
 	uint old_size=cast(uint)SmokeParticles.length;
 	SmokeParticles.length+=amount;
 	float sizeratio=pow(size, .2);
 	for(uint i=old_size; i<old_size+amount; i++){
 		Vector3_t spos=pos+RandomVector()*.12*size;
-		Vector3_t vel=RandomVector()*size*.01+(spos-pos)*(.5+sizeratio*.4);
-		SmokeParticles[i].Init(spos, vel, col, size*80.0*uniform(50, 150)*.01);
+		Vector3_t vel=(RandomVector()*size*.01+(spos-pos)*(.5+sizeratio*.4))*speedspread+cvel;
+		SmokeParticles[i].Init(spos, vel,
+		Calculate_Alpha(col, Calculate_Alpha(0, 0xffffffff, uniform!ubyte()), 255-to!ubyte(uniform01()*255.0/(1.0+size)*.8)),
+		size*80.0*uniform(50, 150)*.01);
+		SmokeParticles[i].alpha*=alpha;
 	}
 }
 
@@ -968,7 +1135,8 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount+1, 0xff808080, radius);
 	Create_Particles(pos, vel, radius, spread, amount*7, [], 1.0/(1.0+amount*.001));
 	Create_Particles(pos, vel, 0, spread*3.0, amount*10, [0x00ffff00, 0x00ffa000], .05);
-	//Not ready yet
+	Renderer_AddFlash(pos, radius*1.5, 1.0);
+	//WIP
 	/*ExplosionSprite_t effect;
 	Model_t *model=new Model_t;
 	model.xsize=32; model.ysize=32; model.zsize=32;
@@ -1007,6 +1175,21 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	ExplosionEffectSprites~=effect;*/
 }
 
+struct EnvEffectSlot_t{
+	ubyte[4] fog;
+	float shake;
+	float blur;
+	float visibility;
+	float brightness;
+}
+EnvEffectSlot_t[] EnvironmentEffectSlots;
+
+void Set_Sun(Vector3_t newpos, float strength){
+	Sun_Position=newpos;
+	Sun_Vector=(newpos-Vector3_t(MapXSize, MapYSize, MapZSize)/2.0).abs()*strength;
+	Renderer_SetBrightness(strength);
+	Renderer_SetBlockFaceShading(Sun_Vector);
+}
 
 //Be careful: this is evil
 Vector3_t Get_Absolute_Sprite_Coord(Sprite_t *spr, Vector3_t coord){
@@ -1057,7 +1240,7 @@ bool Sprite_Visible(Sprite_t *spr){
 		//Only after I fixed raycasting code
 		Vector3_t vpos=Vector3_t(fnx, fny, fnz);
 		Vector3_t vdist=vpos-CameraPos;
-		if(vdist.length>Visibility_Range)
+		if(vdist.length>Current_Visibility_Range)
 			continue;
 		auto result=RayCast(Vector3_t(fnx, fny, fnz), vdist.abs, vdist.length);
 		if(!result.collside)
@@ -1069,7 +1252,6 @@ bool Sprite_Visible(Sprite_t *spr){
 
 //Ok yeah, this code sux
 bool Sprite_BoundHitCheck(Sprite_t *spr, Vector3_t pos, Vector3_t dir){
-	return true;
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
 	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
@@ -1101,4 +1283,10 @@ bool Sprite_BoundHitCheck(Sprite_t *spr, Vector3_t pos, Vector3_t dir){
 	if(cdist.x<size.x && cdist.y<size.y && cdist.z<size.z)
 		return true;
 	return false;
+}
+
+uint Calculate_Alpha(uint c1, uint c2, ushort alpha){
+	ushort inv_alpha=255-to!ubyte(alpha);
+	return (((((c1>>24)&255)*alpha+((c2>>24)&255)*inv_alpha)>>8)<<24) | (((((c1>>16)&255)*alpha+((c2>>16)&255)*inv_alpha)>>8)<<16) |
+	(((((c1>>8)&255)*alpha+((c2>>8)&255)*inv_alpha)>>8)<<8) | (((c1&255)*alpha+(c2&255)*inv_alpha)>>8);
 }

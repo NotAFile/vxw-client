@@ -25,10 +25,15 @@ float PlayerWalkSpeed=1.0;
 float PlayerSprintSpeed=1.5;
 float WorldSpeedRatio=2.0;
 
-uint Visibility_Range=128, Fog_Color=0x0000ffff;
+Vector3_t Sun_Vector, Sun_Position;
+
+uint Base_Visibility_Range=128, Current_Visibility_Range=128;
+uint Base_Fog_Color=0x0000ffff, Current_Fog_Color=0x0000ffff;
 
 immutable float Player_Stand_Size=2.5;
 immutable float Player_Crouch_Size=1.5;
+
+Vector3_t Wind_Direction;
 
 struct PlayerModel_t{
 	ubyte model_id;
@@ -42,6 +47,7 @@ struct Player_t{
 	string name;
 	bool Spawned;
 	bool InGame;
+	uint score;
 	
 	PlayerModel_t[] models;
 	
@@ -58,7 +64,7 @@ struct Player_t{
 	int Model; int Gun_Model; int Arm_Model;
 	uint Gun_Timer;
 	Item_t[] items;
-	ubyte[] item_types;
+	ubyte[] selected_item_types;
 	uint item;
 	bool left_click, right_click;
 	uint color;
@@ -89,9 +95,9 @@ struct Player_t{
 		team=spteam;
 		Spawned=true;
 		InGame=true;
-		items.length=item_types.length;
+		items.length=selected_item_types.length;
 		if(items.length){
-			foreach(uint i, type; item_types)
+			foreach(uint i, type; selected_item_types)
 				items[i].Init(type);
 		}
 		Walk_Forwards_Timer=0.0;
@@ -317,8 +323,6 @@ struct Player_t{
 		return CheckCollisionReturn_t(Vector3_t(x, y, z), collsides);
 	}
 	void Use_Item(){
-		if(!item_types.length)
-			return;
 		uint current_tick=SDL_GetTicks();
 		Item_t *current_item=&items[item];
 		int timediff=current_tick-current_item.use_timer;
@@ -350,7 +354,7 @@ struct Player_t{
 		if(itemtype.block_damage){
 			short range=itemtype.block_damage_range;
 			if(range<0)
-				range=cast(short)Visibility_Range;
+				range=cast(short)Current_Visibility_Range;
 			auto rcp=RayCast(usepos, spreadeddir, range);
 			if(rcp.collside){
 				block_hit_dist=rcp.colldist;
@@ -365,15 +369,20 @@ struct Player_t{
 			Vector3_t LastHitPos;
 			ubyte LastHitSpriteIndex;
 			PlayerID_t LastHitPlayer;
-			float LastHitDist=10e99;
+			float LastHitDist=block_hit_dist;
+			Renderer_AddFlash(usepos, 4.0, 1.0);
 			foreach(PlayerID_t pid, ref plr; Players){
 				if(pid==player_id)
 					continue;
-				if((plr.pos-pos).length>min(Visibility_Range+5, block_hit_dist+5))
+				if(!plr.Spawned || !plr.InGame)
+					continue;
+				if((plr.pos-pos).length>min(Current_Visibility_Range+5, block_hit_dist+5))
 					continue;
 				Sprite_t[] sprites=Get_Player_Sprites(pid);
 				foreach(ubyte spindex, ref spr; sprites){
 					Vector3_t vxpos; ModelVoxel_t *vx;
+					if(!Sprite_BoundHitCheck(&spr, usepos, spreadeddir))
+						continue;
 					if(SpriteHitScan(&spr, usepos, spreadeddir, vxpos, vx, 3.0)){
 						//vx.color=0x00ff0000;
 						if(player_id==LocalPlayerID){
@@ -424,6 +433,10 @@ struct Player_t{
 				object_hit_dist=LastHitDist;
 				object_hit_id=LastHitID;
 			}
+			if(itemtype.Is_Gun()){
+				Create_Smoke(usepos+usedir*1.0, to!uint(10*itemtype.power), 0xff808080, 1.0*sqrt(itemtype.power), .1, .1, usedir*.1*sqrt(itemtype.power));
+				Bullet_Shoot(usepos+usedir*.5, usedir*125.0, LastHitDist, &itemtype.bullet_sprite);
+			}
 		}
 		if(block_hit_dist<player_hit_dist && block_hit_dist<object_hit_dist){
 			uint dmgx=touint(block_hit_pos.x), dmgy=touint(block_hit_pos.y), dmgz=touint(block_hit_pos.z);
@@ -453,10 +466,10 @@ struct Player_t{
 				Send_Packet(ObjectHitPacketID, packet);
 			}
 		}
-		if(ItemTypes[current_item.type].repeated_use)
+		if(itemtype.repeated_use)
 			current_item.use_timer=current_tick;
-		float xrecoil=itemtype.recoil_xc+itemtype.recoil_xm*uniform01()*(uniform(0, 2)*2-1);
-		float yrecoil=itemtype.recoil_yc+itemtype.recoil_ym*uniform01()*(uniform(0, 2)*2-1);
+		float xrecoil=(itemtype.recoil_xc+itemtype.recoil_xm*uniform01())*((uniform!int()&1)*2-1);
+		float yrecoil=itemtype.recoil_yc+itemtype.recoil_ym*uniform01()*((uniform!int()&1)*2-1);
 		if(player_id==LocalPlayerID){
 			MouseRot.y+=yrecoil;
 			MouseRot.x+=xrecoil;
@@ -621,7 +634,12 @@ struct ItemType_t{
 	float spread_c, spread_m;
 	float recoil_xc, recoil_xm;
 	float recoil_yc, recoil_ym;
-	ubyte model_id;
+	float power;
+	ModelID_t model_id;
+	Sprite_t bullet_sprite;
+	bool Is_Gun(){
+		return is_weapon && maxamount1 && bullet_sprite.model!=null;
+	}
 }
 ItemType_t[] ItemTypes;
 
@@ -639,9 +657,21 @@ struct Item_t{
 		Reloading=false;
 		last_recoil=0.0;
 	}
+	bool Can_Use(){
+		if(Reloading || (!amount1 && ItemTypes[type].maxamount1))
+			return false;
+		int timediff=SDL_GetTicks()-use_timer;
+		if(timediff<ItemTypes[type].use_delay)
+			return false;
+		return true;
+	}
 }
 
 float delta_time;
+uint __Block_Damage_Check_Index=0;
+immutable uint __Block_Damage_ChecksPerFrame=32;
+immutable uint __BlockDamage_HealTimer=1000*5;
+immutable ubyte __BlockDamage_HealAmount=16;
 void Update_World(){
 	uint Current_Tick=SDL_GetTicks();
 	if(Last_Tick){
@@ -655,6 +685,37 @@ void Update_World(){
 		p.Update();
 	foreach(ref o; Objects)
 		o.Update();
+	if(BlockDamage.length){
+		bool __dmgblock_removed=false;
+		while(!__dmgblock_removed && BlockDamage.length){
+			__dmgblock_removed=false;
+			auto hashes=BlockDamage.keys();
+			uint ind2=__Block_Damage_Check_Index+__Block_Damage_ChecksPerFrame;
+			if(ind2>=hashes.length)
+				ind2=hashes.length;
+			foreach(ref hash; hashes[__Block_Damage_Check_Index..ind2]){
+				auto bdmg=&BlockDamage[hash];
+				if(Current_Tick-bdmg.timer>__BlockDamage_HealTimer){
+					bdmg.timer=Current_Tick;
+					if(bdmg.Heal(__BlockDamage_HealAmount)){			
+						BlockDamage.remove(hash);
+						__dmgblock_removed=true;
+						break;
+					}
+				}
+			}
+			if(!__dmgblock_removed){
+				if(ind2<hashes.length){
+					__Block_Damage_Check_Index=ind2;
+				}
+				else{
+					__Block_Damage_Check_Index=0;
+					BlockDamage.rehash();
+				}
+				break;
+			}
+		}
+	}
 	Last_Tick=Current_Tick;
 }
 
@@ -662,7 +723,7 @@ uint Hash_Coordinates(uint x, uint y, uint z){
 	return x+y*MapXSize+z*MapXSize*MapYSize;
 }
 
-immutable uint MaxDamageParticlesPerBlock=1024;
+immutable uint MaxDamageParticlesPerBlock=256;
 
 struct DamageParticle_t{
 	float x, y, z;
@@ -692,14 +753,36 @@ struct BlockDamage_t{
 	int x, y, z;
 	ubyte damage;
 	bool broken;
-	uint orig_color;
+	ubyte orig_shade, new_shade;
+	uint timer;
 	DamageParticle_t[] particles;
 	this(uint ix, uint iy, uint iz){
 		x=ix; y=iy; z=iz;
-		orig_color=Voxel_GetColor(ix, iy, iz);
+		orig_shade=Voxel_GetShade(ix, iy, iz);
 		damage=0;
+		timer=SDL_GetTicks();
+	}
+	uint Get_DmgParticleCount(){
+		return touint(tofloat(damage)*tofloat(MaxDamageParticlesPerBlock)/255.0);
+	}
+	bool Heal(ubyte val){
+		if(val>=damage){
+			damage=0;
+			new_shade=orig_shade;
+			UpdateVoxel();
+			_Register_Lighting_BBox(x, y, z);
+			return true;
+		}
+		damage-=val;
+		new_shade=cast(ubyte)(orig_shade-orig_shade*damage/255);
+		uint newc=Get_DmgParticleCount();
+		if(particles.length>newc)
+			particles.length=newc;
+		UpdateVoxel();
+		return false;
 	}
 	void Damage(ubyte val, Vector3_t *particle_pos){
+		timer=SDL_GetTicks();
 		uint[] free_sides;
 		{
 			for(uint side=0; side<6; side++){
@@ -715,7 +798,7 @@ struct BlockDamage_t{
 			damage+=val;
 		}
 		if(!particle_pos){
-			uint newc=touint(tofloat(damage)*tofloat(MaxDamageParticlesPerBlock)/255.0);
+			uint newc=Get_DmgParticleCount();
 			if(newc!=particles.length){
 				uint oldlen=cast(uint)particles.length;
 				particles.length=newc;
@@ -730,7 +813,18 @@ struct BlockDamage_t{
 			particles[$-1].y=particle_pos.y;
 			particles[$-1].z=particle_pos.z;
 		}
-		Voxel_SetShade(x, y, z, (255-damage));
+		new_shade=cast(ubyte)(orig_shade-orig_shade*damage/255);
+		UpdateVoxel();
+	}
+	version(LDC){
+		void UpdateVoxel(){
+			Voxel_SetShade(x, y, z, new_shade);
+		}
+	}
+	else{
+		pragma(inline)void UpdateVoxel(){
+			Voxel_SetShade(x, y, z, new_shade);
+		}
 	}
 }
 
@@ -820,6 +914,10 @@ RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
 	bool hit_voxel=false;
 	uint loops=cast(uint)(length*5.0);
 	while(x!=dstx || y!=dsty || z!=dstz){
+		if(!Valid_Coord(x, y, z)){
+			hit_voxel=true;
+			break;
+		}
 		if(Voxel_IsSolid(x, y, z)){
 			hit_voxel=true;
 			break;
@@ -912,7 +1010,7 @@ struct Object_t{
 		if(!Collision[1]){
 			pos.y+=deltapos.y;
 			vel.y+=acl.y;
-			vel.y+=(1.0+weightfactor*.001)*WorldSpeed*Gravity;
+			vel.y+=(1.0+weightfactor*.001)*WorldSpeed*Gravity*(weightfactor!=0);
 		}
 		else{
 			vel.y*=-bouncefactor;
@@ -1015,8 +1113,10 @@ bool Valid_Coord(T)(T x, T y, T z){
 	return x>=0 && x<MapXSize && y>=0 && y<MapYSize && z>=0 && z<MapZSize;
 }
 
-void Set_Fog(uint fogcol, uint fogrange){
-	Visibility_Range=fogrange;
-	Fog_Color=fogcol;
-	Renderer_SetFog(fogcol, fogrange);
+Vector3_t Validate_Coord(immutable in Vector3_t coord){
+	return Vector3_t(max(min(coord.x, MapXSize-1), 0), max(min(coord.y, MapYSize-1), 0), max(min(coord.z, MapZSize-1), 0));
+}
+
+void On_Map_Loaded(){
+	Set_Sun(Vector3_t(MapXSize, MapYSize, MapZSize)/2.0+Vector3_t(60.0, 15.0, 0.0).RotationAsDirection(), 1.0);
 }

@@ -48,7 +48,7 @@ ubyte[] CurrentLoadingMap;
 ubyte MapEncoding;
 uint MapXSize, MapYSize, MapZSize;
 
-uint Client_Version=6;
+uint Protocol_Version=7;
 
 uint JoinedGameMaxPhases=4;
 uint JoinedGamePhase=0;
@@ -226,7 +226,7 @@ uint NonPlayerColor=0;
 
 void Send_Identification_Packet(string requested_name){
 	ClientVersionPacketLayout packet;
-	packet.client_version=Client_Version;
+	packet.Protocol_Version=Protocol_Version;
 	packet.name=requested_name;
 	ubyte[] data=PackStructToPacket(packet);
 	Send_Data(data);
@@ -282,6 +282,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					LoadingMap=false;
 					LoadedCompleteMap=true;
 					CurrentLoadingMap=[];
+					On_Map_Loaded();
 				}
 				break;
 			}
@@ -316,8 +317,11 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case PlayerDisconnectPacketID:{
 				auto packet=UnpackPacketToStruct!(PlayerDisconnectPacketLayout)(PacketData);
-				writeflnlog("Player with ID %d disconnected: %s", packet.player_id, packet.reason);
-				if(packet.player_id==LocalPlayerID){
+				if(packet.player_id!=LocalPlayerID){
+					writeflnlog("Player with ID %d disconnected: %s", packet.player_id, packet.reason);
+				}
+				else{
+					writeflnlog("You were disconnected from server: %s", packet.reason);
 					QuitGame=true;
 				}
 				Players[packet.player_id].On_Disconnect();
@@ -325,9 +329,13 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case MapEnvironmentPacketID:{
 				auto packet=UnpackPacketToStruct!(MapEnvironmentPacketLayout)(PacketData);
-				Set_Fog(packet.fog_color, packet.visibility_range);
+				//Set_Fog(packet.fog_color, packet.visibility_range);
+				Base_Visibility_Range=packet.visibility_range;
+				Base_Fog_Color=packet.fog_color;
 				BaseBlurAmount=packet.base_blur;
 				BaseShakeAmount=packet.base_shake;
+				BlurAmountDecay=packet.blur_decay;
+				ShakeAmountDecay=packet.shake_decay;
 				break;
 			}
 			case ExistingPlayerPacketID:{
@@ -476,7 +484,16 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				type.repeated_use=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_REPEATEDUSE);
 				type.show_palette=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_SHOWPALETTE);
 				type.color_mod=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_COLORMOD);
+				type.power=packet.power;
 				type.model_id=packet.model_id;
+				if(packet.bullet_model_id!=VoidModelID){
+					type.bullet_sprite.model=Mod_Models[packet.bullet_model_id];
+					type.bullet_sprite.xdensity=1.0/32.0; type.bullet_sprite.ydensity=1.0/32.0; type.bullet_sprite.zdensity=1.0/32.0;
+					type.bullet_sprite.color_mod=0; type.bullet_sprite.replace_black=0;
+				}
+				else{
+					type.bullet_sprite.model=null;
+				}
 				if(type.index>=ItemTypes.length)
 					ItemTypes.length=type.index+1;
 				ItemTypes[type.index]=type;
@@ -524,10 +541,11 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case PlayerItemsPacketID:{
 				Player_t *plr=&Players[PacketData[0]];
 				if(PacketData.length){
-					plr.item_types=PacketData[1..$];
+					plr.selected_item_types=PacketData[1..$];
 				}
 				else
-					plr.item_types.length=0;
+					plr.selected_item_types.length=0;
+				plr.items.length=plr.selected_item_types.length;
 				break;
 			}
 			case SetTextBoxPacketID:{
@@ -624,6 +642,19 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case AssignBuiltinPacketID:{
 				auto packet=UnpackPacketToStruct!(AssignBuiltinPacketLayout)(PacketData);
 				switch(packet.type){
+					case AssignBuiltinTypes.Model:{
+						Model_t *model=null;
+						if(packet.index<Mod_Models.length)
+							model=Mod_Models[packet.index];
+						switch(packet.target){
+							case AssignBuiltinModelTypes.BlockBuild_Wireframe:{
+								ProtocolBuiltin_BlockBuildWireframe=model;
+								break;
+							}
+							default:break;
+						}
+						break;
+					}
 					case AssignBuiltinTypes.Picture:{
 						RendererTexture_t dstpic=Mod_Pictures[packet.index];
 						uint xsize=Mod_Picture_Sizes[packet.index][0], ysize=Mod_Picture_Sizes[packet.index][1];
@@ -641,11 +672,11 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 						element.move_z(InvisibleZPos);
 						switch(packet.target){
 							case AssignBuiltinSentImageTypes.AmmoCounterBG:{
-								AmmoCounterBG=element;
+								ProtocolBuiltin_AmmoCounterBG=element;
 								break;
 							}
 							case AssignBuiltinSentImageTypes.AmmoCounterBullet:{
-								AmmoCounterBullet=element;
+								ProtocolBuiltin_AmmoCounterBullet=element;
 								break;
 							}
 							case AssignBuiltinSentImageTypes.Palette_HFG:{
@@ -739,13 +770,11 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case SetBlurPacketID:{
 				auto packet=UnpackPacketToStruct!(SetBlurPacketLayout)(PacketData);
 				BlurAmount=packet.blur;
-				BlurAmountDecay=packet.decay;
 				break;
 			}
 			case SetShakePacketID:{
 				auto packet=UnpackPacketToStruct!(SetShakePacketLayout)(PacketData);
 				ShakeAmount=packet.shake;
-				ShakeAmountDecay=packet.decay;
 				break;
 			}
 			case ToggleScriptPacketID:{
@@ -764,6 +793,11 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				Objects[packet.obj_id].acl=Vector3_t(packet.x, packet.y, packet.z);
 				break;
 			}
+			case SetScorePacketID:{
+				auto packet=UnpackPacketToStruct!(SetScorePacketLayout)(PacketData);
+				Players[packet.player_id].score=packet.score;
+				break;
+			}
 			default:{
 				writeflnlog("Invalid packet ID %d", id);
 				break;
@@ -774,11 +808,18 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 		ubyte[] PacketData=recv_packet.data;
 		switch(JoinedGamePhase){
 			case 0:{
-				auto packet=UnpackPacketToStruct!(ServerVersionPacketLayout)(PacketData);
-				LocalPlayerID=packet.player_id;
-				writeflnlog("Server version: %d, Player ID: %d", packet.server_version, LocalPlayerID);
-				JoinedGamePhase=JoinedGameMaxPhases-1;
-				Server_Ping_Delay=packet.ping_delay;
+				if(PacketData[0]){
+					auto packet=UnpackPacketToStruct!(ServerVersionPacketLayout)(PacketData);
+					LocalPlayerID=packet.player_id;
+					writeflnlog("Server version: %d, Player ID: %d", packet.server_version, LocalPlayerID);
+					JoinedGamePhase=JoinedGameMaxPhases-1;
+					Server_Ping_Delay=packet.ping_delay;
+				}
+				else{
+					auto packet=UnpackPacketToStruct!(ServerConnectionDenyPacketLayout)(PacketData);
+					writeflnlog("Server refused to connect! Reason: %s", packet.reason);
+					QuitGame=1;
+				}
 				break;
 			}
 			default:{break;}
@@ -802,7 +843,7 @@ immutable float RotationDataSendDist=.1;
 Vector3_t LastRotationDataSent=Vector3_t(0.0);
 void Update_Rotation_Data(bool force_update=false){
 	float dist=(MouseRot-LastRotationDataSent).length;
-	if(dist>RotationDataSendDist || (force_update && dist>.00001)){
+	if(dist>RotationDataSendDist || (force_update && dist>10e-99)){
 		PlayerRotationPacketLayout packet;
 		Vector3_t dir=Players[LocalPlayerID].dir;
 		packet.xrot=dir.x; packet.yrot=dir.y; packet.zrot=dir.z;
@@ -818,7 +859,7 @@ immutable float PositionDataSendDist=2.0;
 Vector3_t LastPositionDataSent=Vector3_t(0.0);
 void Update_Position_Data(bool force_update=false){
 	float dist=(Players[LocalPlayerID].pos-LastPositionDataSent).length;
-	if(dist>PositionDataSendDist || (force_update && dist>.00001)){
+	if(dist>PositionDataSendDist || (force_update && dist>10e-99)){
 		PlayerPositionPacketLayout packet;
 		Vector3_t pos=Players[LocalPlayerID].pos;
 		packet.xpos=pos.x; packet.ypos=pos.y; packet.zpos=pos.z;
