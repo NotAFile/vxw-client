@@ -17,3 +17,6 @@ voxlap.di
 *.bat
 compile_with_voxlap
 compile_with_voxlap_ldc
+compile_with_voxlap_gdc
+trace.log
+trace.def

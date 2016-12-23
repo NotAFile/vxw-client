@@ -1,3 +1,9 @@
+version(LDC){
+	import ldc_stdlib;
+}
+version(GNU){
+	import gdc_stdlib;
+}
 import derelict.sdl2.sdl;
 import derelict.sdl2.image;
 import std.math;
@@ -14,9 +20,6 @@ import world;
 import ui;
 import vector;
 import script;
-version(LDC){
-	import ldc_stdlib;
-}
 import core.stdc.stdio;
 
 SDL_Window *scrn_window=null;
@@ -59,8 +62,8 @@ bool Do_Sprite_Visibility_Checks=true;
 
 immutable bool Enable_Object_Model_Modification=true;
 
-float Current_Blur_Amount=0.0, BlurAmount=0.0, BaseBlurAmount=0.0, BlurAmountDecay=.99;
-float Current_Shake_Amount=0.0, ShakeAmount=0.0, BaseShakeAmount=0.0, ShakeAmountDecay=.9;
+float Current_Blur_Amount=0.0, BlurAmount=0.0, BaseBlurAmount=0.0, BlurAmountDecay=.3;
+float Current_Shake_Amount=0.0, ShakeAmount=0.0, BaseShakeAmount=0.0, ShakeAmountDecay=1.5;
 
 ubyte MiniMapZPos=250, InvisibleZPos=0, StartZPos=1;
 
@@ -534,8 +537,8 @@ void Render_Screen(){
 			}
 			Current_Shake_Amount=effect_shake+ShakeAmount+BaseShakeAmount;
 			Set_Sun(Sun_Position, brightness);
-			BlurAmount*=BlurAmountDecay;
-			ShakeAmount*=ShakeAmountDecay;
+			BlurAmount/=1.0+BlurAmountDecay*WorldSpeed;
+			ShakeAmount/=1.0+ShakeAmountDecay*WorldSpeed;
 		}
 		
 		if(Render_Local_Player){
@@ -591,35 +594,27 @@ void Render_Screen(){
 	} else {
 		Renderer_StartRendering(false);
 	}
-	bool Render_Scope=false;
-	SDL_Rect Scope_Pic_Pos;
-	if(LoadedCompleteMap){
-		Do_Sprite_Visibility_Checks=true;
-		{
-			if(Render_Local_Player){
-				if(Players[LocalPlayerID].items.length){
-					if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon
-					&& !Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading && MouseRightClick){
-						if(ProtocolBuiltin_ScopePicture){
-							Render_Scope=true;
-							auto res=Get_Player_Scope(LocalPlayerID);
-							Scope_Pic_Pos=Renderer_DrawRoundZoomedIn(&res.pos, &res.rot, ProtocolBuiltin_ScopePicture, 1.1, 1.1);
-						}
-					}
-				}
-			}
-		}
-	}
 	
 	//SDL_SetRenderTarget(scrn_renderer, scrn_texture);
 	Renderer_Start2D();
 	{
-		if(Render_Scope){
-			MenuElement_t *e=ProtocolBuiltin_ScopePicture;
-			uint[2] size=[Mod_Picture_Sizes[e.picture_index][0], Mod_Picture_Sizes[e.picture_index][0]];
-			/*SDL_Rect rct;
-			rct.x=e.xpos; rct.y=e.ypos; rct.w=e.xsize; rct.h=e.xsize;*/
-			Renderer_Blit2D(Mod_Pictures[e.picture_index], &size, &Scope_Pic_Pos);
+		if(LoadedCompleteMap){
+			Do_Sprite_Visibility_Checks=true;
+			{
+				if(Render_Local_Player){
+					if(LocalPlayerScoping()){
+						if(ProtocolBuiltin_ScopePicture){
+							auto res=Get_Player_Scope(LocalPlayerID);
+							auto scope_pic=Renderer_DrawRoundZoomedIn(&res.pos, &res.rot, ProtocolBuiltin_ScopePicture, 1.1, 1.1);
+							MenuElement_t *e=ProtocolBuiltin_ScopePicture;
+							uint[2] size=[scope_pic.scope_texture_width, scope_pic.scope_texture_height];
+							Renderer_Blit2D(scope_pic.scope_texture, &size, &scope_pic.dstrect, 255, null, &scope_pic.srcrect);
+							size=[Mod_Picture_Sizes[e.picture_index][0], Mod_Picture_Sizes[e.picture_index][0]];
+							Renderer_Blit2D(Mod_Pictures[e.picture_index], &size, &scope_pic.dstrect);
+						}
+					}
+				}
+			}
 		}
 	}
 	foreach(ref elements; Z_MenuElements[StartZPos..MiniMapZPos]) {
@@ -734,6 +729,18 @@ void Render_Screen(){
 	Renderer_Finish2D();
 }
 
+bool LocalPlayerScoping(){
+	if(LocalPlayerID<Players.length){
+		if(Players[LocalPlayerID].items.length){
+			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon
+			&& !Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading && MouseRightClick && BlurAmount<.2){
+				return true;
+			}
+		}
+	}
+	return false;		
+}
+
 Sprite_t Get_Object_Sprite(uint obj_id){
 	Object_t *obj=&Objects[obj_id];
 	Sprite_t spr;
@@ -820,12 +827,14 @@ Sprite_t[] Get_Player_Sprites(uint player_id){
 		offsetrot.x=0.0; offsetrot.z=0.0; offsetrot.y=-rot.y;
 		Vector3_t offset=model.offset.rotate_raw(offsetrot);
 		mpos-=offset;
-		spr.xpos=mpos.x; spr.ypos=mpos.y; spr.zpos=mpos.z;
 		if(model.Rotate && model.FirstPersonModel){
 			Vector3_t hand_offset=(hands_pos-mpos).abs();
+			if(player_id==LocalPlayerID) 					//QUICK HACK TO GET THE HANDS OUT OF THE SCOPE (MAKE THIS CALCULATE STUFF PROPERLY)
+				mpos-=hand_offset*.5;
 			Vector3_t hand_rot=hand_offset.DirectionAsRotation;
 			spr.rst=hand_rot.z; spr.rti=hand_rot.y; spr.rhe=hand_rot.x;
 		}
+		spr.xpos=mpos.x; spr.ypos=mpos.y; spr.zpos=mpos.z;
 		sprarr~=spr;
 		Sprite_Visible(&spr);
 	}
@@ -838,8 +847,8 @@ auto Get_Player_Scope(uint player_id){
 	}
 	Result_t result;
 	Sprite_t spr=Get_Player_Attached_Sprites(player_id)[0];
-	result.rot=Vector3_t(spr.rhe, spr.rti, spr.rst);
-	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, Vector3_t(spr.model.xsize, spr.model.ysize/2.0, spr.model.zsize/2.0)));
+	result.rot=Vector3_t(spr.rhe-3.0, spr.rti, spr.rst);
+	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, Vector3_t(spr.model.xsize/2.0-.5, -.3, spr.model.zpivot)));
 	if(Voxel_IsSolid(result.pos.x, result.pos.y, result.pos.z)){
 		if(result.pos.y>=63.0)
 			result.pos.y=62.99;
@@ -865,7 +874,7 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	uint current_tick=SDL_GetTicks();
 	Item_t *item=&Players[player_id].items[Players[player_id].item];
 	if(player_id==LocalPlayerID && ItemTypes[item.type].is_weapon){
-		if(Players[player_id].right_click){
+		if(LocalPlayerScoping()){
 			item_offset.z-=.3;
 			item_offset.x-=.2;
 		}
@@ -1187,18 +1196,22 @@ EnvEffectSlot_t[] EnvironmentEffectSlots;
 void Set_Sun(Vector3_t newpos, float strength){
 	Sun_Position=newpos;
 	Sun_Vector=(newpos-Vector3_t(MapXSize, MapYSize, MapZSize)/2.0).abs()*strength;
-	Renderer_SetBrightness(strength);
-	Renderer_SetBlockFaceShading(Sun_Vector);
+	try{
+		Renderer_SetBrightness(strength);
+		Renderer_SetBlockFaceShading(Sun_Vector);
+	}catch(Throwable o){
+		writeflnlog("ERROR CATCHED %s %s %s (REPORT TO DEVS)", newpos, strength, o);
+	}
 }
 
 //Be careful: this is evil
 Vector3_t Get_Absolute_Sprite_Coord(Sprite_t *spr, Vector3_t coord){
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
-	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
-	float fnx=(coord.x-spr.model.xpivot)*spr.xdensity;
-	float fny=(coord.y-spr.model.ypivot)*spr.ydensity;
-	float fnz=(coord.z-spr.model.zpivot)*spr.zdensity;
+	float rot_sz=sin(-spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
+	float fnx=(coord.x-spr.model.xpivot+.5)*spr.xdensity;
+	float fny=(coord.y-spr.model.ypivot+.5)*spr.ydensity;
+	float fnz=(coord.z-spr.model.zpivot-.5)*spr.zdensity;
 	float rot_y=fny, rot_z=fnz, rot_x=fnx;
 	fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
 	rot_x=fnx; rot_z=fnz;

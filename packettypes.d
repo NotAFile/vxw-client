@@ -5,6 +5,9 @@ import std.conv;
 version(LDC){
 	import ldc_stdlib;
 }
+version(GNU){
+	import gdc_stdlib;
+}
 
 alias PlayerID_t=ubyte;
 alias PacketID_t=ubyte;
@@ -431,6 +434,12 @@ struct SetScorePacketLayout{
 	uint score;
 }
 immutable PacketID_t SetScorePacketID=48;
+
+struct PublicPlayerMouseClickPacketLayout{
+	PlayerID_t player_id;
+	ubyte mouse_clicks;
+}
+immutable PacketID_t PublicPlayerMouseClickPacketID=49;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)

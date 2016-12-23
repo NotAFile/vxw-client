@@ -2,10 +2,11 @@ import std.math;
 import std.random;
 import std.algorithm;
 import misc;
-
-
 version(LDC){
 	import ldc_stdlib;
+}
+version(GNU){
+	import gdc_stdlib;
 }
 
 T degsin(T)(T val){

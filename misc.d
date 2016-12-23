@@ -54,3 +54,10 @@ void proper_reverse_overwrite(T)(ref T arr){
 	for(i=0; i<arr.length/2; i++)
 		swap(arr[i], arr[arr.length-1-i]);
 }
+
+immutable uint BITS_PER_BYTE=8;
+
+//credits go to the genious guy who wrote https://graphics.stanford.edu/~seander/bithacks.html#IntegerMinOrMax
+T bitwise_min(T)(T x, T y){
+	return y + ((x - y) & ((x - y) >> (T.sizeof * BITS_PER_BYTE - 1)));
+}

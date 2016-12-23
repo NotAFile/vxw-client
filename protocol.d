@@ -1,3 +1,9 @@
+version(LDC){
+	import ldc_stdlib;
+}
+version(GNU){
+	import gdc_stdlib;
+}
 import derelict.sdl2.sdl;
 import derelict.sdl2.image;
 import std.conv;
@@ -20,10 +26,7 @@ import vector;
 import world;
 import gfx;
 import script;
-version(LDC){
-	import ldc_stdlib;
-}
-else{
+version(DMD){
 	import std.meta;
 }
 
@@ -48,7 +51,7 @@ ubyte[] CurrentLoadingMap;
 ubyte MapEncoding;
 uint MapXSize, MapYSize, MapZSize;
 
-uint Protocol_Version=7;
+uint Protocol_Version=8;
 
 uint JoinedGameMaxPhases=4;
 uint JoinedGamePhase=0;
@@ -377,38 +380,26 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				break;
 			}
 			case WorldUpdatePacketID:{
-				ushort PlayersExisting;
-				ubyte[2] PlayersExistingBytes=PacketData[0..2];
-				if(EnableByteFlip)
-					proper_reverse_overwrite(PlayersExistingBytes);
-				PlayersExisting=*(cast(ushort*)PlayersExistingBytes.ptr);
-				uint PlayerArraySize=(PlayersExisting/8)+(cast(int)((PlayersExisting%8)!=0));
-				uint[] PlayerTable;
-				uint plrindex=0;
-				for(uint bytenum=0; bytenum<PlayerArraySize; bytenum++){
-					for(uint nbit=0; nbit<8; nbit++){
-						uint bit=1<<nbit;
-						if(PacketData[bytenum+2]&bit){
-							PlayerTable~=bytenum*8+nbit;
-							plrindex++;
+				ubyte player_bit_table_size=PacketData[0];
+				PacketData=PacketData[1..$];
+				ubyte[] player_bit_table=PacketData[0..player_bit_table_size];
+				float[3][] positiondata=cast(float[3][])PacketData[player_bit_table_size+1..$];
+				uint posdataindex=0;
+				for(uint b=1; b<player_bit_table_size*8; b++){
+					if(player_bit_table[b/8]&(1<<(b%8))){
+						float[3] pos=positiondata[posdataindex];
+						posdataindex++;
+						if(EnableByteFlip){
+							foreach(ref coord;pos){
+								ubyte[4] content=ConvertVariableToArray(coord);
+								proper_reverse_overwrite(content);
+								coord=ConvertArrayToVariable!(float)(content);
+							}
 						}
+						uint player_id=b-1;
+						if(player_id!=LocalPlayerID)
+							Players[player_id].pos=Vector3_t(pos);
 					}
-				}
-				PlayerArraySize+=2;
-				float[3][] positiondata=cast(float[3][])PacketData[PlayerArraySize+1..$];
-				for(uint p=0; p<PlayerTable.length; p++){
-					float[3] pos=positiondata[p];
-					if(EnableByteFlip){
-						foreach(ref coord;pos){
-							ubyte[4] content=ConvertVariableToArray(coord);
-							proper_reverse_overwrite(content);
-							coord=ConvertArrayToVariable!(float)(content);
-						}
-					
-					}
-					uint player_id=PlayerTable[p];
-					if(player_id!=LocalPlayerID)
-						Players[player_id].pos=Vector3_t(pos);
 				}
 				break;
 			}
@@ -769,12 +760,12 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case SetBlurPacketID:{
 				auto packet=UnpackPacketToStruct!(SetBlurPacketLayout)(PacketData);
-				BlurAmount=packet.blur;
+				BlurAmount+=packet.blur;
 				break;
 			}
 			case SetShakePacketID:{
 				auto packet=UnpackPacketToStruct!(SetShakePacketLayout)(PacketData);
-				ShakeAmount=packet.shake;
+				ShakeAmount+=packet.shake;
 				break;
 			}
 			case ToggleScriptPacketID:{
@@ -796,6 +787,12 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case SetScorePacketID:{
 				auto packet=UnpackPacketToStruct!(SetScorePacketLayout)(PacketData);
 				Players[packet.player_id].score=packet.score;
+				break;
+			}
+			case PublicPlayerMouseClickPacketID:{
+				auto packet=UnpackPacketToStruct!(PublicPlayerMouseClickPacketLayout)(PacketData);
+				Players[packet.player_id].left_click=cast(bool)(packet.mouse_clicks&1);
+				Players[packet.player_id].right_click=cast(bool)(packet.mouse_clicks&2);
 				break;
 			}
 			default:{

@@ -1,3 +1,9 @@
+version(LDC){
+	import ldc_stdlib;
+}
+version(GNU){
+	import gdc_stdlib;
+}
 import derelict.sdl2.sdl;
 import std.string;
 import std.algorithm;
@@ -12,9 +18,6 @@ import vector;
 import renderer;
 import packettypes;
 import script;
-version(LDC){
-	import ldc_stdlib;
-}
 import core.stdc.stdio;
 
 uint CurrentChatCursor;

@@ -1,3 +1,12 @@
+version(LDC){
+	import ldc_stdlib;
+}
+version(GNU){
+	import gdc_stdlib;
+}
+version(DMD){
+	import std.meta;
+}
 import derelict.sdl2.sdl;
 import slang;
 import misc;
@@ -12,12 +21,6 @@ import std.format;
 import std.datetime;
 import std.algorithm;
 import std.typetuple;
-version(LDC){
-	import ldc_stdlib;
-}
-else{
-	import std.meta;
-}
 import std.conv;
 import std.stdio;
 import std.random;
@@ -133,6 +136,9 @@ struct ScriptLib_t{
 		if(intr_func_table.length){
 			if(SLns_add_intrin_fun_table(ns, intr_func_table.ptr, null))
 				writeflnerr("Couldn't add intrinsic function table for script library \"%s\"", typename);
+		}
+		version(GNU){
+			import if_you_have_compiler_optimization_flags_enabled_then_remove_or_comment_out_the_statement_below_and_this_import;
 		}
 		if(nsname.length)
 			ns.namespace_name=null;

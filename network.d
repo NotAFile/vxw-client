@@ -1,10 +1,13 @@
+version(LDC){
+	import ldc_stdlib;
+}
+version(GNU){
+	import gdc_stdlib;
+}
 import derelict.enet.enet;
 import std.stdio;
 import std.string;
 import misc;
-version(LDC){
-	import ldc_stdlib;
-}
 
 //Change this depending on your system's endianess
 bool EnableByteFlip=true;

@@ -1,3 +1,9 @@
+version(LDC){
+	import ldc_stdlib;
+}
+version(GNU){
+	import gdc_stdlib;
+}
 import derelict.sdl2.sdl;
 import std.conv;
 import std.math;
@@ -10,9 +16,6 @@ import misc;
 import gfx;
 import ui;
 import protocol;
-version(LDC){
-	import ldc_stdlib;
-}
 
 float Gravity=9.81;
 float AirFriction=.24;
@@ -816,13 +819,13 @@ struct BlockDamage_t{
 		new_shade=cast(ubyte)(orig_shade-orig_shade*damage/255);
 		UpdateVoxel();
 	}
-	version(LDC){
-		void UpdateVoxel(){
+	version(DMD){
+		pragma(inline)void UpdateVoxel(){
 			Voxel_SetShade(x, y, z, new_shade);
 		}
 	}
 	else{
-		pragma(inline)void UpdateVoxel(){
+		void UpdateVoxel(){
 			Voxel_SetShade(x, y, z, new_shade);
 		}
 	}
