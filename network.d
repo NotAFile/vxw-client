@@ -25,6 +25,7 @@ struct Connection_t{
 			return;
 		}
 		enet_host_compress_with_range_coder(client);
+		writeflnlog("ENet version: %s", enet_linked_version());
 	}
 	int Connect(string addr, ushort port, uint connect_time, uint connection_byte){
 		if(!client)

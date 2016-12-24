@@ -134,7 +134,7 @@ struct ScriptLib_t{
 			default:break;
 		}
 		if(intr_func_table.length){
-			if(SLns_add_intrin_fun_table(ns, intr_func_table.ptr, null))
+			if(SLns_add_intrin_fun_table(ns, intr_func_table.ptr, cast(const(char*))toStringz(nsname)))
 				writeflnerr("Couldn't add intrinsic function table for script library \"%s\"", typename);
 		}
 		version(GNU){
