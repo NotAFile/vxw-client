@@ -64,6 +64,13 @@ immutable bool Enable_Object_Model_Modification=true;
 
 float Current_Blur_Amount=0.0, BlurAmount=0.0, BaseBlurAmount=0.0, BlurAmountDecay=.3;
 float Current_Shake_Amount=0.0, ShakeAmount=0.0, BaseShakeAmount=0.0, ShakeAmountDecay=1.5;
+//Opt-in for windows due to a bug (unexplained segfaults when doing valid memory accesses in the smoke renderer)
+version(Windows){
+	bool Smoke_Enabled=false;
+}
+else{
+	bool Smoke_Enabled=true;
+}
 
 ubyte MiniMapZPos=250, InvisibleZPos=0, StartZPos=1;
 
@@ -605,7 +612,7 @@ void Render_Screen(){
 					if(LocalPlayerScoping()){
 						if(ProtocolBuiltin_ScopePicture){
 							auto res=Get_Player_Scope(LocalPlayerID);
-							auto scope_pic=Renderer_DrawRoundZoomedIn(&res.pos, &res.rot, ProtocolBuiltin_ScopePicture, 1.1, 1.1);
+							auto scope_pic=Renderer_DrawRoundZoomedIn(&res.pos, &res.rot, ProtocolBuiltin_ScopePicture, 1.8, 1.8);
 							MenuElement_t *e=ProtocolBuiltin_ScopePicture;
 							uint[2] size=[scope_pic.scope_texture_width, scope_pic.scope_texture_height];
 							Renderer_Blit2D(scope_pic.scope_texture, &size, &scope_pic.dstrect, 255, null, &scope_pic.srcrect);
@@ -848,7 +855,13 @@ auto Get_Player_Scope(uint player_id){
 	Result_t result;
 	Sprite_t spr=Get_Player_Attached_Sprites(player_id)[0];
 	result.rot=Vector3_t(spr.rhe-3.0, spr.rti, spr.rst);
-	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, Vector3_t(spr.model.xsize/2.0-.5, -.3, spr.model.zpivot)));
+	float xoffset=spr.model.xsize/2.0-.5;
+	Item_t *item=Players[player_id].Equipped_Item();
+	auto current_tick=SDL_GetTicks();
+	/*if(!item.Reloading && item.amount1 && Players[player_id].left_click){
+		xoffset-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*-item.last_recoil*.1;
+	}*/
+	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, Vector3_t(xoffset, -.3, spr.model.zpivot)));
 	if(Voxel_IsSolid(result.pos.x, result.pos.y, result.pos.z)){
 		if(result.pos.y>=63.0)
 			result.pos.y=62.99;
@@ -871,24 +884,17 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 		pos=CameraPos;
 	}
 	item_offset=Vector3_t(.8, 0.0, .4);
-	uint current_tick=SDL_GetTicks();
+	auto current_tick=SDL_GetTicks();
 	Item_t *item=&Players[player_id].items[Players[player_id].item];
 	if(player_id==LocalPlayerID && ItemTypes[item.type].is_weapon){
 		if(LocalPlayerScoping()){
 			item_offset.z-=.3;
 			item_offset.x-=.2;
 		}
-		if(Players[player_id].left_click && item.amount1){
-			item_offset.x-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*-item.last_recoil*.1;
+		if(current_tick-item.use_timer<ItemTypes[item.type].use_delay){
+			item_offset.x-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), .7)*.1;
 		}
 	}
-	/*if(player_id==LocalPlayerID && false){
-		item_offset=Vector3_t(2.0, -.4, .4);
-		pos=CameraPos;
-	}
-	else{
-		item_offset=Vector3_t(.8, 0.0, .4);
-	}*/
 	//I have no idea what I'm rotating around which axis or idk, actually I am only supposed to need one single rotation
 	//But this works (makes the item appear in front of the player with an offset of item_offset, considering his rotation)
 	spr.rst=rot.z*0.0; spr.rhe=rot.x; spr.rti=rot.y;
@@ -897,15 +903,15 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	spr.xdensity=.04; spr.ydensity=.04; spr.zdensity=.04;
 	//BIG WIP
 	if(ItemTypes[item.type].is_weapon){
-		if(!item.Reloading && item.amount1){
+		if(!item.Reloading){
 			if(current_tick-item.use_timer<ItemTypes[item.type].use_delay)
-				spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*-item.last_recoil*0.0;
+				spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), .7)*sgn(item.last_recoil)*.025;
 		}
 	}
 	else
-	if(Players[player_id].left_click && !item.Reloading){
+	if(!item.Reloading){
 		if(current_tick-item.use_timer<ItemTypes[item.type].use_delay){
-			spr.rhe+=tofloat(current_tick-item.use_timer)*45.0/tofloat(ItemTypes[item.type].use_delay)*(ItemTypes[item.type].is_weapon ? 1.0 : -1.0);
+			spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), .7)*sgn(item.last_recoil)*.025;
 		}
 	}
 	if(ItemTypes[item.type].color_mod==true)

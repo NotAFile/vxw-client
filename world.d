@@ -91,6 +91,9 @@ struct Player_t{
 			return null;
 		return &Teams[team];
 	}
+	Item_t *Equipped_Item(){
+		return &items[item];
+	}
 	void Spawn(Vector3_t location, TeamID_t spteam){
 		if(player_id==LocalPlayerID)
 			BlurAmount=0.0;
@@ -328,19 +331,17 @@ struct Player_t{
 	void Use_Item(){
 		uint current_tick=SDL_GetTicks();
 		Item_t *current_item=&items[item];
+		ItemType_t *itemtype=&ItemTypes[current_item.type];
 		int timediff=current_tick-current_item.use_timer;
+		if(timediff<ItemTypes[current_item.type].use_delay || current_item.Reloading || (!current_item.amount1 && itemtype.maxamount1))
+			return;
 		if(toint(timediff)<toint(ItemTypes[current_item.type].use_delay)-toint(Get_Ping())-toint(10)){
 			Update_Position_Data(true);
 		}
-		if(timediff<ItemTypes[current_item.type].use_delay)
-			return;
 		current_item.use_timer=current_tick;
-		ItemType_t *itemtype=&ItemTypes[current_item.type];
-		if(current_item.Reloading || (!current_item.amount1 && itemtype.maxamount1))
-			return;
 		
 		Vector3_t usepos, usedir;
-		if(player_id==LocalPlayerID && MouseRightClick && itemtype.is_weapon){
+		if(player_id==LocalPlayerID && MouseRightClick && itemtype.Is_Gun()){
 			auto scp=Get_Player_Scope(player_id);
 			usepos=scp.pos; usedir=scp.rot.RotationAsDirection();
 		}
@@ -473,7 +474,7 @@ struct Player_t{
 			current_item.use_timer=current_tick;
 		float xrecoil=(itemtype.recoil_xc+itemtype.recoil_xm*uniform01())*((uniform!int()&1)*2-1);
 		float yrecoil=itemtype.recoil_yc+itemtype.recoil_ym*uniform01()*((uniform!int()&1)*2-1);
-		if(player_id==LocalPlayerID){
+		if(player_id==LocalPlayerID && itemtype.is_weapon){
 			MouseRot.y+=yrecoil;
 			MouseRot.x+=xrecoil;
 		}
@@ -673,7 +674,7 @@ struct Item_t{
 float delta_time;
 uint __Block_Damage_Check_Index=0;
 immutable uint __Block_Damage_ChecksPerFrame=32;
-immutable uint __BlockDamage_HealTimer=1000*5;
+immutable uint __BlockDamage_HealDelay=1000*5;
 immutable ubyte __BlockDamage_HealAmount=16;
 void Update_World(){
 	uint Current_Tick=SDL_GetTicks();
@@ -688,6 +689,7 @@ void Update_World(){
 		p.Update();
 	foreach(ref o; Objects)
 		o.Update();
+	Current_Tick=SDL_GetTicks();
 	if(BlockDamage.length){
 		bool __dmgblock_removed=false;
 		while(!__dmgblock_removed && BlockDamage.length){
@@ -698,7 +700,7 @@ void Update_World(){
 				ind2=hashes.length;
 			foreach(ref hash; hashes[__Block_Damage_Check_Index..ind2]){
 				auto bdmg=&BlockDamage[hash];
-				if(Current_Tick-bdmg.timer>__BlockDamage_HealTimer){
+				if(Current_Tick-bdmg.timer>__BlockDamage_HealDelay){
 					bdmg.timer=Current_Tick;
 					if(bdmg.Heal(__BlockDamage_HealAmount)){			
 						BlockDamage.remove(hash);
@@ -870,7 +872,7 @@ void Break_Block(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, u
 	if(!break_type){
 		uint col=Voxel_GetColor(xpos, ypos, zpos);
 		uint x, y, z;
-		uint particle_amount=touint(1.0/BlockBreakParticleSize)+1;
+		uint particle_amount=touint(1.0/BlockBreakParticleSize*.5)+1;
 		for(x=0; x<particle_amount; x++){
 			for(y=0; y<particle_amount; y++){
 				for(z=0; z<particle_amount; z++){

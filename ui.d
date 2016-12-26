@@ -326,6 +326,15 @@ void Check_Input(){
 						 }
 						break;
 					}
+					case SDLK_o:{
+						if(!TypingChat){
+							if(KeyState[SDL_SCANCODE_LCTRL]){
+								Smoke_Enabled=!Smoke_Enabled;
+								WriteMsg(format("[GAME]Set smoke to %s", Smoke_Enabled ? "ON" : "OFF"), Font_SpecialColor);
+							}
+						}
+						break;
+					}
 					default:{break;}
 				}
 				if(number_key_pressed>0 && Joined_Game() && !TypingChat){
@@ -554,7 +563,7 @@ void Render_HUD(){
 				if(ProtocolBuiltin_AmmoCounterBG){
 					MenuElement_draw(ProtocolBuiltin_AmmoCounterBG);
 				}
-				if(ProtocolBuiltin_AmmoCounterBullet){
+				if(ProtocolBuiltin_AmmoCounterBullet && !item.Reloading){
 					MenuElement_t *e=ProtocolBuiltin_AmmoCounterBullet;
 					int xsizechange=0, ysizechange=0;
 					if(e.xsize>=e.ysize){

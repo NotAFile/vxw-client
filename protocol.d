@@ -397,8 +397,9 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 							}
 						}
 						uint player_id=b-1;
-						if(player_id!=LocalPlayerID)
+						if(player_id!=LocalPlayerID){
 							Players[player_id].pos=Vector3_t(pos);
+						}
 					}
 				}
 				break;
@@ -478,9 +479,14 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				type.power=packet.power;
 				type.model_id=packet.model_id;
 				if(packet.bullet_model_id!=VoidModelID){
-					type.bullet_sprite.model=Mod_Models[packet.bullet_model_id];
-					type.bullet_sprite.xdensity=1.0/32.0; type.bullet_sprite.ydensity=1.0/32.0; type.bullet_sprite.zdensity=1.0/32.0;
-					type.bullet_sprite.color_mod=0; type.bullet_sprite.replace_black=0;
+					if(packet.bullet_model_id<Mod_Models.length){
+						type.bullet_sprite.model=Mod_Models[packet.bullet_model_id];
+						type.bullet_sprite.xdensity=1.0/32.0; type.bullet_sprite.ydensity=1.0/32.0; type.bullet_sprite.zdensity=1.0/32.0;
+						type.bullet_sprite.color_mod=0; type.bullet_sprite.replace_black=0;
+					}
+					else{
+						writeflnerr("Received invalid bullet model id %s %s", packet.bullet_model_id, Mod_Models.length);
+					}
 				}
 				else{
 					type.bullet_sprite.model=null;
