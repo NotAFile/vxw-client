@@ -293,6 +293,27 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 	for(uint p=0; p<Players.length; p++){
 		Render_Player(p);
 	}
+	
+	if(ProtocolBuiltin_BlockBuildWireframe) {
+		ItemType_t *type = &ItemTypes[Players[LocalPlayerID].Equipped_Item().type];
+		if(type.block_damage_range || (type.is_weapon && !type.Is_Gun())){
+			auto rc=RayCast(Players[LocalPlayerID].CameraPos(), Players[LocalPlayerID].dir, ItemTypes[Players[LocalPlayerID].Equipped_Item().type].block_damage_range);
+			Sprite_t spr;
+			spr.rhe=0.0; spr.rti=0.0; spr.rst=0.0;
+			if(type.block_damage_range) {
+				spr.xpos=rc.bx; spr.ypos=rc.by; spr.zpos=rc.bz;
+			} else {
+				spr.xpos=rc.x; spr.ypos=rc.y; spr.zpos=rc.z;
+			}
+			spr.xdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.xsize; spr.ydensity=1.0/ProtocolBuiltin_BlockBuildWireframe.ysize;
+			spr.zdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.zsize;
+			spr.color_mod=(Players[LocalPlayerID].color&0x00ffffff) | 0xff000000;
+			spr.replace_black=spr.color_mod;
+			spr.model=ProtocolBuiltin_BlockBuildWireframe;
+			Renderer_DrawWireframe(&spr);
+		}
+	}
+	
 	RendererParticleSize_t particle_w=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].h,
 	particle_l=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].l;
 	foreach(ref bdmg; BlockDamage){
@@ -549,7 +570,7 @@ void Render_Screen(){
 		}
 		
 		if(Render_Local_Player){
-			float mousexvel=MouseMovedX*.5*MouseAccuracyConst*X_FOV/90.0, mouseyvel=MouseMovedY*.5*MouseAccuracyConst*Y_FOV/90.0;
+			float mousexvel=MouseMovedX*MouseAccuracy*X_FOV/90.0, mouseyvel=MouseMovedY*MouseAccuracy*Y_FOV/90.0;
 			if(!Menu_Mode){
 				if(Players[LocalPlayerID].items.length){
 					if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon){
@@ -571,8 +592,10 @@ void Render_Screen(){
 				MouseRot.y=-89.0;
 			if(MouseRot.y>89.0)
 				MouseRot.y=89.0;
-			CameraPos=Players[LocalPlayerID].pos;
+			CameraPos = Players[LocalPlayerID].CameraPos();
 			CameraRot=MouseRot;
+			MouseMovedX = 0;
+			MouseMovedY = 0;
 		}
 		else{
 			MouseRot.x+=MouseMovedX*.7; MouseRot.y+=MouseMovedY*.5;
@@ -583,6 +606,8 @@ void Render_Screen(){
 			CameraPos.y=-15.0;
 			Vector3_t crot=MouseRot*.05+Vector3_t(0.0, 45.0, 0.0);
 			CameraRot=crot;
+			MouseMovedX = 0;
+			MouseMovedY = 0;
 		}
 		if(Current_Shake_Amount>0.0){
 			Vector3_t shake_cam=CameraPos;
@@ -610,7 +635,7 @@ void Render_Screen(){
 			{
 				if(Render_Local_Player){
 					if(LocalPlayerScoping()){
-						if(ProtocolBuiltin_ScopePicture){
+						/*if(ProtocolBuiltin_ScopePicture){
 							auto res=Get_Player_Scope(LocalPlayerID);
 							auto scope_pic=Renderer_DrawRoundZoomedIn(&res.pos, &res.rot, ProtocolBuiltin_ScopePicture, 1.8, 1.8);
 							MenuElement_t *e=ProtocolBuiltin_ScopePicture;
@@ -618,7 +643,7 @@ void Render_Screen(){
 							Renderer_Blit2D(scope_pic.scope_texture, &size, &scope_pic.dstrect, 255, null, &scope_pic.srcrect);
 							size=[Mod_Picture_Sizes[e.picture_index][0], Mod_Picture_Sizes[e.picture_index][0]];
 							Renderer_Blit2D(Mod_Pictures[e.picture_index], &size, &scope_pic.dstrect);
-						}
+						}*/
 					}
 				}
 			}
@@ -918,26 +943,6 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 		spr.color_mod=(Players[player_id].color&0x00ffffff) | 0xff000000;
 	spr.model=Mod_Models[ItemTypes[Players[player_id].items[Players[player_id].item].type].model_id];
 	sprarr~=spr;
-	if(player_id==LocalPlayerID && ProtocolBuiltin_BlockBuildWireframe){
-		if(ItemTypes[item.type].block_damage_range){
-			auto rc=RayCast(pos, Players[player_id].dir, ItemTypes[item.type].block_damage_range);
-			if(rc.collside){
-				Vector3_t *dir=&Players[player_id].dir;
-				Vector3_t wfpos=Vector3_t(rc.x, rc.y, rc.z);
-				immutable float[3][] vec=[[sgn(dir.x), 0.0f, 0.0f], [0.0f, sgn(dir.y), 0.0f], [0.0f, 0.0f, sgn(dir.z)]];
-				wfpos-=vec[rc.collside-1];
-				wfpos+=.5;
-				spr.rhe=0.0; spr.rti=0.0; spr.rst=0.0;
-				spr.xpos=wfpos.x; spr.ypos=wfpos.y; spr.zpos=wfpos.z;
-				spr.xdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.xsize; spr.ydensity=1.0/ProtocolBuiltin_BlockBuildWireframe.ysize;
-				spr.zdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.zsize;
-				spr.color_mod=(Players[player_id].color&0x00ffffff) | 0xff000000;
-				spr.replace_black=spr.color_mod;
-				spr.model=ProtocolBuiltin_BlockBuildWireframe;
-				sprarr~=spr;
-			}
-		}
-	}
 	return sprarr;
 }
 
@@ -1229,7 +1234,7 @@ Vector3_t Get_Absolute_Sprite_Coord(Sprite_t *spr, Vector3_t coord){
 }
 
 bool Sprite_Visible(Sprite_t *spr){
-	if(!Do_Sprite_Visibility_Checks)
+	/*if(!Do_Sprite_Visibility_Checks)
 		return true;
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
@@ -1257,7 +1262,7 @@ bool Sprite_Visible(Sprite_t *spr){
 		if(screenx<0 || screeny<0 || screenx>=ScreenXSize || ScreenYSize)
 			continue;*/
 		//Only after I fixed raycasting code
-		Vector3_t vpos=Vector3_t(fnx, fny, fnz);
+		/*Vector3_t vpos=Vector3_t(fnx, fny, fnz);
 		Vector3_t vdist=vpos-CameraPos;
 		if(vdist.length>Current_Visibility_Range)
 			continue;
@@ -1266,7 +1271,8 @@ bool Sprite_Visible(Sprite_t *spr){
 			return true;
 		return true;
 	}
-	return false;
+	return false;*/
+	return true;
 }
 
 //Ok yeah, this code sux

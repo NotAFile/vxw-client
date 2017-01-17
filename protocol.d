@@ -407,16 +407,18 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case PlayerKeyEventPacketID:{
 				auto packet=UnpackPacketToStruct!(PlayerKeyEventPacketLayout)(PacketData);
 				ushort keys=packet.keys;
-				Player_t *plr=&Players[packet.player_id];
-				plr.Go_Back=cast(bool)(keys&1);
-				plr.Go_Forwards=cast(bool)(keys&2);
-				plr.Go_Left=cast(bool)(keys&4);
-				plr.Go_Right=cast(bool)(keys&8);
-				plr.Jump=cast(bool)(keys&16);
-				plr.Crouch=cast(bool)(keys&32);
-				plr.Use_Object=cast(bool)(keys&64);
-				plr.Sprint=cast(bool)(keys&2048);
-				plr.KeysChanged=true;
+				if(packet.player_id!=LocalPlayerID) {
+					Player_t *plr=&Players[packet.player_id];
+					plr.Go_Back=cast(bool)(keys&1);
+					plr.Go_Forwards=cast(bool)(keys&2);
+					plr.Go_Left=cast(bool)(keys&4);
+					plr.Go_Right=cast(bool)(keys&8);
+					plr.Jump=cast(bool)(keys&16);
+					plr.Set_Crouch(cast(bool)(keys&32));
+					plr.Use_Object=cast(bool)(keys&64);
+					plr.Sprint=cast(bool)(keys&2048);
+					plr.KeysChanged=true;
+				}
 				break;
 			}
 			case BindModelPacketID:{

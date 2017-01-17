@@ -1,3 +1,5 @@
+import core.stdc.stdio;
+
 version(LDC){
 	import ldc_stdlib;
 }
@@ -17,7 +19,7 @@ import gfx;
 import ui;
 import protocol;
 
-float Gravity=9.81;
+float Gravity=9.81/0.64;
 float AirFriction=.24;
 float GroundFriction=2.0;
 float WaterFriction=2.5;
@@ -33,10 +35,14 @@ Vector3_t Sun_Vector, Sun_Position;
 uint Base_Visibility_Range=128, Current_Visibility_Range=128;
 uint Base_Fog_Color=0x0000ffff, Current_Fog_Color=0x0000ffff;
 
-immutable float Player_Stand_Size=2.5;
-immutable float Player_Crouch_Size=1.5;
+immutable float Player_Stand_Size=2.8;
+immutable float Player_Stand_Size_Eye=2.3;
+immutable float Player_Crouch_Size=1.8;
+immutable float Player_Crouch_Size_Eye=1.3;
 
 Vector3_t Wind_Direction;
+
+immutable uint ticks_ps = 60;
 
 struct PlayerModel_t{
 	ubyte model_id;
@@ -44,6 +50,77 @@ struct PlayerModel_t{
 	bool FirstPersonModel, Rotate;
 	float WalkRotate;
 }
+
+struct AABB_t {
+	float min_x = 0.0F, min_y = 0.0F, min_z = 0.0F;
+	float max_x = 0.0F, max_y = 0.0F, max_z = 0.0F;
+	
+	void set_center(float x, float y, float z) {
+		float size_x = max_x-min_x;
+		float size_y = max_y-min_y;
+		float size_z = max_z-min_z;
+		min_x = x-size_x/2;
+		min_y = y-size_y/2;
+		min_z = z-size_z/2;
+		max_x = x+size_x/2;
+		max_y = y+size_y/2;
+		max_z = z+size_z/2;
+	}
+	
+	void set_bottom_center(float x, float y, float z) {
+		float size_x = max_x-min_x;
+		float size_y = max_y-min_y;
+		float size_z = max_z-min_z;
+		min_x = x-size_x/2;
+		min_y = y-size_y;
+		min_z = z-size_z/2;
+		max_x = x+size_x/2;
+		max_y = y;
+		max_z = z+size_z/2;
+	}
+	
+	void set_size(float x, float y, float z) {
+		max_x = min_x+x;
+		max_y = min_y+y;
+		max_z = min_z+z;
+	}
+	
+	bool intersection(AABB_t* b) {
+		return (min_x <= b.max_x && b.min_x <= max_x) && (min_y <= b.max_y && b.min_y <= max_y) && (min_z <= b.max_z && b.min_z <= max_z);
+	}
+	
+	bool intersection_terrain() {
+		AABB_t terrain_cube;
+
+		int min_x = cast(int)floor(min_x);
+		int min_y = cast(int)floor(min_y);
+		int min_z = cast(int)floor(min_z);
+
+		int max_x = cast(int)ceil(max_x);
+		int max_y = cast(int)ceil(max_y);
+		int max_z = cast(int)ceil(max_z);
+
+		for(int x=min_x;x<max_x;x++) {
+			for(int z=min_z;z<max_z;z++) {
+				for(int y=min_y;y<max_y;y++) {
+					if(x<0 || z<0 || x>=MapXSize || z>=MapZSize || y>=MapYSize || (y!=MapYSize-1 && Voxel_IsSolid(x,y,z))) {
+						terrain_cube.min_x = x;
+						terrain_cube.min_y = y;
+						terrain_cube.min_z = z;
+						terrain_cube.max_x = x+1;
+						terrain_cube.max_y = y+1;
+						terrain_cube.max_z = z+1;
+						if(intersection(&terrain_cube)) {
+							return true;
+						}
+					}
+				}
+			}
+		}
+		return false;
+	}
+}
+
 
 struct Player_t{
 	PlayerID_t player_id;
@@ -54,11 +131,11 @@ struct Player_t{
 	
 	PlayerModel_t[] models;
 	
-	Vector3_t pos, vel, acl;
+	Vector3_t pos, vel;
 	Vector3_t dir;
 	TeamID_t team;
 	bool Go_Forwards, Go_Back, Go_Left, Go_Right;
-	bool Jump, Crouch, Sprint;
+	bool Jump, LastJump, Crouch, TryUnCrouch, Sprint;
 	bool Use_Object;
 	bool KeysChanged;
 	bool[3] CollidingSides;
@@ -75,6 +152,12 @@ struct Player_t{
 	
 	float Walk_Forwards_Timer, Walk_Sidewards_Timer;
 	
+	bool airborne, airborne_old;
+	float airborne_start = 0.0F;
+	uint physics_start;
+	uint ticks = 0;
+	uint last_climb = 0;
+	
 	void Init(string initname, PlayerID_t initplayer_id){
 		name=initname;
 		player_id=initplayer_id;
@@ -82,7 +165,7 @@ struct Player_t{
 		Spawned=false;
 		InGame=true;
 		KeysChanged=false;
-		pos=Vector3_t(0.0); vel=Vector3_t(0.0); acl=Vector3_t(0.0); dir=Vector3_t(1.0, 0.0, 0.0);
+		pos=Vector3_t(0.0); vel=Vector3_t(0.0); dir=Vector3_t(1.0, 0.0, 0.0);
 		Model=-1;
 		Gun_Timer=0;
 	}
@@ -109,6 +192,7 @@ struct Player_t{
 		Walk_Forwards_Timer=0.0;
 		Walk_Sidewards_Timer=0.0;
 	}
+	
 	void On_Disconnect(){
 		InGame=false;
 		Spawned=false;
@@ -116,217 +200,195 @@ struct Player_t{
 			Players.length--;
 		}
 	}
+	
 	void Update(){
-		Update_Physics();
-		if(left_click && Spawned){
-			if(player_id!=LocalPlayerID || !Menu_Mode)
-				Use_Item();
+		if(Spawned) {
+			uint ticks_should_have = cast(uint)floor((SDL_GetTicks()-physics_start)/1000.0F*ticks_ps);
+			if(ticks<ticks_should_have) {
+				while(ticks<ticks_should_have) {
+					Update_Physics();
+				}
+				if(player_id==LocalPlayerID) {
+					Update_Position_Data();
+				}
+			}
+			if(left_click){
+				if(player_id!=LocalPlayerID || !Menu_Mode)
+					Use_Item();
+			}
+		} else {
+			physics_start = SDL_GetTicks();
 		}
 	}
-	void Update_Physics(){
-		if(!Spawned)
-			return;
-		acl=Vector3_t(0.0);
-		Vector3_t acdir=dir.filter(1, 0, 1);
-		float friction=WorldSpeed;
-		float walk_speed=!Sprint ? PlayerWalkSpeed : PlayerSprintSpeed;
-		if(CollidingSides[1]){
-			if(Go_Forwards || Go_Back){
-				acl+=acdir*((!Go_Back) ? walk_speed : -walk_speed);
-			}
-			if(Go_Left || Go_Right){
-				acl+=acdir.rotate(Vector3_t(0.0, Go_Left ? 90.0 : -90.0, 0.0))*walk_speed;
-			}
-			if(Jump){
-				acl.y-=PlayerJumpPower;
-			}
-			friction*=GroundFriction;
+	
+	Vector3_t CameraPos() {
+		Vector3_t ret = Vector3_t(pos);
+		ret.y -= Crouch?Player_Crouch_Size_Eye:Player_Stand_Size_Eye;
+		if(SDL_GetTicks()-last_climb<150) {
+			ret.y += 1.0F-(SDL_GetTicks()-last_climb)/150.0F;
 		}
-		else{
-			acl.y+=WorldSpeed*Gravity;
-			friction*=AirFriction;
-		}
-		if(In_Water)
-			friction*=WaterFriction;
-		if(Crouch){
-			friction*=CrouchFriction;
-		}
-		if(KeysChanged)
-			KeysChanged=false;
-		vel+=acl*WorldSpeed*10.0;
-		vel/=1.0+friction;
-		Vector3_t delta=vel;
-		if(CollidingSides[0] && !vel.x){
-			delta.x=ColVel.x;
-		}
-		if(CollidingSides[1] && !vel.y){
-			delta.y=ColVel.y;
-		}
-		if(CollidingSides[2] && !vel.z){
-			delta.z=ColVel.z;
-		}
-		CheckCollisionReturn_t coll;
-		Vector3_t newpos=pos+delta*WorldSpeed;
-		if(vel.length<1.0 || 1)
-			coll=Check_Collisions_norc(newpos);
-		else
-			coll=Check_Collisions_rc(newpos);
-		bool Climbed=false;
-		if(coll.Collision){
-			if((coll.Sides[0] || coll.Sides[2]) && !Crouch){
-				Vector3_t climbpos=pos+delta.filter(true, false, true)*WorldSpeed;
-				if(In_Water() && !Crouch)
-					climbpos.y-=1.0;
-				climbpos.y-=1.0;
-				auto climbcoll=Check_Collisions_norc(climbpos);
-				if(!climbcoll.Collision){
-					float delta_y=pos.y-climbpos.y;
-					float ny=climbpos.y;
-					while(Collides_At(pos.x, ny+delta_y, pos.z) && delta_y>.005){
-						delta_y*=.5f;
-					}
-					pos.y=ny+delta_y;
-					Climbed=true;
-				}
-			}
-			if(!Climbed){
-				CollidingSides=coll.Sides;
-				if(coll.Sides[1]){
-					//pos.y=coll.collpos.y-height-.01;
-				}
-				if(CollidingSides[0] && vel.x){
-					ColVel.x=vel.x;
-				}
-				if(CollidingSides[1] && vel.y){
-					ColVel.y=vel.y;
-				}
-				if(CollidingSides[2] && vel.z){
-					ColVel.z=vel.z;
-				}
-				vel=vel.filter(!CollidingSides[0], !CollidingSides[1], !CollidingSides[2]);
-			}
-		}
-		CollidingSides=coll.Sides;
-		pos+=vel*WorldSpeed;
-		//Note: I'm using a "dirty" trick here. Of course, the optimal way would be using something like a property
-		//But these are such scrap on D :S (damn it D devs, when will you make proper properties at last!)
-		stood_on_obj=standing_on_obj;
-		standing_on_obj=Standing_On_Object();
-		if(standing_on_obj){
-			pos+=standing_on_obj.vel*WorldSpeed;
-		}
-		else{
-			if(stood_on_obj)
-				vel+=stood_on_obj.vel;
-		}
-		if(dir.length){
-			float l=vel.filter(true, false, true).dot(dir.filter(true, false, true))*WorldSpeed*4.0;
-			if(fabs(l)>.00001)
-				Walk_Forwards_Timer+=l;
-			else
-				Walk_Forwards_Timer=0.0;
-			l=vel.filter(true, false, true).dot(dir.rotate_raw(Vector3_t(0.0, 90.0, 0.0)).filter(true, false, true))*WorldSpeed*4.0;
-			if(fabs(l)>.00001)
-				Walk_Sidewards_Timer+=l;
-			else
-				Walk_Sidewards_Timer=0.0;
-		}
-		else{
-			Walk_Forwards_Timer=0.0; Walk_Sidewards_Timer=0.0;
-		}
-		if(Climbed)
-			vel*=.1;
-		if(player_id==LocalPlayerID)
-			Update_Position_Data();
+		return ret;
 	}
-	bool Collides_At(T1, T2, T3)(T1 x, T2 y, T3 z){
-		bool coll=false;
-		/*int upx=(x-.45), upz=(z-.45);
-		int lpx=(x+.45), lpz=(z+.45);*/
-		immutable stepsize=.25;
-		for(float py=y; py<y+height; py+=stepsize){
-			if(Voxel_Collides(x, py, z)){
-				return true;
+	
+	void Update_Physics() {
+		float dt = 1.0F/(cast(float)ticks_ps);
+		AABB_t player_aabb;
+		
+		if(Crouch && TryUnCrouch) {
+			player_aabb.set_size(0.75F,Player_Stand_Size,0.75F);
+			player_aabb.set_bottom_center(pos.x,pos.y,pos.z);
+			if(!player_aabb.intersection_terrain()) {
+				Crouch = TryUnCrouch = false;
+			}
+			player_aabb.set_bottom_center(pos.x,pos.y+0.9F,pos.z);
+			if(!player_aabb.intersection_terrain()) {
+				pos.y += 0.9F;
+				Crouch = TryUnCrouch = false;
 			}
 		}
-		return false;
-	}
-	float Get_Collision_MinY(T1, T2, T3)(T1 x, T2 y, T3 z){
-		bool coll=false;
-		immutable stepsize=.25;
-		for(float py=y; py<y+height; py+=stepsize){
-			if(Voxel_Collides(x, py, z)){
-				return CollidingVoxel_GetMinY(x, py, z);
-			}
+		
+		player_aabb.set_size(0.75F,Crouch?Player_Crouch_Size:Player_Stand_Size,0.75F);
+		
+		player_aabb.set_bottom_center(pos.x,pos.y+vel.y*dt,pos.z);
+		if(!player_aabb.intersection_terrain()) {
+			pos.y += vel.y*dt;
+			vel.y += dt*Gravity*2.0F;
+		} else {
+			vel.y = 0.0F;
 		}
-		return false;
-	}
-	//Works more or less
-	CheckCollisionReturn_t Check_Collisions_norc(Vector3_t newpos){
-		if(!Collides_At(newpos.x, newpos.y, newpos.z))
-			return CheckCollisionReturn_t(Vector3_t(0.0), 0);
-		bool[3] collsides=[false, false, false];
-		Vector3_t collpos=pos;
-		if(Collides_At(newpos.x, pos.y, pos.z)){
-			collsides[0]=true;
-			collpos.x=pos.x+(cast(float)(vel.x>0.0));
-		}
-		if(Collides_At(pos.x, newpos.y, pos.z)){
-			collsides[1]=true;
-			float delta_y=newpos.y-pos.y;
-			float ny=pos.y;
-			while(Collides_At(pos.x, ny, pos.z) && fabs(delta_y)>.05){
-				delta_y*=.5f;
-				ny=pos.y+delta_y;
-			}
-			//collpos.y=pos.y+(cast(float)(vel.y>0.0));
-			//collpos.y=Get_Collision_MinY(pos.x, newpos.y, pos.z);
-		}
-		if(Collides_At(pos.x, pos.y, newpos.z)){
-			collsides[2]=true;
-			collpos.z=pos.z+(cast(float)(vel.z>0.0));
-		}
-		return CheckCollisionReturn_t(collpos, collsides, collsides[0] || collsides[1] || collsides[2]);
-	}
-	//WIP (careful: works with player's velocity values)
-	CheckCollisionReturn_t Check_Collisions_rc(Vector3_t newpos){
-		Vector3_t nvel=vel.abs;
-		int x=cast(int)pos.x, y=cast(int)pos.y, z=cast(int)pos.z;
-		int sx=x, sy=y, sz=z;
-		int dstx=cast(int)(newpos.x), dsty=cast(int)(newpos.y), dstz=cast(int)(newpos.z);
-		uint opsidex=cast(uint)(pos.x>0.0), opsidey=cast(uint)(pos.y>0.0), opsidez=cast(uint)(pos.z>0.0);
-		int xsgn=cast(int)sgn(vel.x), ysgn=cast(int)sgn(vel.y), zsgn=cast(int)sgn(vel.z);
-		//DDA physics "raycast"
-		bool[3] collsides=[false, false, false];
-		while(x!=dstx && y!=dsty && z!=dstz){
-			float xsd=(cast(float)(x+opsidex)-pos.x)/nvel.x;
-			float ysd=(cast(float)(y+opsidey)-pos.y)/nvel.y;
-			float zsd=(cast(float)(z+opsidez)-pos.z)/nvel.z;
-			if(xsd<ysd){
-				if(xsd<zsd){
-					x+=xsgn;
-					collsides[0]=true;
-				}
-				else{
-					z+=zsgn;
-					collsides[2]=true;
+		
+		player_aabb.set_bottom_center(pos.x,pos.y+0.1F,pos.z);
+		airborne_old = airborne;
+		airborne = !player_aabb.intersection_terrain();
+		
+		if(airborne && !airborne_old) { //fall or jump start
+			airborne_start = pos.y;
+		} else {
+			if(!airborne && airborne_old) { //fall or jump end
+				float d = pos.y-airborne_start;
+				if(d>0.0F) {
+					printf("Fall distance: %f\n",d);
 				}
 			}
-			else{
-				if(ysd<zsd){
-					y+=ysgn;
-					collsides[1]=true;
-				}
-				else{
-					z+=zsgn;
-					collsides[2]=true;
+		}
+		
+		if(!airborne && Jump && !LastJump) {
+			vel.y = Crouch?-8.0F:-10.0F;
+			LastJump = true;
+		} else {
+			if(!Jump) {
+				LastJump = false;
+			}
+		}
+		
+		float max_speed = 7.5F;
+		if(airborne) {
+			max_speed *= 0.2F;
+		} else {
+			if(Crouch) {
+				max_speed *= 0.3F;
+			} else {
+				if(Sprint) {
+					max_speed *= 1.3F;
 				}
 			}
-			for(uint py=y; py<=y; y++)
-				if(Voxel_IsSolid(x, py, z))
-					break;
 		}
-		return CheckCollisionReturn_t(Vector3_t(x, y, z), collsides);
+		
+		float l2 = sqrt(dir.x*dir.x+dir.z*dir.z);
+		float d_x2 = dir.x/l2;
+		float d_z2 = dir.z/l2;
+		float x = 0.0F, z = 0.0F;
+		if(Go_Forwards) {
+			x += d_x2;
+			z += d_z2;
+		} else {
+			if(Go_Back) {
+				x -= d_x2;
+				z -= d_z2;
+			}
+		}
+		
+		if(Go_Left) {
+			x += d_z2;
+			z -= d_x2;
+		} else {
+			if(Go_Right) {
+				x -= d_z2;
+				z += d_x2;
+			}
+		}
+		
+		x *= 30.0F*dt;
+		z *= 30.0F*dt;
+		if((Go_Forwards || Go_Back) && (Go_Left || Go_Right)) {
+			x *= 1.4142F;
+			z *= 1.4142F;
+		}
+		
+		if((vel.x+x)*(vel.x+x)+(vel.z+z)*(vel.z+z)<=max_speed*max_speed) {
+			vel.x += x;
+			vel.z += z;
+		}
+		
+		if(vel.x*vel.x+vel.z*vel.z<0.02F) {
+			vel.x = vel.z = 0.0F;
+		}
+		
+		
+		if(!airborne && vel.x*vel.x+vel.z*vel.z>0.0F) {
+			float l = sqrt(vel.x*vel.x+vel.z*vel.z);
+			float d_x = vel.x/l;
+			float d_z = vel.z/l;
+			vel.x -= 1.3F*Gravity*d_x*dt;
+			vel.z -= 1.3F*Gravity*d_z*dt;
+		}
+		
+		bool blocked_in_x = false, blocked_in_z = false;
+		
+		//movement in x and y direction by velocity
+		player_aabb.set_bottom_center(pos.x+vel.x*dt,pos.y,pos.z);
+		if(player_aabb.intersection_terrain()) {
+			blocked_in_x = true;
+		}
+		player_aabb.set_bottom_center(pos.x,pos.y,pos.z+vel.z*dt);
+		if(player_aabb.intersection_terrain()) {
+			blocked_in_z = true;
+		}
+		  
+		if(!airborne && !Jump && Go_Forwards && !Go_Back && !Crouch && !TryUnCrouch && !Sprint) {
+			bool climb = false;
+			
+			player_aabb.set_bottom_center(pos.x+vel.x*dt,pos.y-1.0F,pos.z);
+			if(!player_aabb.intersection_terrain() && blocked_in_x) {
+				climb = true;
+				blocked_in_x = false;
+			}
+			
+			player_aabb.set_bottom_center(pos.x,pos.y-1.0F,pos.z+vel.z*dt);
+			if(!player_aabb.intersection_terrain() && blocked_in_z) {
+				climb = true;
+				blocked_in_z = false;
+			}
+			
+			if(climb) {
+				pos.y--;
+				last_climb = SDL_GetTicks();
+			}
+		}
+		
+		if(blocked_in_x) {
+			vel.x = 0.0F;
+		} else {
+			pos.x += vel.x*dt;
+		}
+		
+		if(blocked_in_z) {
+			vel.z = 0.0F;
+		} else {
+			pos.z += vel.z*dt;
+		}
+		
+		ticks++;
 	}
 	void Use_Item(){
 		uint current_tick=SDL_GetTicks();
@@ -346,15 +408,18 @@ struct Player_t{
 			usepos=scp.pos; usedir=scp.rot.RotationAsDirection();
 		}
 		else{
-			usepos=pos;
+			usepos=CameraPos();
 			usedir=dir;
 		}
 		Vector3_t spreadeddir;
-		float spreadfactor=itemtype.spread_c+itemtype.spread_m*uniform01();
-		spreadeddir=usedir*(1.0-spreadfactor)+Vector3_t(uniform01(), uniform01(), uniform01())*spreadfactor;
+		//float spreadfactor=itemtype.spread_c+itemtype.spread_m*uniform01();
+		//spreadeddir=usedir*(1.0-spreadfactor)+Vector3_t(uniform01(), uniform01(), uniform01())*spreadfactor;
+		spreadeddir = usedir;
 
 		float block_hit_dist=10e99;
 		Vector3_t block_hit_pos;
+		Vector3_t block_build_pos;
+		
 		if(itemtype.block_damage){
 			short range=itemtype.block_damage_range;
 			if(range<0)
@@ -363,6 +428,7 @@ struct Player_t{
 			if(rcp.collside){
 				block_hit_dist=rcp.colldist;
 				block_hit_pos=Vector3_t(rcp.x, rcp.y, rcp.z);
+				block_build_pos=Vector3_t(rcp.bx, rcp.by, rcp.bz);
 			}
 		}
 		float player_hit_dist=10e99;
@@ -507,14 +573,13 @@ struct Player_t{
 		return Voxel_IsWater(pos.x, pos.y+Player_Crouch_Size, pos.z);
 	}
 	void Set_Crouch(bool cr){
-		if(Crouch && !cr){
-			pos.y=pos.y+Player_Crouch_Size-Player_Stand_Size;
+		if(cr) {
+			Crouch = true;
+		} else {
+			if(Crouch) {
+				TryUnCrouch = true;
+			}
 		}
-		else
-		if(!Crouch && cr){
-			pos.y=pos.y+Player_Stand_Size-Player_Crouch_Size;
-		}
-		Crouch=cr;
 	}
 }
 
@@ -896,20 +961,55 @@ void Break_Block(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, u
 
 struct RayCastResult_t{
 	int x, y, z;
+	int bx, by, bz;
 	float colldist;
-	uint collside;
+	ubyte collside;
 }
 
 float rcsgn(float val){
-	if(val>0.0)
-		return 1.0;
-	if(val<0.0)
-		return -1.0;
-	return 1.0;
+	return val<0.0?-1.0:1.0;
 }
 
 RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
-	Vector3_t dst=pos+dir*length;
+	//naive approach (but still the best)
+	float dx = dir.x*0.01F;
+	float dy = dir.y*0.01F;
+	float dz = dir.z*0.01F;
+	
+	float x = pos.x;
+	float y = pos.y;
+	float z = pos.z;
+	
+	int rx, ry, rz;
+	int rx2, ry2, rz2;
+	
+	printf("start: %f %f %f\n",pos.x,pos.y,pos.z);
+	
+	int k;
+	//simple, yet accurate and powerful
+	for(k=0;k<2000;k++) {
+		if(Voxel_IsSolid(cast(int)floor(x),cast(int)floor(y),cast(int)floor(z))) {
+			rx = cast(int)floor(x);
+			ry = cast(int)floor(y);
+			rz = cast(int)floor(z);
+			break;
+		} else {
+			rx2 = cast(int)floor(x);
+			ry2 = cast(int)floor(y);
+			rz2 = cast(int)floor(z);
+		}
+		x += dx;
+		y += dy;
+		z += dz;
+	}
+	
+	printf("distance: %f coords: %f %f %f\n",k*0.01F,rx2,ry2,rz2);
+	
+	return RayCastResult_t(rx,ry,rz,rx2,ry2,rz2,0.5F,1);
+
+	//this is all bs and aint work correctly
+	
+	/*Vector3_t dst=pos+dir*length;
 	int x=cast(int)pos.x, y=cast(int)pos.y, z=cast(int)pos.z;
 	int dstx=cast(int)dst.x, dsty=cast(int)dst.y, dstz=cast(int)dst.z;
 	int opxd=cast(int)(dir.x>0.0), opyd=cast(int)(dir.y>0.0), opzd=cast(int)(dir.z>0.0);
@@ -962,7 +1062,7 @@ RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
 	}
 	if(!hit_voxel)
 		collside=0;
-	return RayCastResult_t(x, y, z, colldist, collside);
+	return RayCastResult_t(x, y, z, colldist, collside);*/
 }
 
 struct Object_t{

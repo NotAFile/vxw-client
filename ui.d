@@ -38,7 +38,7 @@ int MouseMovedX, MouseMovedY;
 bool MouseLeftClick, MouseRightClick;
 bool MouseLeftChanged, MouseRightChanged;
 
-immutable float MouseAccuracyConst=.75;
+float MouseAccuracy=0.075F;
 
 bool Render_MiniMap;
 
@@ -347,8 +347,8 @@ void Check_Input(){
 			}
 			case SDL_MOUSEMOTION:{
 				if(Lock_Mouse || Menu_Mode){
-					MouseMovedX=event.motion.xrel;
-					MouseMovedY=event.motion.yrel;
+					MouseMovedX += event.motion.xrel;
+					MouseMovedY += event.motion.yrel;
 				}
 				break;
 			}
@@ -455,11 +455,10 @@ void Check_Input(){
 					plr.Go_Left=cast(bool)(KeyPresses&4);
 					plr.Go_Right=cast(bool)(KeyPresses&8);
 					plr.Jump=cast(bool)(KeyPresses&16);
-					//plr.Crouch=cast(bool)(KeyPresses&32);
+					plr.Set_Crouch(cast(bool)(KeyPresses&32));
 					plr.Use_Object=cast(bool)(KeyPresses&64);
 					plr.Sprint=cast(bool)(KeyPresses&2048);
 					plr.KeysChanged=true;
-					plr.Set_Crouch(cast(bool)(KeyPresses&32));
 				}
 			}
 		}
