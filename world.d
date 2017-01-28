@@ -335,12 +335,17 @@ struct Player_t{
 		}
 		
 		
-		if(!airborne && vel.x*vel.x+vel.z*vel.z>0.0F) {
+		if(vel.x*vel.x+vel.z*vel.z>0.0F) {
 			float l = sqrt(vel.x*vel.x+vel.z*vel.z);
 			float d_x = vel.x/l;
 			float d_z = vel.z/l;
-			vel.x -= 1.3F*Gravity*d_x*dt;
-			vel.z -= 1.3F*Gravity*d_z*dt;
+			if((Go_Forwards || Go_Back || Go_Left || Go_Right)) {
+				vel.x -= 1.6F*Gravity*d_x*dt/(airborne?4:1);
+				vel.z -= 1.6F*Gravity*d_z*dt/(airborne?4:1);
+			} else {
+				vel.x -= 2.0F*Gravity*d_x*dt/(airborne?4:1);
+				vel.z -= 2.0F*Gravity*d_z*dt/(airborne?4:1);
+			}
 		}
 		
 		bool blocked_in_x = false, blocked_in_z = false;
@@ -355,7 +360,7 @@ struct Player_t{
 			blocked_in_z = true;
 		}
 		  
-		if(!airborne && !Jump && Go_Forwards && !Go_Back && !Crouch && !TryUnCrouch && !Sprint) {
+		if(!airborne && !Jump && !Crouch && !TryUnCrouch && !Sprint) {
 			bool climb = false;
 			
 			player_aabb.set_bottom_center(pos.x+vel.x*dt,pos.y-1.0F,pos.z);
