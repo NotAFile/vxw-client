@@ -402,9 +402,11 @@ struct Player_t{
 		int timediff=current_tick-current_item.use_timer;
 		if(timediff<ItemTypes[current_item.type].use_delay || current_item.Reloading || (!current_item.amount1 && itemtype.maxamount1))
 			return;
-		if(toint(timediff)<toint(ItemTypes[current_item.type].use_delay)-toint(Get_Ping())-toint(10)){
+		/*if(toint(timediff)<toint(ItemTypes[current_item.type].use_delay)-toint(Get_Ping())-toint(10)){
 			Update_Position_Data(true);
-		}
+		}*/
+		Update_Position_Data(true);
+		Update_Rotation_Data(true);
 		current_item.use_timer=current_tick;
 		
 		Vector3_t usepos, usedir;
@@ -433,7 +435,7 @@ struct Player_t{
 			if(rcp.collside){
 				block_hit_dist=rcp.colldist;
 				block_hit_pos=Vector3_t(rcp.x, rcp.y, rcp.z);
-				block_build_pos=Vector3_t(rcp.bx, rcp.by, rcp.bz);
+				block_build_pos=Vector3_t(rcp.x, rcp.y, rcp.z)-spreadeddir.sgn().filter(rcp.collside==1, rcp.collside==2, rcp.collside==3);
 			}
 		}
 		float player_hit_dist=10e99;
@@ -966,61 +968,24 @@ void Break_Block(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, u
 
 struct RayCastResult_t{
 	int x, y, z;
-	int bx, by, bz;
 	float colldist;
 	ubyte collside;
 }
 
 float rcsgn(float val){
-	return val<0.0?-1.0:1.0;
+	return sgn(val);
+	//return val<0.0?-1.0:1.0;
 }
 
+//No bytebit kys, if you're unhappy with the raycasting results, fix the code instead of adding some bs that won't work anyways
 RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
-	//naive approach (but still the best)
-	float dx = dir.x*0.01F;
-	float dy = dir.y*0.01F;
-	float dz = dir.z*0.01F;
-	
-	float x = pos.x;
-	float y = pos.y;
-	float z = pos.z;
-	
-	int rx, ry, rz;
-	int rx2, ry2, rz2;
-	
-	printf("start: %f %f %f\n",pos.x,pos.y,pos.z);
-	
-	int k;
-	//simple, yet accurate and powerful
-	for(k=0;k<2000;k++) {
-		if(Voxel_IsSolid(cast(int)floor(x),cast(int)floor(y),cast(int)floor(z))) {
-			rx = cast(int)floor(x);
-			ry = cast(int)floor(y);
-			rz = cast(int)floor(z);
-			break;
-		} else {
-			rx2 = cast(int)floor(x);
-			ry2 = cast(int)floor(y);
-			rz2 = cast(int)floor(z);
-		}
-		x += dx;
-		y += dy;
-		z += dz;
-	}
-	
-	printf("distance: %f coords: %f %f %f\n",k*0.01F,rx2,ry2,rz2);
-	
-	return RayCastResult_t(rx,ry,rz,rx2,ry2,rz2,0.5F,1);
-
-	//this is all bs and aint work correctly
-	
-	/*Vector3_t dst=pos+dir*length;
+	Vector3_t dst=pos+dir*length;
 	int x=cast(int)pos.x, y=cast(int)pos.y, z=cast(int)pos.z;
 	int dstx=cast(int)dst.x, dsty=cast(int)dst.y, dstz=cast(int)dst.z;
 	int opxd=cast(int)(dir.x>0.0), opyd=cast(int)(dir.y>0.0), opzd=cast(int)(dir.z>0.0);
-	float invxd=dir.x ? 1.0/dir.x : (10e10), invyd=dir.y ? 1.0/dir.y : (10e10), invzd=dir.z ? 1.0/dir.z : (10e10);
+	float invxd=dir.x ? 1.0/dir.x : (float.infinity), invyd=dir.y ? 1.0/dir.y : (float.infinity), invzd=dir.z ? 1.0/dir.z : (float.infinity);
 	int xdsgn=cast(int)rcsgn(dir.x), ydsgn=cast(int)rcsgn(dir.y), zdsgn=cast(int)rcsgn(dir.z);
-	uint collside=0; float colldist=0.0;
+	ubyte collside=0; float colldist=0.0;
 	bool hit_voxel=false;
 	uint loops=cast(uint)(length*5.0);
 	while(x!=dstx || y!=dsty || z!=dstz){
@@ -1060,14 +1025,14 @@ RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
 			}
 		}
 		if(!loops){
-			writeflnlog("Warning: DDA raycasting results in an infinite loop (%s, %s)", dir, length);
+			writeflnlog("Warning: DDA raycasting results in an infinite loop (%s, %s) (rare?)", dir, length);
 			break;
 		}
 		loops--;
 	}
 	if(!hit_voxel)
 		collside=0;
-	return RayCastResult_t(x, y, z, colldist, collside);*/
+	return RayCastResult_t(x, y, z, colldist, collside);
 }
 
 struct Object_t{

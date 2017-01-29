@@ -1,0 +1,19 @@
+W/A/S/D = Walk
+Space = Jump
+Left CTRL = Crouch
+Left Click = Use Item
+Vertical Mouse Wheel/Number Keys = Select Items
+Right Click = Use Item in an alternative way (e.g. pick colour for the block, scope for guns)
+E = Use Object (e.g. go to mortar, press e to equip it, look around to rotate it, left click to shoot)
+Escape = Quit the game
+-/+ = Change Framerate
+Enter = Start Typing Chat / Submit Chat Message
+To enter a command in chat, the first letter has to be "/", after that letter, type the command.
+Typical commands:
+	help = Displays a help message
+	commands = Displays available commands
+	server = Display information about the server you are on
+	map = Displays information about the current map
+	ping = Displays your ping value; the lower your ping value, the less laggy your game is
+	switch = Takes you to the spawn (team/item selection) menu
+If you have no idea at all, just type "/help" into the chat.

@@ -293,24 +293,22 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 	for(uint p=0; p<Players.length; p++){
 		Render_Player(p);
 	}
-	
 	if(ProtocolBuiltin_BlockBuildWireframe) {
 		ItemType_t *type = &ItemTypes[Players[LocalPlayerID].Equipped_Item().type];
 		if(type.block_damage_range || (type.is_weapon && !type.Is_Gun())){
-			auto rc=RayCast(Players[LocalPlayerID].CameraPos(), Players[LocalPlayerID].dir, ItemTypes[Players[LocalPlayerID].Equipped_Item().type].block_damage_range);
-			Sprite_t spr;
-			spr.rhe=0.0; spr.rti=0.0; spr.rst=0.0;
-			if(type.block_damage_range) {
-				spr.xpos=rc.bx; spr.ypos=rc.by; spr.zpos=rc.bz;
-			} else {
-				spr.xpos=rc.x; spr.ypos=rc.y; spr.zpos=rc.z;
+			auto rc=RayCast(CameraPos, Players[LocalPlayerID].dir, ItemTypes[Players[LocalPlayerID].Equipped_Item().type].block_damage_range);
+			if(rc.colldist<=type.block_damage_range && rc.collside){
+				Sprite_t spr;
+				spr.rhe=0.0; spr.rti=0.0; spr.rst=0.0;
+				Vector3_t wfpos=Vector3_t(rc.x, rc.y, rc.z)-Players[LocalPlayerID].dir.sgn().filter(rc.collside==1, rc.collside==2, rc.collside==3)+.5;
+				spr.xpos=wfpos.x; spr.ypos=wfpos.y; spr.zpos=wfpos.z;
+				spr.xdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.xsize; spr.ydensity=1.0/ProtocolBuiltin_BlockBuildWireframe.ysize;
+				spr.zdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.zsize;
+				spr.color_mod=(Players[LocalPlayerID].color&0x00ffffff) | 0xff000000;
+				spr.replace_black=spr.color_mod;
+				spr.model=ProtocolBuiltin_BlockBuildWireframe;
+				Renderer_DrawWireframe(&spr);
 			}
-			spr.xdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.xsize; spr.ydensity=1.0/ProtocolBuiltin_BlockBuildWireframe.ysize;
-			spr.zdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.zsize;
-			spr.color_mod=(Players[LocalPlayerID].color&0x00ffffff) | 0xff000000;
-			spr.replace_black=spr.color_mod;
-			spr.model=ProtocolBuiltin_BlockBuildWireframe;
-			Renderer_DrawWireframe(&spr);
 		}
 	}
 	
@@ -626,8 +624,6 @@ void Render_Screen(){
 	} else {
 		Renderer_StartRendering(false);
 	}
-	
-	//SDL_SetRenderTarget(scrn_renderer, scrn_texture);
 	Renderer_Start2D();
 	{
 		if(LoadedCompleteMap){
@@ -635,7 +631,7 @@ void Render_Screen(){
 			{
 				if(Render_Local_Player){
 					if(LocalPlayerScoping()){
-						/*if(ProtocolBuiltin_ScopePicture){
+						if(ProtocolBuiltin_ScopePicture){
 							auto res=Get_Player_Scope(LocalPlayerID);
 							auto scope_pic=Renderer_DrawRoundZoomedIn(&res.pos, &res.rot, ProtocolBuiltin_ScopePicture, 1.8, 1.8);
 							MenuElement_t *e=ProtocolBuiltin_ScopePicture;
@@ -643,7 +639,7 @@ void Render_Screen(){
 							Renderer_Blit2D(scope_pic.scope_texture, &size, &scope_pic.dstrect, 255, null, &scope_pic.srcrect);
 							size=[Mod_Picture_Sizes[e.picture_index][0], Mod_Picture_Sizes[e.picture_index][0]];
 							Renderer_Blit2D(Mod_Pictures[e.picture_index], &size, &scope_pic.dstrect);
-						}*/
+						}
 					}
 				}
 			}
@@ -1156,7 +1152,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	Create_Particles(pos, vel, radius, spread, amount*7, [], 1.0/(1.0+amount*.001));
 	Create_Particles(pos, vel, 0, spread*3.0, amount*10, [0x00ffff00, 0x00ffa000], .05);
 	Renderer_AddFlash(pos, radius*1.5, 1.0);
-	//WIP
+	//WIP (go cham!)
 	/*ExplosionSprite_t effect;
 	Model_t *model=new Model_t;
 	model.xsize=32; model.ysize=32; model.zsize=32;
