@@ -425,9 +425,8 @@ struct Player_t{
 			usedir=dir;
 		}
 		Vector3_t spreadeddir;
-		//float spreadfactor=itemtype.spread_c+itemtype.spread_m*uniform01();
-		//spreadeddir=usedir*(1.0-spreadfactor)+Vector3_t(uniform01(), uniform01(), uniform01())*spreadfactor;
-		spreadeddir = usedir;
+		float spreadfactor=itemtype.spread_c+itemtype.spread_m*uniform01();
+		spreadeddir=usedir*(1.0-spreadfactor)+Vector3_t(uniform01(), uniform01(), uniform01()).abs()*spreadfactor;
 
 		float block_hit_dist=10e99;
 		Vector3_t block_hit_pos;
