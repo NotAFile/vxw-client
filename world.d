@@ -39,6 +39,7 @@ immutable float Player_Stand_Size=2.8;
 immutable float Player_Stand_Size_Eye=2.3;
 immutable float Player_Crouch_Size=1.8;
 immutable float Player_Crouch_Size_Eye=1.3;
+immutable float Crouch_Height_Change_Speed = 0.375; //in secounds
 
 Vector3_t Wind_Direction;
 
@@ -157,6 +158,7 @@ struct Player_t{
 	uint physics_start;
 	uint ticks = 0;
 	uint last_climb = 0;
+	float crouch_offset = 0.0;
 	
 	void Init(string initname, PlayerID_t initplayer_id){
 		name=initname;
@@ -223,7 +225,8 @@ struct Player_t{
 	
 	Vector3_t CameraPos() {
 		Vector3_t ret = Vector3_t(pos);
-		ret.y -= Crouch?Player_Crouch_Size_Eye:Player_Stand_Size_Eye;
+		ret.y -= Player_Crouch_Size_Eye;
+		ret.y += crouch_offset*(Player_Stand_Size_Eye-Player_Crouch_Size_Eye);
 		if(SDL_GetTicks()-last_climb<150) {
 			ret.y += 1.0F-(SDL_GetTicks()-last_climb)/150.0F;
 		}
@@ -239,13 +242,16 @@ struct Player_t{
 			player_aabb.set_bottom_center(pos.x,pos.y,pos.z);
 			if(!player_aabb.intersection_terrain()) {
 				Crouch = TryUnCrouch = false;
-			}
-			player_aabb.set_bottom_center(pos.x,pos.y+0.9F,pos.z);
-			if(!player_aabb.intersection_terrain()) {
-				pos.y += 0.9F;
-				Crouch = TryUnCrouch = false;
+			} else {
+				player_aabb.set_bottom_center(pos.x,pos.y+0.9F,pos.z);
+				if(!player_aabb.intersection_terrain()) {
+					pos.y += 0.9F;
+					Crouch = TryUnCrouch = false;
+				}
 			}
 		}
+		
+		crouch_offset += ((Crouch && crouch_offset<0.0)?dt/Crouch_Height_Change_Speed:0.0) + ((!Crouch && crouch_offset>-1.0)?-dt/Crouch_Height_Change_Speed:0.0);
 		
 		player_aabb.set_size(0.75F,Crouch?Player_Crouch_Size:Player_Stand_Size,0.75F);
 		
@@ -579,7 +585,7 @@ struct Player_t{
 	bool HalfDiving(){
 		return Voxel_IsWater(pos.x, pos.y+Player_Crouch_Size, pos.z);
 	}
-	void Set_Crouch(bool cr){
+	void Set_Crouch(bool cr) {
 		if(cr) {
 			Crouch = true;
 		} else {
