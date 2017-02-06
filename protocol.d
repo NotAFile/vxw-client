@@ -609,7 +609,10 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case SetObjectPosPacketID:{
 				auto packet=UnpackPacketToStruct!(SetObjectPosPacketLayout)(PacketData);
-				Objects[packet.obj_id].pos=Vector3_t(packet.x, packet.y, packet.z)+Objects[packet.obj_id].vel*tofloat(Get_Ping())/1000.0;
+				Objects[packet.obj_id].pos=Vector3_t(packet.x, packet.y, packet.z);//+Objects[packet.obj_id].vel*tofloat(Get_Ping())/1000.0;
+				for(uint i=0; i<tofloat(Get_Ping())/1000.0/WorldSpeed; i++){
+					Objects[packet.obj_id].Update();
+				}
 				break;
 			}
 			case SetObjectVelPacketID:{

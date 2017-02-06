@@ -18,5 +18,8 @@ voxlap.di
 compile_with_voxlap
 compile_with_voxlap_ldc
 compile_with_voxlap_gdc
+compile_voxlap_ll
+*.ll
 trace.log
 trace.def
+a.out

@@ -472,6 +472,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 				if(p.size>p.remove_size)
 					p.alpha=0f;
 				p.vel+=RandomVector()*.00001f*p.size;	
+				p.vel.y-=.001;
 				p.vel*=.96f;
 			}
 			float dst;
@@ -777,6 +778,7 @@ Sprite_t Get_Object_Sprite(uint obj_id){
 	spr.rti=yrot; spr.rhe=xrot; spr.rst=zrot;
 	spr.xdensity=obj.density.x; spr.ydensity=obj.density.y; spr.zdensity=obj.density.z;
 	spr.model=obj.model;
+	spr.color_mod=0; spr.replace_black=0;
 	if(obj.color){
 		if(obj.color&0xff000000){
 			spr.color_mod=obj.color;
@@ -863,6 +865,7 @@ Sprite_t[] Get_Player_Sprites(uint player_id){
 			spr.rst=hand_rot.z; spr.rti=hand_rot.y; spr.rhe=hand_rot.x;
 		}
 		spr.xpos=mpos.x; spr.ypos=mpos.y; spr.zpos=mpos.z;
+		spr.color_mod=0;
 		sprarr~=spr;
 		Sprite_Visible(&spr);
 	}
@@ -937,6 +940,8 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	}
 	if(ItemTypes[item.type].color_mod==true)
 		spr.color_mod=(Players[player_id].color&0x00ffffff) | 0xff000000;
+	else
+		spr.color_mod=0;
 	spr.model=Mod_Models[ItemTypes[Players[player_id].items[Players[player_id].item].type].model_id];
 	sprarr~=spr;
 	return sprarr;

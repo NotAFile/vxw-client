@@ -497,6 +497,8 @@ struct Player_t{
 			ushort LastHitID;
 			foreach(obj_id; Hittable_Objects){
 				Object_t *obj=&Objects[obj_id];
+				if(!obj.visible)
+					continue;
 				Sprite_t objspr=Get_Object_Sprite(obj_id);
 				ModelVoxel_t *vx;
 				Vector3_t hit_pos;
@@ -603,10 +605,10 @@ uint[] Solid_Objects;
 uint[] Hittable_Objects;
 
 bool Voxel_Collides(XT, YT, ZT)(XT x, YT y, ZT z, int exclude_obj_index=-1){
-	if(x<0 || x>=MapXSize || z<0 || z>=MapZSize || y>=MapYSize)
-		return true;
 	if(y<0)
 		return false;
+	if(x<0 || x>=MapXSize || z<0 || z>=MapZSize || y>=MapYSize)
+		return true;
 	if(Voxel_IsWater(x, y, z))
 		return false;
 	if(Voxel_IsSolid(cast(uint)x, cast(uint)y, cast(uint)z))
@@ -1090,7 +1092,7 @@ struct Object_t{
 		if(!Collision[1]){
 			pos.y+=deltapos.y;
 			vel.y+=acl.y;
-			vel.y+=(1.0+weightfactor*.001)*WorldSpeed*Gravity*(weightfactor!=0);
+			vel.y+=weightfactor ? (1.0-.05/weightfactor)*WorldSpeed*Gravity : 0.0;
 		}
 		else{
 			vel.y*=-bouncefactor;
@@ -1161,7 +1163,7 @@ struct Object_t{
 	}
 
 	bool Collides_At(T1, T2, T3)(T1 x, T2 y, T3 z){
-		return Voxel_Collides(touint(x), touint(y), touint(z), index);
+		return Voxel_Collides(toint(x), toint(y), toint(z), index);
 	}
 	bool Solid_At(XT, YT, ZT)(XT x, YT y, ZT z){
 		return Contains(x, y, z);
