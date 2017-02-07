@@ -24,3 +24,10 @@ T[] dup(T)(T[] arr){
 template Parameters(alias func){
 	alias ParameterTypeTuple!(func) Parameters;
 }
+
+version(LDC){
+	immutable string idup(string st){
+		immutable string dupl=st[0..$];
+		return dupl;
+	}
+}

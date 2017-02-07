@@ -13,6 +13,7 @@ import std.range;
 import std.conv;
 import std.random;
 import std.traits;
+import main;
 import renderer;
 import protocol;
 import misc;
@@ -39,7 +40,9 @@ MenuElement_t *ProtocolBuiltin_ScopePicture;
 
 uint Font_SpecialColor=0xff000000;
 
-uint ScreenXSize=800, ScreenYSize=600;
+uint ScreenXSize, ScreenYSize;
+float ScreenSizeRatio=1.0;
+uint WindowXSize, WindowYSize;
 
 Vector3_t CameraRot=Vector3_t(0.0, 0.0, 0.0), CameraPos=Vector3_t(0.0, 0.0, 0.0);
 Vector3_t MouseRot=Vector3_t(0.0, -90.0, 0.0);
@@ -64,13 +67,6 @@ immutable bool Enable_Object_Model_Modification=true;
 
 float Current_Blur_Amount=0.0, BlurAmount=0.0, BaseBlurAmount=0.0, BlurAmountDecay=.3;
 float Current_Shake_Amount=0.0, ShakeAmount=0.0, BaseShakeAmount=0.0, ShakeAmountDecay=1.5;
-//Opt-in for windows due to a bug (unexplained segfaults when doing valid memory accesses in the smoke renderer)
-version(Windows){
-	bool Smoke_Enabled=false;
-}
-else{
-	bool Smoke_Enabled=true;
-}
 
 ubyte MiniMapZPos=250, InvisibleZPos=0, StartZPos=1;
 
@@ -84,8 +80,10 @@ void Init_Gfx(){
 	if(IMG_Init(IMG_INIT_PNG)!=IMG_INIT_PNG)
 		writeflnlog("[WARNING] IMG for PNG didn't initialize properly: %s", IMG_GetError());
 	Renderer_Init();
-	scrn_window=SDL_CreateWindow("Voxelwar", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ScreenXSize, ScreenYSize, Renderer_WindowFlags | SDL_WINDOW_RESIZABLE);
-	Renderer_SetUp(ScreenXSize, ScreenYSize);
+	WindowXSize=Config_Read!uint("resolution_x"); WindowYSize=Config_Read!uint("resolution_y");
+	scrn_window=SDL_CreateWindow("Voxelwar", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WindowXSize, WindowYSize, Renderer_WindowFlags
+	| SDL_WINDOW_RESIZABLE | (Config_Read!bool("fullscreen")!=0 ? SDL_WINDOW_FULLSCREEN : 0));
+	Change_Resolution(WindowXSize, WindowYSize);
 	{
 		SDL_Surface *font_surface=SDL_LoadBMP("./Ressources/Default/Font.png");
 		if(font_surface){
@@ -107,7 +105,18 @@ void Init_Gfx(){
 }
 
 void Change_Resolution(uint newxsize, uint newysize){
+	if(Config_Read!bool("upscale")){
+		float lsize=sqrt(cast(float)(WindowXSize*WindowXSize+WindowYSize*WindowYSize));
+		ScreenSizeRatio=1.0f-.3f*(1.0f-1.0f/(lsize/1000.0f));
+	}
+	else{
+		ScreenSizeRatio=1.0f;
+	}
+	Config_Write("resolution_x", newxsize); Config_Write("resolution_y", newysize);
+	WindowXSize=newxsize; WindowYSize=newysize;
+	newxsize=cast(uint)(WindowXSize*ScreenSizeRatio); newysize=cast(uint)(WindowYSize*ScreenSizeRatio);
 	Renderer_SetUp(newxsize, newysize);
+	Renderer_SetQuality(RendererQualitySet);
 	ScreenXSize=newxsize; ScreenYSize=newysize;
 	foreach(ref elem; MenuElements){
 		ConvertScreenCoords(elem.fxpos, elem.fypos, elem.xpos, elem.ypos);
@@ -445,7 +454,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 			continue;
 		Render_Object(o);
 	}
-	{
+	if(Config_Read!bool("smoke")){
 		struct DrawSmokeCircleParams{
 			float dst;
 			uint color, alpha;
@@ -477,7 +486,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 			}
 			float dst;
 			int scrx, scry;
-			if(!Project2D(p.pos.x, p.pos.y, p.pos.z, &dst, scrx, scry))
+			if(!Project2D(p.pos.x, p.pos.y, p.pos.z, scrx, scry, &dst))
 				continue;
 			if(dst<=0.0)
 				continue;

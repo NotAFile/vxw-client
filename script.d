@@ -137,11 +137,11 @@ struct ScriptLib_t{
 			if(SLns_add_intrin_fun_table(ns, intr_func_table.ptr, cast(const(char*))toStringz(nsname)))
 				writeflnerr("Couldn't add intrinsic function table for script library \"%s\"", typename);
 		}
-		version(GNU){
+		/*version(GNU){
 			import if_you_have_compiler_optimization_flags_enabled_then_remove_or_comment_out_the_statement_below_and_this_import;
 		}
 		if(nsname.length)
-			ns.namespace_name=null;
+			ns.namespace_name=null;*/
 	}
 }
 

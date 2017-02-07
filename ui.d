@@ -44,7 +44,7 @@ bool Render_MiniMap;
 
 string LastSentLine="";
 
-float RendererQualitySet=1.0;
+float RendererQualitySet=1.5;
 
 bool Changed_Palette_Color=false;
 SDL_Surface *Palette_V_Colors, Palette_H_Colors;
@@ -302,8 +302,8 @@ void Check_Input(){
 								WriteMsg(format("[GAME]Set renderer quality to %.2f", RendererQualitySet), Font_SpecialColor);
 							}
 							else{
-								TargetFPS+=5;
-								WriteMsg(format("[GAME]Set target FPS to %d", TargetFPS), Font_SpecialColor);
+								Config_Write("fpscap", Config_Read!int("fpscap")+5);
+								WriteMsg(format("[GAME]Set target FPS to %d", Config_Read!uint("fpscap")), Font_SpecialColor);
 							}
 						}
 						break;
@@ -317,11 +317,8 @@ void Check_Input(){
 								WriteMsg(format("[GAME]Set renderer quality to %.2f", RendererQualitySet), Font_SpecialColor);
 							}
 							else{
-								if(TargetFPS>=5)
-									TargetFPS-=5;
-								if(!TargetFPS)
-									TargetFPS=1;
-								WriteMsg(format("[GAME]Set target FPS to %d", TargetFPS), Font_SpecialColor);
+								Config_Write("fpscap", max(Config_Read!int("fpscap")-5, 0));
+								WriteMsg(format("[GAME]Set target FPS to %d", Config_Read!uint("fpscap")), Font_SpecialColor);
 							}
 						 }
 						break;
@@ -329,8 +326,8 @@ void Check_Input(){
 					case SDLK_o:{
 						if(!TypingChat){
 							if(KeyState[SDL_SCANCODE_LCTRL]){
-								Smoke_Enabled=!Smoke_Enabled;
-								WriteMsg(format("[GAME]Set smoke to %s", Smoke_Enabled ? "ON" : "OFF"), Font_SpecialColor);
+								Config_Write("smoke", !Config_Read!bool("smoke"));
+								WriteMsg(format("[GAME]Set smoke to %s", Config_Read!bool("smoke") ? "ON" : "OFF"), Font_SpecialColor);
 							}
 						}
 						break;
@@ -427,6 +424,10 @@ void Check_Input(){
 					case SDL_WINDOWEVENT_RESIZED:
 					case SDL_WINDOWEVENT_SIZE_CHANGED:{
 						Change_Resolution(event.window.data1, event.window.data2);
+						SDL_DisplayMode dmode;
+						if(!SDL_GetCurrentDisplayMode(SDL_GetWindowDisplayIndex(scrn_window), &dmode)){
+							ClientConfig["fullscreen"]=to!string(dmode.w==event.window.data1 && dmode.h==event.window.data2);
+						}
 						break;
 					}
 					default:{break;}
