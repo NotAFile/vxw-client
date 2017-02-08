@@ -42,6 +42,8 @@ uint Font_SpecialColor=0xff000000;
 
 uint ScreenXSize, ScreenYSize;
 float ScreenSizeRatio=1.0;
+
+//Ignore this
 uint WindowXSize, WindowYSize;
 
 Vector3_t CameraRot=Vector3_t(0.0, 0.0, 0.0), CameraPos=Vector3_t(0.0, 0.0, 0.0);
@@ -91,6 +93,26 @@ void Init_Gfx(){
 			SDL_FreeSurface(font_surface);
 		}
 	}
+}
+
+void Change_Resolution(uint newxsize, uint newysize){
+	if(Config_Read!float("upscale")>=0){
+		float lsize=sqrt(cast(float)(WindowXSize*WindowXSize+WindowYSize*WindowYSize));
+		ScreenSizeRatio=1.0f-.4f*(1.0f-1.0f/(lsize/1000.0f))*Config_Read!float("upscale");
+	}
+	else{
+		ScreenSizeRatio=1.0f;
+	}
+	Config_Write("resolution_x", newxsize); Config_Write("resolution_y", newysize);
+	ScreenXSize=WindowXSize=newxsize; ScreenYSize=WindowYSize=newysize;
+	newxsize=cast(uint)(WindowXSize*ScreenSizeRatio); newysize=cast(uint)(WindowYSize*ScreenSizeRatio);
+	Renderer_SetUp(newxsize, newysize);
+	Renderer_SetQuality(RendererQualitySet);
+	//ScreenXSize=newxsize; ScreenYSize=newysize;
+	foreach(ref elem; MenuElements){
+		ConvertScreenCoords(elem.fxpos, elem.fypos, elem.xpos, elem.ypos);
+		ConvertScreenCoords(elem.fxsize, elem.fysize, elem.xsize, elem.ysize);
+	}
 	ParticleSizeRatios=[
 		ParticleSizeTypes.Normal: [.1, .1, .1],
 		ParticleSizeTypes.BlockDamageParticle: [.05, .05, .05],
@@ -101,26 +123,6 @@ void Init_Gfx(){
 		RendererParticleSize_t[3] pixelsize=Renderer_GetParticleSize(ParticleSizeRatios[sizetype][0], ParticleSizeRatios[sizetype][1], ParticleSizeRatios[sizetype][2]);
 		ParticleSizes[sizetype]=ParticleSize_t();
 		ParticleSizes[sizetype].w=pixelsize[0]; ParticleSizes[sizetype].h=pixelsize[1]; ParticleSizes[sizetype].l=pixelsize[2];
-	}
-}
-
-void Change_Resolution(uint newxsize, uint newysize){
-	if(Config_Read!bool("upscale")){
-		float lsize=sqrt(cast(float)(WindowXSize*WindowXSize+WindowYSize*WindowYSize));
-		ScreenSizeRatio=1.0f-.3f*(1.0f-1.0f/(lsize/1000.0f));
-	}
-	else{
-		ScreenSizeRatio=1.0f;
-	}
-	Config_Write("resolution_x", newxsize); Config_Write("resolution_y", newysize);
-	WindowXSize=newxsize; WindowYSize=newysize;
-	newxsize=cast(uint)(WindowXSize*ScreenSizeRatio); newysize=cast(uint)(WindowYSize*ScreenSizeRatio);
-	Renderer_SetUp(newxsize, newysize);
-	Renderer_SetQuality(RendererQualitySet);
-	ScreenXSize=newxsize; ScreenYSize=newysize;
-	foreach(ref elem; MenuElements){
-		ConvertScreenCoords(elem.fxpos, elem.fypos, elem.xpos, elem.ypos);
-		ConvertScreenCoords(elem.fxsize, elem.fysize, elem.xsize, elem.ysize);
 	}
 }
 

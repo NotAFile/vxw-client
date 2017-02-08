@@ -1,6 +1,8 @@
 import std.stdio;
 import std.traits;
 import std.algorithm;
+import std.system;
+import std.math;
 
 void writeflnerr(Args...)(Args args){
 	stdout.write("[ERROR]");
@@ -56,8 +58,11 @@ void proper_reverse_overwrite(T)(ref T arr){
 }
 
 immutable uint BITS_PER_BYTE=8;
-
 //credits go to the genious guy who wrote https://graphics.stanford.edu/~seander/bithacks.html#IntegerMinOrMax
 T bitwise_min(T)(T x, T y){
 	return y + ((x - y) & ((x - y) >> (T.sizeof * BITS_PER_BYTE - 1)));
+}
+
+TR int_sqrt(TI, TR=TI)(TI val){
+	return cast(TR)sqrt(cast(double)val);
 }

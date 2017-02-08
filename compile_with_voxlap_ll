@@ -1,5 +1,5 @@
 #!/bin/bash
-ldc2 -O5 -singleobj -output-ll -release -inline -mattr=mmx -mattr=sse -mattr=sse2 -mattr=sse3 *.d *.di ./derelict/sdl2/*.d ./derelict/enet/*.d ./derelict/util/*.d -ofmain.ll
+ldc2 -singleobj -output-ll *.d *.di ./derelict/sdl2/*.d ./derelict/enet/*.d ./derelict/util/*.d -ofmain.ll
 echo 20% done
 llvm-link  main.ll kplib.ll voxlap5.ll -S -o client.ll
 echo 40% done

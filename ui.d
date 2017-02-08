@@ -8,6 +8,7 @@ import derelict.sdl2.sdl;
 import std.string;
 import std.algorithm;
 import std.conv;
+import std.stdio;
 import gfx;
 import main;
 import misc;
@@ -655,4 +656,64 @@ void Render_All_Text(){
 		}
 	}
 	__hud_prev_tick=current_tick;
+}
+
+
+
+
+string[string] ClientConfig;
+
+T Config_Read(T)(string entry){
+	if(!(entry in ClientConfig)){
+		writeflnerr("Missing client config entry %s", entry);
+		return T.init;
+	}
+	try{
+		return to!T(ClientConfig[entry]);
+	}catch(ConvException){
+		writeflnerr("config.txt entry %s has an invalid value of %s (has to be of type %s)", entry, ClientConfig[entry], T.stringof);
+	}
+	return T.init;
+}
+
+void Config_Write(T)(string entry, T val){
+	ClientConfig[entry]=to!string(val);
+}
+
+void ClientConfig_Load(){
+	import std.file;
+	if(!exists("./config.txt")){
+		ClientConfig["nick"]="Deuce";
+		ClientConfig["resolution_x"]="800";
+		ClientConfig["resolution_y"]="600";
+		ClientConfig["fullscreen"]="false";
+		ClientConfig["upscale"]="0.5";
+		ClientConfig["anti_aliasing"]="false";
+		ClientConfig["smoke"]="true";
+		ClientConfig["fpscap"]="60";
+		ClientConfig["last_addr"]="localhost";
+		ClientConfig["last_port"]="32887";
+		ClientConfig.rehash();
+		return;
+	}
+	auto f=File("./config.txt", "r");
+	string line;
+	while((line=f.readln())!=null){
+		string entry_name, entry_content;
+		int eqpos=line.indexOf('=');
+		if(eqpos<0)
+			continue;
+		entry_name=line[0..eqpos].strip();
+		entry_content=line[eqpos+1..$-1];
+		ClientConfig[entry_name]=entry_content;
+	}
+	ClientConfig.rehash();
+}
+
+void ClientConfig_Save(){
+	ClientConfig.rehash();
+	auto f=File("./config.txt", "wb+");
+	foreach(entry; ClientConfig.byKey()){
+		f.writeln(entry, "=", ClientConfig[entry]);
+	}
 }

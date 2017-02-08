@@ -16,8 +16,6 @@ version(LDC){
 	import ldc_stdlib;
 }
 
-string[string] ClientConfig;
-
 version(OSX){
 	//Ew why would an intelligent non-pleb even use this shit
 	static assert(0);
@@ -93,53 +91,4 @@ void UnInit_Game(){
 	UnInit_UI();
 	UnInit_Gfx();
 	UnInit_Netcode();
-}
-
-T Config_Read(T)(string entry){
-	if(!(entry in ClientConfig)){
-		writeflnerr("Missing client config entry %s", entry);
-		return T.init;
-	}
-	return to!T(ClientConfig[entry]);
-}
-
-void Config_Write(T)(string entry, T val){
-	ClientConfig[entry]=to!string(val);
-}
-
-void ClientConfig_Load(){
-	import std.file;
-	if(!exists("./config.txt")){
-		ClientConfig["nick"]="Deuce";
-		ClientConfig["resolution_x"]="800";
-		ClientConfig["resolution_y"]="600";
-		ClientConfig["fullscreen"]="false";
-		ClientConfig["upscale"]="false";
-		ClientConfig["smoke"]="true";
-		ClientConfig["fpscap"]="60";
-		ClientConfig["last_addr"]="localhost";
-		ClientConfig["last_port"]="32887";
-		ClientConfig.rehash();
-		return;
-	}
-	auto f=File("./config.txt", "r");
-	string line;
-	while((line=f.readln())!=null){
-		string entry_name, entry_content;
-		int eqpos=line.indexOf('=');
-		if(eqpos<0)
-			continue;
-		entry_name=line[0..eqpos].strip();
-		entry_content=line[eqpos+1..$-1];
-		ClientConfig[entry_name]=entry_content;
-	}
-	ClientConfig.rehash();
-}
-
-void ClientConfig_Save(){
-	ClientConfig.rehash();
-	auto f=File("./config.txt", "wb+");
-	foreach(entry; ClientConfig.byKey()){
-		f.writeln(entry, "=", ClientConfig[entry]);
-	}
 }
