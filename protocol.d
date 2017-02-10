@@ -610,7 +610,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case SetObjectPosPacketID:{
 				auto packet=UnpackPacketToStruct!(SetObjectPosPacketLayout)(PacketData);
 				Objects[packet.obj_id].pos=Vector3_t(packet.x, packet.y, packet.z);//+Objects[packet.obj_id].vel*tofloat(Get_Ping())/1000.0;
-				for(uint i=0; i<tofloat(Get_Ping())/1000.0/WorldSpeed; i++){
+				for(uint i=0; i<tofloat(Get_Ping())/3.0; i++){
 					Objects[packet.obj_id].Update();
 				}
 				break;
@@ -804,6 +804,23 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				auto packet=UnpackPacketToStruct!(PublicPlayerMouseClickPacketLayout)(PacketData);
 				Players[packet.player_id].left_click=cast(bool)(packet.mouse_clicks&1);
 				Players[packet.player_id].right_click=cast(bool)(packet.mouse_clicks&2);
+				break;
+			}
+			case RunScriptPacketID:{
+				auto packet=UnpackPacketToStruct!(RunScriptPacketLayout)(PacketData);
+				auto script=Script_t(cast(ushort)Loaded_Scripts.length, "__temporary_script"~to!string(Loaded_Scripts.length), packet.script);
+				script.Init();
+				Loaded_Scripts~=script;
+				script.Call_Func("RunScript");
+				script.Uninit();
+				Loaded_Scripts.length--;
+				break;
+			}
+			case SetObjectPhysicsPacketID:{
+				auto packet=UnpackPacketToStruct!(SetObjectPhysicsPacketLayout)(PacketData);
+				Object_t *obj=&Objects[packet.obj_id];
+				obj.physics_mode=to!ObjectPhysicsMode(packet.physics_mode);
+				obj.physics_script=packet.script;
 				break;
 			}
 			default:{

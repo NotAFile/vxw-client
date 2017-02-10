@@ -17,6 +17,7 @@ import renderer;
 import misc;
 import gfx;
 import ui;
+import script;
 import protocol;
 
 float Gravity=9.81/0.64;
@@ -437,7 +438,7 @@ struct Player_t{
 			if(range<0)
 				range=cast(short)Current_Visibility_Range;
 			auto rcp=RayCast(usepos, spreadeddir, range);
-			if(rcp.collside){
+			if(rcp.collside && Valid_Coord(rcp)){
 				block_hit_dist=rcp.colldist;
 				block_hit_pos=Vector3_t(rcp.x, rcp.y, rcp.z);
 				block_build_pos=Vector3_t(rcp.x, rcp.y, rcp.z)-spreadeddir.sgn().filter(rcp.collside==1, rcp.collside==2, rcp.collside==3);
@@ -1056,11 +1057,14 @@ struct Object_t{
 	Vector3_t[] Vertices;
 	bool[3][] Vertex_Collisions;
 	bool[3] Collision;
+	ObjectPhysicsMode physics_mode;
+	ScriptIndex_t physics_script;
 
 	DamageParticle_t[] particles;
 	
 	void Init(uint initindex){
 		index=initindex;
+		physics_mode=ObjectPhysicsMode.Standard;
 		Vertices=[Vector3_t(0.0, 0.0, 0.0)];
 		Vertex_Collisions.length=1;
 		if(DamagedObjects.canFind(index))
@@ -1080,11 +1084,23 @@ struct Object_t{
 	}
 	
 	void Update_Position(Vector3_t deltapos){
+		if(physics_mode!=ObjectPhysicsMode.Standard){
+			bool[3] inv_coll=[!Collision[0], !Collision[1], !Collision[2]];
+			Vector3_t fdeltapos=deltapos.filter(inv_coll);
+			uint[3] _coll=[Collision[0], Collision[1], Collision[2]];
+			Loaded_Scripts[physics_script].Call_Func("Update_Position", &_coll, &fdeltapos, &pos, &vel, &acl, &rot, WorldSpeed);
+			if(physics_mode==ObjectPhysicsMode.Script_Override)
+				return;
+			if(physics_mode==ObjectPhysicsMode.Full_Scripted){
+				pos+=fdeltapos;
+				return;
+			}
+		}
 		bool collision=false;
 		if(!Collision[0]){
 			pos.x+=deltapos.x;
 			vel.x+=acl.x;
-		}
+		}	
 		else{
 			vel.x*=-bouncefactor;
 			collision=true;
@@ -1106,10 +1122,12 @@ struct Object_t{
 			vel.z*=-bouncefactor;
 			collision=true;
 		}
-		if(collision)
+		if(collision){
 			vel*=bouncefactor;
-		else
+		}
+		else{
 			vel/=1.0+frictionfactor*WorldSpeed;
+		}
 	}
 	
 	Vector3_t Check_Vertex_Collisions(){
@@ -1191,8 +1209,12 @@ struct Object_t{
 Object_t[] Objects;
 uint[] DamagedObjects;
 
-bool Valid_Coord(T)(T x, T y, T z){
+bool Valid_Coord(Tx, Ty, Tz)(Tx x, Ty y, Tz z){
 	return x>=0 && x<MapXSize && y>=0 && y<MapYSize && z>=0 && z<MapZSize;
+}
+
+bool Valid_Coord(T)(T coord) if(__traits(hasMember, coord, "x") && __traits(hasMember, coord, "y") && __traits(hasMember, coord, "z")){
+	return Valid_Coord(coord.x, coord.y, coord.z);
 }
 
 Vector3_t Validate_Coord(immutable in Vector3_t coord){

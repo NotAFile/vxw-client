@@ -7,4 +7,4 @@ opt -O3 -mattr=mmx -mattr=sse -mattr=sse2 -mattr=sse3 -march=native client.ll -S
 echo 60% done
 llc -O3 -mattr=mmx -mattr=sse -mattr=sse2 -mattr=sse3 client_opt.ll -filetype=obj -o main.o
 echo 80% done
-ldc2 -O5 main.o -release -inline -mattr=mmx -mattr=sse -mattr=sse2 -mattr=sse3 -L-L/usr/local/lib -L-lslang -ofmain
+gcc main.o -o main -lslang -lphobos2-ldc -ldruntime-ldc -ldl -lpthread -lm -march=native -s

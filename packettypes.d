@@ -441,6 +441,25 @@ struct PublicPlayerMouseClickPacketLayout{
 }
 immutable PacketID_t PublicPlayerMouseClickPacketID=49;
 
+struct RunScriptPacketLayout{
+	string script;
+}
+immutable PacketID_t RunScriptPacketID=50;
+
+//Standard = hardcoded physics; Scripted = hardcoded physics + script hook called
+//Full_Scripted = script hook called + only collision code (fdeltapos = movement vector)
+//Script_Override = no hardcoded physics, object update call = only script hook call
+enum ObjectPhysicsMode{
+	Standard=0, Scripted=1, Full_Scripted=2, Script_Override=3
+}
+
+struct SetObjectPhysicsPacketLayout{
+	ushort obj_id;
+	ubyte physics_mode;
+	ubyte script;
+}
+immutable PacketID_t SetObjectPhysicsPacketID=51;
+
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)
 

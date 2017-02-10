@@ -15,6 +15,8 @@ import gfx;
 import world;
 import protocol;
 import packettypes;
+import renderer;
+import vector;
 import std.string;
 import std.traits;
 import std.format;
@@ -27,7 +29,9 @@ import std.random;
 
 extern(C){
 
-ushort Current_Script_Index=0;
+alias ScriptIndex_t=ushort;
+
+int Current_Script_Index=-1;
 char* toCString(string st){return cast(char*)toStringz(st);}
 
 void SLStdLib_DisabledFunc(){}
@@ -75,6 +79,7 @@ return[
 	MAKE_INTRINSIC_0(cast(char*)toStringz("VisibilityRange_Set"), &ScrWorldLib_VisibilityRangeSet, SLANG_VOID_TYPE),
 	MAKE_INTRINSIC_0(cast(char*)toStringz("EnvEffectSlot_Alloc"), &ScrWorldLib_EnvEffectSlotAlloc, SLANG_UINT_TYPE),
 	MAKE_INTRINSIC_1(cast(char*)toStringz("EnvEffectSlot_Set"), &ScrWorldLib_EnvEffectSlotSet, SLANG_VOID_TYPE, SLANG_STRUCT_TYPE),
+	MAKE_INTRINSIC_0(cast(char*)toStringz("Voxel_Del"), &ScrWorldLib_VoxelDel, SLANG_VOID_TYPE),
 	SLANG_END_INTRIN_FUN_TABLE()
 ];
 }
@@ -154,14 +159,58 @@ SLtype DLangType_To_SLangType(type)(){
 		return SLANG_INT_TYPE;
 	static if(is(type==ubyte))
 		return SLANG_UCHAR_TYPE;
+	static if(is(type==float))
+		return SLANG_FLOAT_TYPE;
 	static if(is(type==SLang_Struct_Type*))
 		return SLANG_STRUCT_TYPE;
 	static if(is(type==void))
 		return SLANG_VOID_TYPE;
 }
 
+template _ArrayElementType(T : T[])
+{
+  alias T _ArrayElementType;
+}
+
+void Push_DLang_Object(T)(T obj){
+	alias type=typeof(obj);
+	static if(is(type==string)){SLang_push_string(cast(char*)toStringz(obj));}
+	else static if(is(type==uint)){SLang_push_uint(obj);}
+	else static if(is(type==int)){SLang_push_int(obj);}
+	else static if(is(type==ubyte)){SLang_push_uchar(obj);}
+	else static if(is(type==byte)){SLang_push_char(obj);}
+	else static if(is(type==float)){SLang_push_float(obj);}
+	else static if(is(type==ubyte[])){SLang_push_bstring(SLbstring_create(obj.ptr, cast(uint)obj.length));}
+	else static if(is(type==bool)){SLang_push_uchar(cast(ubyte)obj);}
+	else static if(is(type==Vector_t!())){
+		SLindex_Type ind=obj.elements.length;
+		SLang_Array_Type *arr=SLang_create_array1(DLangType_To_SLangType!(typeof(type.x))(), 1, obj.elements.ptr, &ind, 1, 1);
+		SLang_push_array(arr, 0);
+	}
+	else static if(isArray!type){
+		SLindex_Type ind=obj.length;
+		SLang_Array_Type *arr=SLang_create_array1(DLangType_To_SLangType!(_ArrayElementType!(type))(), 1, obj.ptr, &ind, 1, 1);
+		SLang_push_array(arr, 0);
+	}
+	else static if(isPointer!type){
+		static if(isArray!(PointerTarget!type)){
+			SLindex_Type ind=obj.length;
+			SLang_Array_Type *arr=SLang_create_array1(DLangType_To_SLangType!(_ArrayElementType!(PointerTarget!type))(), 0, obj.ptr, &ind, 1, 1);
+			SLang_push_array(arr, 0);
+		}
+		else static if(is(type==Vector_t!()*)){
+			SLindex_Type ind=obj.elements.length;
+			SLang_Array_Type *arr=SLang_create_array1(DLangType_To_SLangType!(typeof(type.x))(), 0, obj.elements.ptr, &ind, 1, 1);
+			SLang_push_array(arr, 0);
+		}
+		else
+			return Push_DLang_Object(*obj);
+	}
+	else type;
+}
+
 struct Script_t{
-	ushort index;
+	int index;
 	bool initialized;
 	bool has_exception;
 	string name, content;
@@ -169,12 +218,12 @@ struct Script_t{
 	bool enabled, call_on_frame, call_on_minimap_render;
 	SLang_NameSpace_Type *localns;
 	ScriptLib_t *sclibrary;
-	this(ushort initindex, string filename, string initcontent){
+	this(int initindex, string filename, string initcontent){
 		index=initindex;
 		name=filename;
 		content=initcontent;
 		has_exception=false;
-		nsname=format("___clntscrptns_%d_", index);
+		nsname=format("___clntscrptns_%x_", index);
 		enabled=false;
 		sclibrary=null;
 		if(content[0..2]=="%#"){
@@ -249,27 +298,19 @@ struct Script_t{
 		}
 		static if(1){
 			foreach(ref arg; args){
-				alias type=typeof(arg);
-				     static if(is(type==string)){SLang_push_string(cast(char*)toStringz(arg));}
-				else static if(is(type==uint)){SLang_push_uint(arg);}
-				else static if(is(type==int)){SLang_push_int(arg);}
-				else static if(is(type==ubyte)){SLang_push_uchar(arg);}
-				else static if(is(type==byte)){SLang_push_char(arg);}
-				else static if(is(type==float)){SLang_push_float(arg);}
-				else static if(is(type==ubyte[])){SLang_push_bstring(SLbstring_create(arg.ptr, cast(uint)arg.length));}
-				else static if(is(type==bool)){SLang_push_uchar(cast(ubyte)arg);}
-				else type;
+				Push_DLang_Object(arg);
 			}
 		}
-		auto ret=SLang_execute_function(cast(const(char*))toStringz(nsname~"->"~funcname));
+		const char *nsfuncname=cast(const(char*))toStringz(nsname~"->"~funcname);
+		auto ret=SLang_execute_function(nsfuncname);
 		if(ret<1){
 			if(!ret){
 				has_exception=true;
-				writeflnerr("SLang function %s doesn't exist in script %s", funcname, name);
+				writeflnerr("SLang function %s(%s) doesn't exist in script %s", funcname, fromStringz(nsfuncname), name);
 			}
 			else{
 				has_exception=true;
-				writeflnerr("Exception while executing SLang function %s in script %s", funcname, name);
+				writeflnerr("Exception while executing SLang function %s(%s) in script %s", funcname, fromStringz(nsfuncname), name);
 			}
 		}
 		if(sclibrary){
@@ -288,6 +329,7 @@ struct Script_t{
 				writeflnerr("(Stack underflow, very dangerous");
 			}
 		}
+		Current_Script_Index=-1;
 	}
 	SLang_Name_Type *Get_Function(string name){
 		return SLang_get_function(cast(const(char*))toStringz(nsname~"->"~name));
@@ -361,6 +403,7 @@ void Init_Script(){
 	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapXSize"), &MapXSize, DLangType_To_SLangType!(typeof(MapXSize))(), 1);
 	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapYSize"), &MapYSize, DLangType_To_SLangType!(typeof(MapYSize))(), 1);
 	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapZSize"), &MapZSize, DLangType_To_SLangType!(typeof(MapZSize))(), 1);
+	SLadd_intrinsic_function(cast(const(char*))toStringz("Vector3_RotationAsDirection"), &ScrVecLib_RotationAsDirection, SLANG_VOID_TYPE, 1, SLANG_ARRAY_TYPE);
 	ScriptLibraries=[ScriptLib_t("None", ""), ScriptLib_t("GUI", "scrgui"), ScriptLib_t("World", "scrworld")];
 }
 
@@ -581,6 +624,18 @@ uint ScrWorldLib_FogColorGet(){return Current_Fog_Color;}
 void ScrWorldLib_FogColorSet(){SLang_pop_uint(&Base_Fog_Color);}
 uint ScrWorldLib_VisibilityRangeGet(){return Current_Visibility_Range;}
 void ScrWorldLib_VisibilityRangeSet(){SLang_pop_uint(&Base_Visibility_Range);}
+void ScrWorldLib_VoxelDel(){
+	uint x, y, z;
+	SLang_pop_uint(&x); SLang_pop_uint(&y); SLang_pop_uint(&z);
+	Voxel_Remove(x, y, z);
+}
+
+void ScrVecLib_RotationAsDirection(SLang_Array_Type *vec){
+	float x, y, z;
+	SLindex_Type ind=0;
+	SLang_get_array_element(vec, &ind, &x); ind++; SLang_get_array_element(vec, &ind, &y); ind++; SLang_get_array_element(vec, &ind, &z);
+	Push_DLang_Object(Vector3_t(x, y, z).RotationAsDirection());
+}
 
 ubyte ScrStdLib_KeyPressed(){
 	ubyte key;
@@ -592,8 +647,12 @@ ubyte ScrStdLib_KeyPressed(){
 
 uint ScrStdLib_Rand(){return uniform!uint();}
 void ScrStdLib_SendPacket(SLang_BString_Type *bstr){
+	if(Current_Script_Index<0){
+		writefln("[SCRIPT]Can't send data to server from unindexed script (%d)", Current_Script_Index);
+		return;
+	}
 	CustomScriptPacketLayout packet;
-	packet.scr_index=Current_Script_Index;
+	packet.scr_index=to!ushort(Current_Script_Index);
 	ubyte *content; SLstrlen_Type len;
 	content=SLbstring_get_pointer(bstr, &len);
 	packet.data=to!string((cast(char*)content)[0..len].dup());

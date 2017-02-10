@@ -65,7 +65,13 @@ Vector3_t TerrainOverview;
 
 bool Do_Sprite_Visibility_Checks=true;
 
-immutable bool Enable_Object_Model_Modification=true;
+//At the moment, there's at least one "hidden" undiscovered object model modification bug that can cause occassional unexpected crashes
+debug{
+	immutable bool Enable_Object_Model_Modification=false;
+}
+else{
+	immutable bool Enable_Object_Model_Modification=true;
+}
 
 float Current_Blur_Amount=0.0, BlurAmount=0.0, BaseBlurAmount=0.0, BlurAmountDecay=.3;
 float Current_Shake_Amount=0.0, ShakeAmount=0.0, BaseShakeAmount=0.0, ShakeAmountDecay=1.5;
