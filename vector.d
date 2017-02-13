@@ -1,6 +1,7 @@
 import std.math;
 import std.random;
 import std.algorithm;
+import std.traits;
 import misc;
 version(LDC){
 	import ldc_stdlib;
@@ -10,15 +11,25 @@ version(GNU){
 }
 
 T degsin(T)(T val){
-	return sin(val*PI/180.0);
+	return cast(T)sin(val*PI/180.0);
 }
 
 T degcos(T)(T val){
-	return cos(val*PI/180.0);
+	return cast(T)cos(val*PI/180.0);
 }
 
 alias Vector3_t=Vector_t!(3);
 alias Vector4_t=Vector_t!(4);
+
+string __mixin_NearestFloatType(T)(){
+	static if(is(T==float) || is(T==double))
+		return T.stringof;
+	return "float";
+}
+
+bool isFloat(T)(){
+	return is(T==float) || is(T==double);
+}
 
 struct Vector_t(alias dim=3, element_t=float){
 	union{
@@ -28,13 +39,14 @@ struct Vector_t(alias dim=3, element_t=float){
 				element_t x, y, z;
 			}
 		}
-		else{
+		static if(dim==4){
 			struct{
 				element_t x, y, z, w;
 			}
 		}
 	}
 	alias __this_type=Vector_t!(dim, element_t);
+	mixin("alias __float_type="~__mixin_NearestFloatType!element_t()~";");
 	@property typeof(x) length(){
 		return vector_length();
 	}
@@ -101,11 +113,11 @@ struct Vector_t(alias dim=3, element_t=float){
 	
 	element_t vector_length(){
 		static if(dim==3){
-			return std.math.sqrt(x*x+y*y+z*z);
+			return cast(element_t)std.math.sqrt(cast(__float_type)(x*x+y*y+z*z));
 		}
 		else
 		static if(dim==4){
-			return std.math.sqrt(x*x+y*y+z*z+w*w);
+			return cast(element_t)std.math.sqrt(cast(__float_type)(x*x+y*y+z*z+w*w));
 		}
 		else{
 			element_t ret=0.0;
@@ -126,7 +138,12 @@ struct Vector_t(alias dim=3, element_t=float){
 	__this_type rotdir(){return __this_type(degcos(x), degsin(x), degcos(y));}
 	
 	__this_type abs(){if(this.length)return (this/this.length); return __this_type(0.0, 0.0, 0.0);}
-	__this_type vecabs(){return __this_type(fabs(x), fabs(y), fabs(z));}
+	__this_type vecabs(){
+		static if(isFloat!element_t())
+			return __this_type(fabs(x), fabs(y), fabs(z));
+		else
+			return __this_type(std.math.abs(x), std.math.abs(y), std.math.abs(z));
+	}
 	
 	__this_type rotate(__this_type rot){
 		__this_type rrot=rot;
@@ -160,8 +177,8 @@ struct Vector_t(alias dim=3, element_t=float){
 	}
 	
 	__this_type DirectionAsRotation(){
-		float ry=atan2(this.z, this.x)*180.0/PI;
-		float rx=asin(this.y)*180.0/PI;
+		float ry=atan2(cast(__float_type)this.z, cast(__float_type)this.x)*180.0/PI;
+		float rx=asin(cast(__float_type)this.y)*180.0/PI;
 		float rz=0.0;
 		return __this_type(rx, ry, rz);
 	}
@@ -172,24 +189,24 @@ struct Vector_t(alias dim=3, element_t=float){
 	
 	__this_type RotateAroundX(float rot){
 		__this_type ret;
-		ret.y=y*degcos(rot)-z*degsin(rot);
-		ret.z=y*degsin(rot)+z*degcos(rot);
+		ret.y=cast(typeof(ret.y))(y*degcos(rot)-z*degsin(rot));
+		ret.z=cast(typeof(ret.z))(y*degsin(rot)+z*degcos(rot));
 		ret.x=x;
 		return ret;
 	}
 	
 	__this_type RotateAroundY(float rot){
 		__this_type ret;
-		ret.z=z*degcos(rot)-z*degsin(rot);
+		ret.z=cast(typeof(ret.z))(z*degcos(rot)-z*degsin(rot));
 		ret.y=y;
-		ret.x=x*degcos(rot)-x*degcos(rot);
+		ret.x=cast(typeof(ret.x))(x*degcos(rot)-x*degcos(rot));
 		return ret;
 	}
 	
 	__this_type RotateAroundZ(float rot){
 		__this_type ret;
-		ret.x=x*degcos(rot)-y*degsin(rot);
-		ret.y=x*degsin(rot)+y*degcos(rot);
+		ret.x=cast(typeof(ret.x))(x*degcos(rot)-y*degsin(rot));
+		ret.y=cast(typeof(ret.y))(x*degsin(rot)+y*degcos(rot));
 		ret.z=z;
 		return ret;
 	}
@@ -202,8 +219,11 @@ struct Vector_t(alias dim=3, element_t=float){
 		return x*vec.x+y*vec.y+z*vec.z;
 	}
 	
-	typeof(x)[3] opCast(){
-		return [x, y, z];
+	T opCast(T)(){
+		static if(isArray!T)
+			return elements;
+		static if(is(T==bool))
+			return x && y && z;
 	}
 	
 	__this_type filter(T)(T[] filterarr){
@@ -221,12 +241,19 @@ struct Vector_t(alias dim=3, element_t=float){
 	Vector_t!(3) cross(Vector_t!(3) vec){
 		return Vector_t!(3)(y*vec.z-z*vec.y, z*vec.x-x*vec.z, x*vec.y-y*vec.x);
 	}
+	__this_type min(__this_type vec){
+		__this_type ret;
+		foreach(i, ref val; this.elements){
+			ret.elements[i]=std.algorithm.min(val, vec.elements[i]);
+		}
+		return ret;
+	}
 	string toString(){
 		string ret="{";
 		for(uint i=0; i<dim; i++){
 			ret~=to!string(elements[i]);
 			if(i!=dim-1)
-				ret~=" | ";
+				ret~=";";
 		}
 		ret~="}";
 		return ret;

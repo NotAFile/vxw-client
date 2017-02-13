@@ -182,7 +182,7 @@ void Update_MiniMap(){
 	uint *pixel_ptr=cast(uint*)minimap_srfc.pixels;
 	for(z=0; z<MapZSize; z++){
 		for(x=0; x<MapXSize; x++){
-			uint col=Voxel_GetColor(x, Voxel_FindFloorZ(x, 0, z), z);
+			uint col=Voxel_GetColor(x, Voxel_GetHighestY(x, 0, z), z);
 			uint a=(col>>24)&255, r=(col>>16)&255, g=(col>>8)&255, b=col&255;
 			r*=a; g*=a; b*=a;
 			//r=min(r>>7, 255); g=min(g>>7, 255); b=min(b>>7, 255);
@@ -435,6 +435,15 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 			BlockBreakParticles.length--;
 		else
 			break;
+	}
+	{
+		foreach(ref debris; Debris_Parts){
+			debris.obj.Update(WorldSpeed);
+			debris.spr.pos=debris.obj.pos;
+			debris.obj.vel.y+=Gravity*WorldSpeed*.1;
+			debris.obj.vel/=1.0+WorldSpeed*.1;
+			Renderer_DrawSprite(&debris.spr);
+		}
 	}
 	{
 		foreach(ref bullet; Bullets){
@@ -807,10 +816,6 @@ Sprite_t Get_Object_Sprite(uint obj_id){
 }
 
 void Finish_Render(){
-	//printf("fullness: %i\n",overlay_bind_fullness());
-	/*SDL_SetRenderTarget(scrn_renderer, null);
-	SDL_RenderCopy(scrn_renderer, scrn_texture, null, null);
-	SDL_RenderPresent(scrn_renderer);*/
 	Renderer_FinishRendering();
 }
 
@@ -1117,6 +1122,15 @@ void Create_Smoke(Vector3_t pos, uint amount, uint col, float size, float speeds
 	}
 }
 
+struct Debris_t{
+	Sprite_t spr;
+	PhysicalObject_t obj;
+}
+
+Debris_t[] Debris_Parts;
+
+Model_t *Debris_BaseModel;
+
 void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint col, uint timer=0){
 	static if(Enable_Object_Model_Modification){
 		uint explosion_r=(col&255), explosion_g=(col>>8)&255, explosion_b=(col>>16)&255;
@@ -1165,6 +1179,90 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 							r=(r*alpha)>>8; g=(g*alpha)>>8; b=(b*alpha)>>8;
 							blk.color=(r) | (g<<8) | (b<<16);
 						}
+					}
+				}
+			}
+		}
+	}
+	static if(0){
+		float powrad=radius*radius;
+		int miny=cast(int)max(0, -radius+pos.y), maxy=cast(int)min(MapYSize, radius+pos.y);
+		uint __rand_factor=(*(cast(uint*)&spread))^(*(cast(uint*)&pos.x))^(*(cast(uint*)&pos.y))^(*(cast(uint*)&pos.z));
+		if(!Debris_BaseModel){
+			Debris_BaseModel=new Model_t;
+			Debris_BaseModel.xsize=Debris_BaseModel.ysize=Debris_BaseModel.zsize=10;
+			Debris_BaseModel.xpivot=Debris_BaseModel.ypivot=Debris_BaseModel.zpivot=Debris_BaseModel.xsize/2;
+			Debris_BaseModel.voxels.length=Debris_BaseModel.xsize*Debris_BaseModel.ysize*Debris_BaseModel.zsize;
+			Debris_BaseModel.offsets.length=Debris_BaseModel.column_lengths.length=Debris_BaseModel.xsize*Debris_BaseModel.zsize;
+			for(uint x=1; x<Debris_BaseModel.xsize-1; x++){
+				for(uint z=1; z<Debris_BaseModel.zsize-1; z++){
+					Debris_BaseModel.offsets[x+z*Debris_BaseModel.xsize]=(x+z*Debris_BaseModel.xsize)*Debris_BaseModel.ysize;
+					Debris_BaseModel.column_lengths[x+z*Debris_BaseModel.xsize]=2;
+					Debris_BaseModel.voxels[Debris_BaseModel.offsets[x+z*Debris_BaseModel.xsize]]=ModelVoxel_t(0x00040404, 0, 16, 0);
+					Debris_BaseModel.voxels[Debris_BaseModel.offsets[x+z*Debris_BaseModel.xsize]+1]=ModelVoxel_t(0x00040404,
+					cast(ushort)(Debris_BaseModel.ysize-1), 16, 0);
+				}
+			}
+			for(uint x=0; x<Debris_BaseModel.xsize; x++){
+				uint z=0;
+				Debris_BaseModel.offsets[x+z*Debris_BaseModel.xsize]=(x+z*Debris_BaseModel.xsize)*Debris_BaseModel.ysize;
+				Debris_BaseModel.column_lengths[x+z*Debris_BaseModel.xsize]=cast(ushort)Debris_BaseModel.ysize;
+				for(uint y=0; y<Debris_BaseModel.ysize; y++){
+					Debris_BaseModel.voxels[Debris_BaseModel.offsets[x+z*Debris_BaseModel.xsize]+y]=ModelVoxel_t(0x00040404, cast(ushort)y, 16, 0);
+				}
+				z=Debris_BaseModel.zsize-1;
+				Debris_BaseModel.offsets[x+z*Debris_BaseModel.xsize]=(x+z*Debris_BaseModel.xsize)*Debris_BaseModel.ysize;
+				Debris_BaseModel.column_lengths[x+z*Debris_BaseModel.xsize]=cast(ushort)Debris_BaseModel.ysize;
+				for(uint y=0; y<Debris_BaseModel.ysize; y++){
+					Debris_BaseModel.voxels[Debris_BaseModel.offsets[x+z*Debris_BaseModel.xsize]+y]=ModelVoxel_t(0x00040404, cast(ushort)y, 16, 0);
+				}
+			}
+			for(uint z=0; z<Debris_BaseModel.zsize; z++){
+				uint x=0;
+				Debris_BaseModel.offsets[x+z*Debris_BaseModel.xsize]=(x+z*Debris_BaseModel.xsize)*Debris_BaseModel.ysize;
+				Debris_BaseModel.column_lengths[x+z*Debris_BaseModel.xsize]=cast(ushort)Debris_BaseModel.ysize;
+				for(uint y=0; y<Debris_BaseModel.ysize; y++){
+					Debris_BaseModel.voxels[Debris_BaseModel.offsets[x+z*Debris_BaseModel.xsize]+y]=ModelVoxel_t(0x00040404, cast(ushort)y, 16, 0);
+				}
+				x=Debris_BaseModel.xsize-1;
+				Debris_BaseModel.offsets[x+z*Debris_BaseModel.xsize]=(x+z*Debris_BaseModel.xsize)*Debris_BaseModel.ysize;
+				Debris_BaseModel.column_lengths[x+z*Debris_BaseModel.xsize]=cast(ushort)Debris_BaseModel.ysize;
+				for(uint y=0; y<Debris_BaseModel.ysize; y++){
+					Debris_BaseModel.voxels[Debris_BaseModel.offsets[x+z*Debris_BaseModel.xsize]+y]=ModelVoxel_t(0x00040404, cast(ushort)y, 16, 0);
+				}
+			}
+		}
+		uint randnum=(__rand_factor<<1)^((*(cast(uint*)&vel.x))<<1);
+		for(int x=-cast(int)radius; x<radius; x++){
+			for(int z=-cast(int)radius; z<radius; z++){
+				if(x*x+z*z>powrad)
+					continue;
+				int mx=cast(int)(x+pos.x), mz=cast(int)(z+pos.z);
+				if(mx<0 || mz<0 || mx>MapXSize || mz>MapZSize)
+					continue;
+				int sy=Voxel_GetHighestY(mx, miny, mz);
+				for(int y=sy; y<maxy; y++){
+					if(Voxel_IsSolid(mx, y, mz) && ((__rand_factor^(randnum<<2)^((*(cast(uint*)&vel.y))))%30)){
+						Debris_t b;
+						b.spr.model=Debris_BaseModel;
+						b.spr.color_mod=0;
+						float msize=.8;
+						b.spr.density=Vector3_t(msize)/Vector3_t(b.spr.model.size);
+						b.spr.rot=RandomVector()*360.0*0.0;
+						b.spr.replace_black=Voxel_GetColor(mx, y, mz);
+						b.spr.check_visibility=1;
+						b.spr.pos=Vector3_t(mx, y, mz)+.5;
+						b.obj.Init([Vector3_t(-msize*.5, -msize*.5, -msize*.5), Vector3_t(msize*.5, -msize*.5, -msize*.5),
+						Vector3_t(-msize*.5, msize*.5, -msize*.5), Vector3_t(msize*.5, msize*.5, -msize*.5),
+						Vector3_t(-msize*.5, -msize*.5, msize*.5), Vector3_t(msize*.5, -msize*.5, msize*.5),
+						Vector3_t(-msize*.5, msize*.5, msize*.5), Vector3_t(msize*.5, msize*.5, msize*.5)]);
+						b.obj.rot=b.spr.rot;
+						b.obj.pos=b.spr.pos;
+						//b.obj.vel=(b.spr.pos-pos).abs()*RandomVector()*(1.0+(((((__rand_factor<<2)^(x<<1)^(y<<3)^z)))%1000)/1000.0*2.0)*1.0;
+						b.obj.vel=RandomVector()*2.0;
+						b.obj.bouncefactor=Vector3_t(.9);
+						Debris_Parts~=b;
+						randnum^=(*(cast(uint*)&vel.z))<<3;
 					}
 				}
 			}
@@ -1332,4 +1430,71 @@ uint Calculate_Alpha(uint c1, uint c2, ushort alpha){
 	ushort inv_alpha=255-to!ubyte(alpha);
 	return (((((c1>>24)&255)*alpha+((c2>>24)&255)*inv_alpha)>>8)<<24) | (((((c1>>16)&255)*alpha+((c2>>16)&255)*inv_alpha)>>8)<<16) |
 	(((((c1>>8)&255)*alpha+((c2>>8)&255)*inv_alpha)>>8)<<8) | (((c1&255)*alpha+(c2&255)*inv_alpha)>>8);
+}
+
+//Never change this format
+extern(C){
+struct ModelVoxel_t{
+	uint color;
+	ushort ypos;
+	char visiblefaces, normalindex;
+}
+
+struct Model_t{
+	union{
+		struct{
+			int xsize, ysize, zsize;
+		}
+		Vector_t!(3, uint) size;
+	}
+	union{
+		struct{
+			float xpivot, ypivot, zpivot;
+		}
+		Vector3_t pivot;
+	}
+	Model_t *lowermip;
+	ModelVoxel_t[] voxels;
+	uint[] offsets;
+	ushort[] column_lengths;
+	alias copy=dup;
+	Model_t *dup(){
+		Model_t *newmodel=new Model_t;
+		newmodel.xsize=xsize; newmodel.ysize=ysize; newmodel.zsize=zsize;
+		newmodel.xpivot=xpivot; newmodel.ypivot=ypivot; newmodel.zpivot=zpivot;
+		newmodel.lowermip=lowermip;
+		newmodel.voxels.length=voxels.length; newmodel.voxels[]=voxels[];
+		newmodel.offsets.length=offsets.length; newmodel.offsets[]=offsets[];
+		newmodel.column_lengths.length=column_lengths.length; newmodel.column_lengths[]=column_lengths[];
+		return newmodel;
+	}
+}
+
+//TODO: DEFAULT INITIALIZER (WHEN COMPILING WITH LDC AND MAX OPTIMIZATION, STRUCTS AREN'T AUTO-INITIALIZED) (UNIMPORTANT)
+//NOTE: ACCESSING ROTATION, POSITION OR DENSITY VIA rhe/rti/rst, xpos/ypos/zpos or xdensity/ydensity/zdensity IS DEPRECATED, DON'T DO THAT ANYMORE
+struct Sprite_t{
+	union{
+		//(rhe = height rotation, rti = left/right rotation, rst = tilt)
+		struct{
+			float rhe, rti, rst;
+		}
+		Vector3_t rot;
+	}
+	union{
+		struct{
+			float xpos, ypos, zpos;
+		}
+		Vector3_t pos;
+	}
+	union{
+		struct{
+			float xdensity, ydensity, zdensity;
+		}
+		Vector3_t density;
+	}
+	uint color_mod, replace_black;
+	ubyte brightness;
+	ubyte check_visibility;
+	Model_t *model;
+}
 }

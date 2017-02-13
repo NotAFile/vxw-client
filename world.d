@@ -11,6 +11,7 @@ import std.conv;
 import std.math;
 import std.random;
 import std.algorithm;
+import std.traits;
 import packettypes;
 import vector;
 import renderer;
@@ -105,7 +106,7 @@ struct AABB_t {
 		for(int x=min_x;x<max_x;x++) {
 			for(int z=min_z;z<max_z;z++) {
 				for(int y=min_y;y<max_y;y++) {
-					if(x<0 || z<0 || x>=MapXSize || z>=MapZSize || y>=MapYSize || (y!=MapYSize-1 && Voxel_IsSolid(x,y,z))) {
+					if(x<0 || z<0 || x>=MapXSize || z>=MapZSize || y>=MapYSize || (y!=MapYSize-1 && Coord_Collides(x,y,z))) {
 						terrain_cube.min_x = x;
 						terrain_cube.min_y = y;
 						terrain_cube.min_z = z;
@@ -605,7 +606,47 @@ bool Voxel_IsWater(T1, T2, T3)(T1 x, T2 y, T3 z){
 uint[] Solid_Objects;
 uint[] Hittable_Objects;
 
-bool Voxel_Collides(XT, YT, ZT)(XT x, YT y, ZT z, int exclude_obj_index=-1){
+//ASSUMPTION: START COORD IS NON-SOLID
+Vector3_t Line_NonCollPos(alias allow_negative_length=false)(Vector3_t start, Vector3_t end){
+	if(end.y>0){
+		if(end.x>0 && end.x<MapXSize && end.z>0 && end.z<MapZSize && end.y<MapYSize){
+			if(Voxel_IsSolid(end)){
+				Vector3_t diff=start-end;
+				auto rc=RayCast(start, -diff, diff.length);
+				float colldist=diff.length-rc.colldist;
+				static if(!allow_negative_length){
+					if(colldist>0.0)
+						return end+diff.abs()*colldist;
+					return start;
+				}
+				else{
+					return end+diff.abs()*colldist;
+				}
+			}
+		}
+		else{
+			Vector3_t diff=end-start;
+			float length;
+			if(end.x<0)
+				length=end.x/diff.x;
+			else if(end.x>=MapXSize)
+				length=(MapXSize-.001-end.x)/diff.x;
+			if(end.z<0)
+				length=min(length, end.z/diff.z);
+			else if(end.z>=MapZSize)
+				length=min(length, (MapZSize-.001-end.z)/diff.z);
+			if(end.y>=MapYSize)
+				length=min(length, (MapYSize-.001-end.y)/diff.y);
+			return start+diff*length;
+		}
+	}
+	else{
+		return end;
+	}
+	return end;
+}
+
+bool Coord_Collides(Tx, Ty, Tz)(Tx x, Ty y, Tz z, int exclude_obj_index=-1){
 	if(y<0)
 		return false;
 	if(x<0 || x>=MapXSize || z<0 || z>=MapZSize || y>=MapYSize)
@@ -623,8 +664,16 @@ bool Voxel_Collides(XT, YT, ZT)(XT x, YT y, ZT z, int exclude_obj_index=-1){
 	return false;
 }
 
+bool Coord_Collides(T)(T val) if(__traits(hasMember, T, "x") && __traits(hasMember, T, "y") && __traits(hasMember, T, "z")){
+	return Coord_Collides(val.x, val.y, val.z);
+}
+
+bool Coord_Collides(T)(T val) if(isArray!T){
+	return Coord_Collides(val[0], val[1], val[2]);
+}
+
 float CollidingVoxel_GetMinY(TX, TY, TZ)(TX x, TY y, TZ z, int exclude_obj_index=-1){
-	if(Voxel_Collides(cast(uint)x, cast(uint)y, cast(uint)z))
+	if(Coord_Collides(cast(uint)x, cast(uint)y, cast(uint)z))
 		return tofloat(touint(y));
 	foreach(index; Solid_Objects){
 		if(index==exclude_obj_index)
@@ -985,11 +1034,13 @@ float rcsgn(float val){
 	//return val<0.0?-1.0:1.0;
 }
 
-//No bytebit kys, if you're unhappy with the raycasting results, fix the code instead of adding some bs that won't work anyways
 RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
 	Vector3_t dst=pos+dir*length;
 	int x=cast(int)pos.x, y=cast(int)pos.y, z=cast(int)pos.z;
 	int dstx=cast(int)dst.x, dsty=cast(int)dst.y, dstz=cast(int)dst.z;
+	if(x==dstx && y==dsty && z==dstz){
+		return RayCastResult_t(x, y, z, length, Voxel_IsSolid(x, y, z));
+	}
 	int opxd=cast(int)(dir.x>0.0), opyd=cast(int)(dir.y>0.0), opzd=cast(int)(dir.z>0.0);
 	float invxd=dir.x ? 1.0/dir.x : (float.infinity), invyd=dir.y ? 1.0/dir.y : (float.infinity), invzd=dir.z ? 1.0/dir.z : (float.infinity);
 	int xdsgn=cast(int)rcsgn(dir.x), ydsgn=cast(int)rcsgn(dir.y), zdsgn=cast(int)rcsgn(dir.z);
@@ -1033,7 +1084,8 @@ RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
 			}
 		}
 		if(!loops){
-			writeflnlog("Warning: DDA raycasting results in an infinite loop (%s, %s) (rare?)", dir, length);
+			writeflnlog("Warning: DDA raycasting results in an infinite loop (%s, %s, %s, %s) (rare?)",
+			Vector3_t(x, y, z), dir, Vector3_t(dstx, dsty, dstz), length);
 			break;
 		}
 		loops--;
@@ -1181,7 +1233,7 @@ struct Object_t{
 	}
 
 	bool Collides_At(T1, T2, T3)(T1 x, T2 y, T3 z){
-		return Voxel_Collides(toint(x), toint(y), toint(z), index);
+		return Coord_Collides(toint(x), toint(y), toint(z), index);
 	}
 	bool Solid_At(XT, YT, ZT)(XT x, YT y, ZT z){
 		return Contains(x, y, z);
@@ -1208,6 +1260,87 @@ struct Object_t{
 
 Object_t[] Objects;
 uint[] DamagedObjects;
+
+struct PhysicalObject_t{
+	Vector3_t pos, vel, rot;
+	Vector3_t bouncefactor;
+	Vector3_t[] Vertices;
+	bool[3][] Vertex_Collisions;
+	bool[3] Collision;
+	bool is_stuck;
+	
+	void Init(Vector3_t[] ivertices=[Vector3_t(0.0)]){
+		Vertices=ivertices;
+		Collision[]=false;
+		pos=vel=rot=bouncefactor=Vector3_t(0.0);
+	}
+	
+	void Update(T)(T delta_ticks){
+		is_stuck=false;
+		if(Vertex_Collisions.length!=Vertices.length)
+			Vertex_Collisions.length=Vertices.length;
+		Vector3_t deltapos=Vertices_CheckCollisions(vel*delta_ticks);
+		if(!is_stuck){
+			pos+=deltapos;
+		}
+		else{
+			vel=Vector3_t(0.0);
+			pos.y-=delta_ticks;
+		}
+	}
+	
+	Vector3_t Vertices_CheckCollisions(Vector3_t delta_pos){
+		Collision[]=false;
+		foreach(uint i, ref vertex; Vertices){
+			Vector3_t vdelta_pos;
+			bool[3] coll=Vertex_CheckCollision(vertex, delta_pos, vdelta_pos);
+			if(coll[0] || coll[1] || coll[2]){
+				delta_pos=delta_pos.vecabs().min(vdelta_pos.vecabs())*delta_pos.sgn();
+				Collision[]|=coll[];
+			}
+			if(!delta_pos)
+				break;
+			if(is_stuck){
+				return Vector3_t(0.0);
+			}
+		}
+		if(fabs(delta_pos.x)<.001)
+			delta_pos.x=0.0;
+		if(fabs(delta_pos.y)<.001)
+			delta_pos.y=0.0;
+		if(fabs(delta_pos.z)<.001)
+			delta_pos.z=0.0;
+		if(Collision[0])
+			vel.x*=-bouncefactor.x;
+		if(Collision[1])
+			vel.y*=-bouncefactor.y;
+		if(Collision[2])
+			vel.z*=-bouncefactor.z;
+		return delta_pos;
+	}
+	
+	bool[3] Vertex_CheckCollision(Vector3_t vertex, Vector3_t delta_pos, out Vector3_t min_collision_delta){
+		Vector3_t vpos=vertex.rotate_raw(rot)+pos;
+		Vector3_t newpos=vpos+delta_pos;
+		if(!Coord_Collides(newpos))
+			return [false, false, false];
+		if(Coord_Collides(vertex)){
+			min_collision_delta=Vector3_t(0.0);
+			is_stuck=true;
+			return [true, true, true];
+		}
+		int cx=cast(int)vpos.x, cy=cast(int)vpos.y, cz=cast(int)vpos.z;
+		int nx=cast(int)newpos.x, ny=cast(int)newpos.y, nz=cast(int)newpos.z;
+		bool[3] coll=[Coord_Collides(nx, cy, cz), Coord_Collides(cx, ny, cz), Coord_Collides(cx, cy, nz)];
+		min_collision_delta=delta_pos*Line_NonCollPos!(true)(vpos, newpos);
+		if(Coord_Collides(vpos+min_collision_delta)){
+			min_collision_delta=Vector3_t(0.0);
+			is_stuck=true;
+			return [true, true, true];
+		}
+		return coll;
+	}
+}
 
 bool Valid_Coord(Tx, Ty, Tz)(Tx x, Ty y, Tz z){
 	return x>=0 && x<MapXSize && y>=0 && y<MapYSize && z>=0 && z<MapZSize;

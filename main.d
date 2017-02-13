@@ -17,7 +17,7 @@ version(LDC){
 }
 
 version(OSX){
-	//Ew why would an intelligent non-pleb even use this shit
+	//Ew why would an intelligent being even use this shit
 	static assert(0);
 }
 
