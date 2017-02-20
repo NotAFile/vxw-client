@@ -3,6 +3,8 @@ import std.stdio;
 import std.string;
 import std.conv;
 import std.format;
+import core.memory;
+import core.time;
 import network;
 import protocol;
 import gfx;
@@ -21,6 +23,7 @@ version(OSX){
 	static assert(0);
 }
 
+uint __gc_frame_counter=0;
 void main(string[] args){
 	ClientConfig_Load();
 	Init_Game();
@@ -51,8 +54,8 @@ void main(string[] args){
 		}
 	}
 	Send_Identification_Packet(requested_name);
+	auto prev_t=PreciseClock();
 	while(!QuitGame){
-		uint t_before_frame=SDL_GetTicks();
 		Check_Input();
 		while(true){
 			auto ret=Update_Network();
@@ -64,21 +67,32 @@ void main(string[] args){
 		}
 		Script_OnFrame();
 		Update_World();
-		uint t_after_update=SDL_GetTicks();
 		Render_Screen();
 		Finish_Render();
-		uint t_after_rendering=SDL_GetTicks();
-		uint tdiff=t_after_rendering-t_before_frame;
+		auto current_t=PreciseClock();
+		auto tdiff=current_t-prev_t;
+		__gc_frame_counter++;
 		if(Config_Read!int("fpscap")>0){
-			if(tdiff<1000/Config_Read!uint("fpscap"))
-				SDL_Delay(1000/Config_Read!uint("fpscap")-tdiff);
+			auto target_delay=PreciseClock_DiffFromNSecs((cast(double)10e9)/(cast(double)Config_Read!int("fpscap")));
+			if(tdiff<target_delay){
+				auto wait_delay=target_delay-tdiff;
+				PreciseClock_Wait(wait_delay);
+			}
 		}
-		//writeflnlog("%s %s", t_after_rendering-t_after_update, t_after_update-t_before_frame);
+		prev_t=PreciseClock();
+		if(__gc_frame_counter>=600)
+			__do_gc_collect();
 	}
 	Send_Disconnect_Packet();
 	UnInit_Game();
 	ClientConfig_Save();
 }
+
+void __do_gc_collect(){
+	GC.collect();
+	GC.minimize();
+	__gc_frame_counter=0;
+ }
 
 void Init_Game(){
 	Init_Netcode();

@@ -31,6 +31,7 @@ bool isFloat(T)(){
 	return is(T==float) || is(T==double);
 }
 
+version(DigitalMars){ pragma(inline, true);}
 struct Vector_t(alias dim=3, element_t=float){
 	union{
 		element_t[dim] elements;
@@ -87,15 +88,26 @@ struct Vector_t(alias dim=3, element_t=float){
 	__this_type opBinary(string op, T)(T[] arg){
 		__this_type ret;
 		ret.elements=elements;
-		mixin("ret.elements[]"~op~"=args[]");
+		mixin("ret.elements[]"~op~"=arg[];");
 		return ret;
 	}
-	__this_type opBinary(string op, T)(T arg){
-		static if(__traits(compiles, arg[0]) && __traits(compiles, arg[1]) && __traits(compiles, arg[2]) && !is(T==__this_type)){
-			return __this_type(mixin("x"~op~"arg[0]"), mixin("y"~op~"arg[1]"), mixin("z"~op~"arg[2]"));
+	__this_type opBinary(string op, T)(T arg) if(!isArray!T){
+		static if(dim==3){
+			static if(!__traits(isScalar, T))
+				return __this_type(mixin("x"~op~"arg.x"), mixin("y"~op~"arg.y"), mixin("z"~op~"arg.z"));
+			else
+				return __this_type(mixin("x"~op~"arg"), mixin("y"~op~"arg"), mixin("z"~op~"arg"));
 		}
 		else{
-			return __this_type(mixin("x"~op~"arg"), mixin("y"~op~"arg"), mixin("z"~op~"arg"));
+			__this_type ret;
+			static if(!__traits(isScalar, T)){
+				static assert(ret.elements.length==elements.length && arg.elements.length==elements.length);
+				mixin("ret.elements=elements[]"~op~"arg.elements[];");
+			}
+			else{
+				mixin("ret.elements=elements[]"~op~"arg;");
+			}
+			return ret;
 		}
 	}
 	__this_type opOpAssign(string op)(__this_type arg){
@@ -137,12 +149,19 @@ struct Vector_t(alias dim=3, element_t=float){
 	
 	__this_type rotdir(){return __this_type(degcos(x), degsin(x), degcos(y));}
 	
-	__this_type abs(){if(this.length)return (this/this.length); return __this_type(0.0, 0.0, 0.0);}
+	__this_type normal(){if(this.length)return (this/this.length); return __this_type(0.0, 0.0, 0.0);}
+	//DEPRECATED
+	__this_type abs(){return this.normal();}
 	__this_type vecabs(){
 		static if(isFloat!element_t())
 			return __this_type(fabs(x), fabs(y), fabs(z));
 		else
 			return __this_type(std.math.abs(x), std.math.abs(y), std.math.abs(z));
+	}
+	__this_type inv(){
+		__this_type ret;
+		ret.elements[]=(cast(element_t)1.0)/this.elements[];
+		return ret;
 	}
 	
 	__this_type rotate(__this_type rot){
@@ -162,14 +181,19 @@ struct Vector_t(alias dim=3, element_t=float){
 		return ret;
 	}
 	
+	__this_type rotate_raw(__this_type vsin, __this_type vcos){
+		__this_type ret=this, tmp=this;
+		ret.y=tmp.y*vcos.x-tmp.z*vsin.x; ret.z=tmp.y*vsin.x+tmp.z*vcos.x;
+		tmp.x=ret.x; tmp.z=ret.z;
+		ret.z=tmp.z*vcos.y-tmp.x*vsin.y; ret.x=tmp.z*vsin.y+tmp.x*vcos.y;
+		tmp.x=ret.x; tmp.y=ret.y;
+		ret.x=tmp.x*vcos.z-tmp.y*vsin.z; ret.y=tmp.x*vsin.z+tmp.y*vcos.z;
+		return ret;
+	}
+	
 	//This function is correct (lecom approved) (except for maybe negligible precision loss)
+	//(Not suitable for OpenGL, needs corrections for that)
 	__this_type RotationAsDirection(){
-		/*float cx=degcos(this.x);
-		float sy=degsin(this.y);
-		float cz=degsin(this.x);
-		float xzr=1.0-fabs(this.y)/90.0;
-		cx*=xzr; cz*=xzr;
-		return __this_type(cx, sy, cz);*/
 		__this_type dir=__this_type(1.0, 0.0, 0.0);
 		dir=dir.rotate(__this_type(this.y, this.x, this.z));
 		auto result=__this_type(dir.x, -dir.z, dir.y);
@@ -189,24 +213,27 @@ struct Vector_t(alias dim=3, element_t=float){
 	
 	__this_type RotateAroundX(float rot){
 		__this_type ret;
-		ret.y=cast(typeof(ret.y))(y*degcos(rot)-z*degsin(rot));
-		ret.z=cast(typeof(ret.z))(y*degsin(rot)+z*degcos(rot));
+		immutable float old_y=y;
 		ret.x=x;
+		ret.y=cast(typeof(ret.y))(y*degcos(rot)-z*degsin(rot));
+		ret.z=cast(typeof(ret.z))(z*degcos(rot)+old_y*degsin(rot));
 		return ret;
 	}
 	
 	__this_type RotateAroundY(float rot){
 		__this_type ret;
-		ret.z=cast(typeof(ret.z))(z*degcos(rot)-z*degsin(rot));
+		immutable float old_x=x;
+		ret.x=cast(typeof(ret.x))(x*degcos(rot)-z*degsin(rot));
 		ret.y=y;
-		ret.x=cast(typeof(ret.x))(x*degcos(rot)-x*degcos(rot));
+		ret.z=cast(typeof(ret.z))(z*degcos(rot)+old_x*degsin(rot));
 		return ret;
 	}
 	
 	__this_type RotateAroundZ(float rot){
 		__this_type ret;
+		immutable float old_x=x;
 		ret.x=cast(typeof(ret.x))(x*degcos(rot)-y*degsin(rot));
-		ret.y=cast(typeof(ret.y))(x*degsin(rot)+y*degcos(rot));
+		ret.y=cast(typeof(ret.y))(y*degcos(rot)+old_x*degsin(rot));
 		ret.z=z;
 		return ret;
 	}

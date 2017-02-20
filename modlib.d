@@ -10,6 +10,14 @@ import gfx;
 import misc;
 import script;
 import renderer;
+version(LDC){
+	import ldc_stdlib;
+}
+version(GNU){
+	import gdc_stdlib;
+}
+
+int ProtocolBuiltin_ServerMessageScript=-1;
 
 Model_t *Model_FromKV6(ubyte[] data, string filename){
 	struct __kv6_header_t{
@@ -39,10 +47,10 @@ Model_t *Model_FromKV6(ubyte[] data, string filename){
 	size_t voxel_end_ind=__kv6_header_t.sizeof+voxelcount*ModelVoxel_t.sizeof;
 	model.voxels[0..$]=cast(ModelVoxel_t[])data[__kv6_header_t.sizeof..voxel_end_ind];
 	auto xlength=new uint[](model.xsize);
-	uint xlength_end_ind=voxel_end_ind+model.xsize*uint.sizeof;
+	size_t xlength_end_ind=voxel_end_ind+model.xsize*uint.sizeof;
 	xlength[0..$]=cast(uint[])data[voxel_end_ind..xlength_end_ind];
 	auto ylength=new ushort[][](model.xsize, model.zsize);
-	uint ylength_end_ind=xlength_end_ind+model.xsize*model.zsize*ushort.sizeof;
+	size_t ylength_end_ind=xlength_end_ind+model.xsize*model.zsize*ushort.sizeof;
 	for(uint z=0; z<model.zsize; z++)
 		for(uint x=0; x<model.xsize; x++)
 			ylength[x][z]=(cast(ushort[])data[xlength_end_ind..$])[z+model.zsize*x];

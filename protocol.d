@@ -108,7 +108,8 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 						}
 					}
 					Renderer_LoadMap(CurrentLoadingMap);
-					TerrainOverview=Vector3_t(MapXSize/2, 0.0, MapZSize/2);
+					TerrainOverview=Vector3_t(MapXSize/2, 0.0, MapZSize/4);
+					TerrainOverviewRotation=0.0;
 					LoadingMap=false;
 					LoadedCompleteMap=true;
 					CurrentLoadingMap=[];
@@ -397,7 +398,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				Object_t *obj=&Objects[packet.obj_id];
 				obj.minimap_img=packet.minimap_img;
 				obj.weightfactor=packet.weightfactor;
-				obj.bouncefactor=packet.bouncefactor;
+				obj.bouncefactor=Vector3_t(packet.bouncefactor);
 				obj.frictionfactor=packet.frictionfactor;
 				bool was_solid=Solid_Objects.canFind(packet.obj_id);
 				obj.Is_Solid=cast(bool)(packet.flags&SetObjectFlags.Solid);
@@ -436,10 +437,8 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case SetObjectPosPacketID:{
 				auto packet=UnpackPacketToStruct!(SetObjectPosPacketLayout)(PacketData);
-				Objects[packet.obj_id].pos=Vector3_t(packet.x, packet.y, packet.z);//+Objects[packet.obj_id].vel*tofloat(Get_Ping())/1000.0;
-				for(uint i=0; i<tofloat(Get_Ping())/3.0; i++){
-					Objects[packet.obj_id].Update();
-				}
+				Objects[packet.obj_id].pos=Vector3_t(packet.x, packet.y, packet.z);
+				Objects[packet.obj_id].Update(Get_Ping()/1000.0);
 				break;
 			}
 			case SetObjectVelPacketID:{
@@ -454,7 +453,8 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case SetObjectDensityPacketID:{
 				auto packet=UnpackPacketToStruct!(SetObjectDensityPacketLayout)(PacketData);
-				Objects[packet.obj_id].density=Vector3_t(packet.x, packet.y, packet.z);
+				if(Objects[packet.obj_id].spr.model)
+					Objects[packet.obj_id].spr.size=Vector3_t(Objects[packet.obj_id].model.size)*Vector3_t(packet.x, packet.y, packet.z);
 				break;
 			}
 			case ExplosionEffectPacketID:{
@@ -579,16 +579,15 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case PingPacketID:{
 				ubyte packet_id=PingPacketID;
 				Send_Data(&packet_id, 1);
-				uint last_ping_t=Ping_LastSent;
-				uint current_t=SDL_GetTicks();
-				Ping_LastSent=current_t;
+				/*uint current_t=PreciseClock_ToMSecs(PreciseClock());
 				if(Pings_Sent)
-					Ping_Overall_Delay+=(current_t-last_ping_t)-Server_Ping_Delay;
+					Ping_Overall_Delay+=((current_t-Ping_LastSent)-Server_Ping_Delay)/2;
 				Pings_Sent++;
 				if(Pings_Sent>30){
-					Ping_Overall_Delay=(current_t-last_ping_t)-Server_Ping_Delay;
+					Ping_Overall_Delay/=Pings_Sent;
 					Pings_Sent=0;
 				}
+				Ping_LastSent=current_t;*/
 				break;
 			}
 			case SetPlayerModePacketID:{
@@ -750,7 +749,7 @@ void Send_Mouse_Click(bool left_click, bool right_click, int xpos, int ypos){
 }
 
 uint Get_Ping(){
-	return Ping_Overall_Delay/(Pings_Sent+1);
+	return connection.peer.roundTripTime;
 }
 
 //We're using a packed format here. I think that 3 numbers after the comma is enough for orientation data transfer

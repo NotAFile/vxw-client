@@ -2,6 +2,6 @@
 git clone http://github.com/LeComm/aofclient-voxlap-renderer
 cd aofclient-voxlap-renderer
 ./compile_gcc_opt
-cp voxlap.di renderer.d voxlap5.a compile_with_voxlap ..
+cp compile_with_* ..
 cd ..
 rm -rf aofclient-voxlap-renderer

@@ -594,14 +594,14 @@ void ScrGuiLib_MenuElementRender(SLang_Struct_Type *slelement){
 	SLang_push_struct_field(slelement, cast(char*)toStringz("elementindex"));
 	ubyte elementindex;
 	SLang_pop_uchar(&elementindex);
-	MenuElement_draw(&MenuElements[elementindex]);
+	MenuElement_Draw(&MenuElements[elementindex]);
 }
 
 uint ScrWorldLib_EnvEffectSlotAlloc(){
 	EnvironmentEffectSlots.length++;
 	EnvironmentEffectSlots[$-1].fog[3]=0;
 	EnvironmentEffectSlots[$-1].visibility=1.0;
-	return EnvironmentEffectSlots.length-1;
+	return cast(uint)(EnvironmentEffectSlots.length-1);
 }
 
 void ScrWorldLib_EnvEffectSlotSet(SLang_Struct_Type *effect_slot){

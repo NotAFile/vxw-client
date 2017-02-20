@@ -19,9 +19,14 @@ compile_with_voxlap
 compile_with_voxlap_ldc
 compile_with_voxlap_gdc
 compile_with_voxlap_ll
+compile_with_ogl
+compile_with_ogl_ll
 *.ll
 trace.log
 trace.def
 a.out
 config.txt
-
+aofclient-voxlap-renderer/
+aof-opengl/
+*.S
+gmon.out

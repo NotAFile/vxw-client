@@ -195,6 +195,16 @@ struct Player_t{
 		}
 		Walk_Forwards_Timer=0.0;
 		Walk_Sidewards_Timer=0.0;
+		airborne = false;
+        airborne_old = false;
+        airborne_start = 0.0F;
+        ticks = 0;
+        last_climb = 0;
+        crouch_offset = 0.0;
+        Crouch = false;
+        TryUnCrouch = false;
+        vel.x = vel.y = vel.z = 0.0F;
+		physics_start = PreciseClock_ToMSecs(PreciseClock());
 	}
 	
 	void On_Disconnect(){
@@ -207,7 +217,7 @@ struct Player_t{
 	
 	void Update(){
 		if(Spawned) {
-			uint ticks_should_have = cast(uint)floor((SDL_GetTicks()-physics_start)/1000.0F*ticks_ps);
+			uint ticks_should_have = cast(uint)floor((PreciseClock_ToMSecs(PreciseClock())-physics_start)/1000.0F*ticks_ps);
 			if(ticks<ticks_should_have) {
 				while(ticks<ticks_should_have) {
 					Update_Physics();
@@ -221,7 +231,7 @@ struct Player_t{
 					Use_Item();
 			}
 		} else {
-			physics_start = SDL_GetTicks();
+			physics_start = PreciseClock_ToMSecs(PreciseClock());
 		}
 	}
 	
@@ -229,8 +239,8 @@ struct Player_t{
 		Vector3_t ret = Vector3_t(pos);
 		ret.y -= Player_Crouch_Size_Eye;
 		ret.y += crouch_offset*(Player_Stand_Size_Eye-Player_Crouch_Size_Eye);
-		if(SDL_GetTicks()-last_climb<150) {
-			ret.y += 1.0F-(SDL_GetTicks()-last_climb)/150.0F;
+		if(PreciseClock_ToMSecs(PreciseClock())-last_climb<150) {
+			ret.y += 1.0F-(PreciseClock_ToMSecs(PreciseClock())-last_climb)/150.0F;
 		}
 		return ret;
 	}
@@ -385,7 +395,7 @@ struct Player_t{
 			
 			if(climb) {
 				pos.y--;
-				last_climb = SDL_GetTicks();
+				last_climb = PreciseClock_ToMSecs(PreciseClock());
 			}
 		}
 		
@@ -400,11 +410,10 @@ struct Player_t{
 		} else {
 			pos.z += vel.z*dt;
 		}
-		
 		ticks++;
 	}
 	void Use_Item(){
-		uint current_tick=SDL_GetTicks();
+		uint current_tick=PreciseClock_ToMSecs(PreciseClock());
 		Item_t *current_item=&items[item];
 		ItemType_t *itemtype=&ItemTypes[current_item.type];
 		int timediff=current_tick-current_item.use_timer;
@@ -465,9 +474,9 @@ struct Player_t{
 				Sprite_t[] sprites=Get_Player_Sprites(pid);
 				foreach(ubyte spindex, ref spr; sprites){
 					Vector3_t vxpos; ModelVoxel_t *vx;
-					if(!Sprite_BoundHitCheck(&spr, usepos, spreadeddir))
+					if(!Sprite_BoundHitCheck(spr, usepos, spreadeddir))
 						continue;
-					if(SpriteHitScan(&spr, usepos, spreadeddir, vxpos, vx, 3.0)){
+					if(SpriteHitScan(spr, usepos, spreadeddir, vxpos, vx, 3.0)){
 						//vx.color=0x00ff0000;
 						if(player_id==LocalPlayerID){
 							hit_player=true;
@@ -501,10 +510,9 @@ struct Player_t{
 				Object_t *obj=&Objects[obj_id];
 				if(!obj.visible)
 					continue;
-				Sprite_t objspr=Get_Object_Sprite(obj_id);
 				ModelVoxel_t *vx;
 				Vector3_t hit_pos;
-				if(SpriteHitScan(&objspr, usepos, spreadeddir, hit_pos, vx)){
+				if(SpriteHitScan(obj.toSprite(), usepos, spreadeddir, hit_pos, vx)){
 					float vxdist=(hit_pos-usepos).length;
 					if(vxdist<LastHitDist){
 						hit_object=true;
@@ -520,8 +528,9 @@ struct Player_t{
 				object_hit_id=LastHitID;
 			}
 			if(itemtype.Is_Gun()){
-				Create_Smoke(usepos+usedir*1.0, to!uint(10*itemtype.power), 0xff808080, 1.0*sqrt(itemtype.power), .1, .1, usedir*.1*sqrt(itemtype.power));
-				Bullet_Shoot(usepos+usedir*.5, usedir*125.0, LastHitDist, &itemtype.bullet_sprite);
+				Create_Smoke(usepos+spreadeddir*1.0, to!uint(10*itemtype.power), 0xff808080, 1.0*sqrt(itemtype.power), .1, .1, spreadeddir*.1*sqrt(itemtype.power));
+				if(itemtype.bullet_sprite.model!=null)
+					Bullet_Shoot(usepos+spreadeddir*.5, spreadeddir*200.0, LastHitDist, &itemtype.bullet_sprite);
 			}
 		}
 		if(block_hit_dist<player_hit_dist && block_hit_dist<object_hit_dist){
@@ -608,12 +617,15 @@ uint[] Hittable_Objects;
 
 //ASSUMPTION: START COORD IS NON-SOLID
 Vector3_t Line_NonCollPos(alias allow_negative_length=false)(Vector3_t start, Vector3_t end){
+	return start;
 	if(end.y>0){
 		if(end.x>0 && end.x<MapXSize && end.z>0 && end.z<MapZSize && end.y<MapYSize){
 			if(Voxel_IsSolid(end)){
 				Vector3_t diff=start-end;
-				auto rc=RayCast(start, -diff, diff.length);
-				float colldist=diff.length-rc.colldist;
+				auto ray=RCRay_t(start, -diff, diff.length);
+				while(!ray.hit)
+					ray.Advance();
+				float colldist=(diff.length-ray.lastdist)*.9;
 				static if(!allow_negative_length){
 					if(colldist>0.0)
 						return end+diff.abs()*colldist;
@@ -637,7 +649,7 @@ Vector3_t Line_NonCollPos(alias allow_negative_length=false)(Vector3_t start, Ve
 				length=min(length, (MapZSize-.001-end.z)/diff.z);
 			if(end.y>=MapYSize)
 				length=min(length, (MapYSize-.001-end.y)/diff.y);
-			return start+diff*length;
+			return start+diff*(length)*.9;
 		}
 	}
 	else{
@@ -653,7 +665,7 @@ bool Coord_Collides(Tx, Ty, Tz)(Tx x, Ty y, Tz z, int exclude_obj_index=-1){
 		return true;
 	if(Voxel_IsWater(x, y, z))
 		return false;
-	if(Voxel_IsSolid(cast(uint)x, cast(uint)y, cast(uint)z))
+	if(Voxel_IsSolid(x, y, z))
 		return true;
 	foreach(index; Solid_Objects){
 		if(index==exclude_obj_index)
@@ -793,7 +805,7 @@ struct Item_t{
 	bool Can_Use(){
 		if(Reloading || (!amount1 && ItemTypes[type].maxamount1))
 			return false;
-		int timediff=SDL_GetTicks()-use_timer;
+		int timediff=PreciseClock_ToMSecs(PreciseClock())-use_timer;
 		if(timediff<ItemTypes[type].use_delay)
 			return false;
 		return true;
@@ -801,12 +813,12 @@ struct Item_t{
 }
 
 float delta_time;
-uint __Block_Damage_Check_Index=0;
+size_t __Block_Damage_Check_Index=0;
 immutable uint __Block_Damage_ChecksPerFrame=32;
 immutable uint __BlockDamage_HealDelay=1000*5;
 immutable ubyte __BlockDamage_HealAmount=16;
 void Update_World(){
-	uint Current_Tick=SDL_GetTicks();
+	uint Current_Tick=PreciseClock_ToMSecs(PreciseClock());
 	if(Last_Tick){
 		delta_time=tofloat(Current_Tick-Last_Tick)/1000.0;
 		WorldSpeed=delta_time*WorldSpeedRatio;
@@ -818,13 +830,13 @@ void Update_World(){
 		p.Update();
 	foreach(ref o; Objects)
 		o.Update();
-	Current_Tick=SDL_GetTicks();
+	Current_Tick=PreciseClock_ToMSecs(PreciseClock());
 	if(BlockDamage.length){
 		bool __dmgblock_removed=false;
 		while(!__dmgblock_removed && BlockDamage.length){
 			__dmgblock_removed=false;
 			auto hashes=BlockDamage.keys();
-			uint ind2=__Block_Damage_Check_Index+__Block_Damage_ChecksPerFrame;
+			size_t ind2=__Block_Damage_Check_Index+__Block_Damage_ChecksPerFrame;
 			if(ind2>=hashes.length)
 				ind2=hashes.length;
 			foreach(ref hash; hashes[__Block_Damage_Check_Index..ind2]){
@@ -894,7 +906,7 @@ struct BlockDamage_t{
 		x=ix; y=iy; z=iz;
 		orig_shade=Voxel_GetShade(ix, iy, iz);
 		damage=0;
-		timer=SDL_GetTicks();
+		timer=PreciseClock_ToMSecs(PreciseClock());
 	}
 	uint Get_DmgParticleCount(){
 		return touint(tofloat(damage)*tofloat(MaxDamageParticlesPerBlock)/255.0);
@@ -916,7 +928,7 @@ struct BlockDamage_t{
 		return false;
 	}
 	void Damage(ubyte val, Vector3_t *particle_pos){
-		timer=SDL_GetTicks();
+		timer=PreciseClock_ToMSecs(PreciseClock());
 		uint[] free_sides;
 		{
 			for(uint side=0; side<6; side++){
@@ -931,21 +943,23 @@ struct BlockDamage_t{
 		else{
 			damage+=val;
 		}
-		if(!particle_pos){
-			uint newc=Get_DmgParticleCount();
-			if(newc!=particles.length){
-				uint oldlen=cast(uint)particles.length;
-				particles.length=newc;
-				for(uint i=oldlen; i<newc; i++){
-					particles[i].Init(x, y, z, 0, free_sides);
+		if(!broken){
+			if(!particle_pos){
+				uint newc=Get_DmgParticleCount();
+				if(newc!=particles.length){
+					uint oldlen=cast(uint)particles.length;
+					particles.length=newc;
+					for(uint i=oldlen; i<newc; i++){
+						particles[i].Init(x, y, z, 0, free_sides);
+					}
 				}
 			}
-		}
-		else{
-			particles.length++;
-			particles[$-1].x=particle_pos.x;
-			particles[$-1].y=particle_pos.y;
-			particles[$-1].z=particle_pos.z;
+			else{
+				particles.length++;
+				particles[$-1].x=particle_pos.x;
+				particles[$-1].y=particle_pos.y;
+				particles[$-1].z=particle_pos.z;
+			}
 		}
 		new_shade=cast(ubyte)(orig_shade-orig_shade*damage/255);
 		UpdateVoxel();
@@ -982,9 +996,15 @@ void Damage_Block(PlayerID_t player_id, uint xpos, uint ypos, uint zpos, ubyte v
 	uint old_dmg=dmg.damage;
 	dmg.Damage(val, particle_pos);
 	uint dmgdiff=dmg.damage-old_dmg;
-	for(uint side=0; side<6; side++){
-		Create_Particles(Vector3_t(xpos+toint(cast(bool)(side&1)), ypos+toint(cast(bool)(side&2)), zpos+toint(cast(bool)(side&4)))
-		, Vector3_t(0.0), 1.0, .1, dmgdiff/3/6, [col]);
+	if(particle_pos){
+		Create_Particles(*particle_pos, (*particle_pos-(Vector3_t(xpos, ypos, zpos)+.5)).normal()*.2, 1.0, .1, dmgdiff/3, [col]);
+	}
+	else{
+		for(uint side=0; side<6; side++){
+			Create_Particles(Vector3_t(xpos+to!float(cast(bool)(side&1))*uniform01(),
+			ypos+to!float(cast(bool)(side&2))*uniform01(), zpos+to!float(cast(bool)(side&4))*uniform01())
+			, Vector3_t(0.0), 1.0, .1, dmgdiff/3/6, [col]);
+		}
 	}
 	if(dmg.broken){
 		if(player_id==LocalPlayerID){
@@ -1008,9 +1028,9 @@ void Break_Block(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, u
 					BlockBreakParticles.length++;
 					Particle_t *p=&BlockBreakParticles[$-1];
 					p.vel=Vector3_t(uniform01()*(uniform(0, 2)?1.0:-1.0)*.075, 0.0, uniform01()*(uniform(0, 2)?1.0:-1.0)*.075);
-					p.pos=Vector3_t(tofloat(xpos)+tofloat(x)*BlockBreakParticleSize,
-					tofloat(ypos)+tofloat(y)*BlockBreakParticleSize,
-					tofloat(zpos)+tofloat(z)*BlockBreakParticleSize);
+					p.pos=Vector3_t(to!float(xpos)+to!float(x)*BlockBreakParticleSize,
+					to!float(ypos)+to!float(y)*BlockBreakParticleSize,
+					to!float(zpos)+to!float(z)*BlockBreakParticleSize);
 					p.col=col;
 					p.timer=uniform(550, 650);
 				}
@@ -1023,6 +1043,68 @@ void Break_Block(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, u
 		BlockDamage.remove(hash);
 }
 
+struct RCRay_t{
+	int rayx, rayy, rayz;
+	int dstx, dsty, dstz;
+	int xdsgn, ydsgn, zdsgn;
+	uint opxd, opyd, opzd;
+	Vector3_t pos, dir, invdir;
+	float maxlength;
+	bool hit;
+	ubyte lastside;
+	float lastdist;
+	uint loops;
+	this(Vector3_t ipos, Vector3_t idir, float imaxlength){
+		pos=ipos; dir=idir; maxlength=imaxlength;
+		Vector3_t dst=pos+dir*maxlength;
+		rayx=cast(int)pos.x; rayy=cast(int)pos.y; rayz=cast(int)pos.z;
+		dstx=cast(int)dst.x; dsty=cast(int)dst.y; dstz=cast(int)dst.z;
+		opxd=dir.x>0.0; opyd=dir.y>0.0; opzd=dir.z>0.0;
+		invdir.x=dir.x ? 1.0/dir.x : float.infinity; invdir.y=dir.y ? 1.0/dir.y : float.infinity; invdir.z=dir.z ? 1.0/dir.z : float.infinity;
+		xdsgn=cast(int)rcsgn(dir.x); ydsgn=cast(int)rcsgn(dir.y); zdsgn=cast(int)rcsgn(dir.z);
+		hit=false; lastside=0; loops=cast(int)(maxlength*5.0);
+	}
+	void Advance(alias until_hit=false)(){
+		while(!hit){
+			float xdist=(cast(float)(rayx+opxd)-pos.x)*invdir.x;
+			float ydist=(cast(float)(rayy+opyd)-pos.y)*invdir.y;
+			float zdist=(cast(float)(rayz+opzd)-pos.z)*invdir.z;
+			if(xdist<ydist){
+				if(xdist<zdist){
+					lastside=1;
+					lastdist=xdist;
+					rayx+=xdsgn;
+				}
+				else{
+					lastside=3;
+					lastdist=zdist;
+					rayz+=zdsgn;
+				}
+			}
+			else{
+				if(ydist<zdist){
+					lastside=2;
+					lastdist=ydist;
+					rayy+=ydsgn;
+				}
+				else{
+					lastside=3;
+					lastdist=zdist;
+					rayz+=zdsgn;
+				}
+			}
+			if(!loops){
+				writeflnlog("Warning: DDA raycasting results in an infinite loop (%s) (rare?)", this);
+				break;
+			}
+			loops--;
+			hit=!Valid_Coord(rayx, rayy, rayz) || Voxel_IsSolid(rayx, rayy, rayz);
+			static if(!until_hit)
+				break;
+		}
+	}
+}
+
 struct RayCastResult_t{
 	int x, y, z;
 	float colldist;
@@ -1031,112 +1113,72 @@ struct RayCastResult_t{
 
 float rcsgn(float val){
 	return sgn(val);
-	//return val<0.0?-1.0:1.0;
 }
 
 RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
-	Vector3_t dst=pos+dir*length;
-	int x=cast(int)pos.x, y=cast(int)pos.y, z=cast(int)pos.z;
-	int dstx=cast(int)dst.x, dsty=cast(int)dst.y, dstz=cast(int)dst.z;
-	if(x==dstx && y==dsty && z==dstz){
-		return RayCastResult_t(x, y, z, length, Voxel_IsSolid(x, y, z));
+	auto ray=RCRay_t(pos, dir, length);
+	ray.Advance!true();
+	ray.lastside*=ray.hit;
+	return RayCastResult_t(ray.rayx, ray.rayy, ray.rayz, ray.lastdist, ray.lastside);
+}
+
+string __StructDefToString(T)(){
+	string ret="";
+	alias st_types=Fields!T;
+	alias st_names=FieldNameTuple!T;
+	foreach(uint i, name; st_names){
+		ret~=fullyQualifiedName!(st_types[i])~" "~name~";";
 	}
-	int opxd=cast(int)(dir.x>0.0), opyd=cast(int)(dir.y>0.0), opzd=cast(int)(dir.z>0.0);
-	float invxd=dir.x ? 1.0/dir.x : (float.infinity), invyd=dir.y ? 1.0/dir.y : (float.infinity), invzd=dir.z ? 1.0/dir.z : (float.infinity);
-	int xdsgn=cast(int)rcsgn(dir.x), ydsgn=cast(int)rcsgn(dir.y), zdsgn=cast(int)rcsgn(dir.z);
-	ubyte collside=0; float colldist=0.0;
-	bool hit_voxel=false;
-	uint loops=cast(uint)(length*5.0);
-	while(x!=dstx || y!=dsty || z!=dstz){
-		if(!Valid_Coord(x, y, z)){
-			hit_voxel=true;
-			break;
-		}
-		if(Voxel_IsSolid(x, y, z)){
-			hit_voxel=true;
-			break;
-		}
-		float xdist=(cast(float)(x+opxd)-pos.x)*invxd;
-		float ydist=(cast(float)(y+opyd)-pos.y)*invyd;
-		float zdist=(cast(float)(z+opzd)-pos.z)*invzd;
-		if(xdist<ydist){
-			if(xdist<zdist){
-				collside=1;
-				colldist=xdist;
-				x+=xdsgn;
-			}
-			else{
-				collside=3;
-				colldist=zdist;
-				z+=zdsgn;
-			}
-		}
-		else{
-			if(ydist<zdist){
-				collside=2;
-				colldist=ydist;
-				y+=ydsgn;
-			}
-			else{
-				collside=3;
-				colldist=zdist;
-				z+=zdsgn;
-			}
-		}
-		if(!loops){
-			writeflnlog("Warning: DDA raycasting results in an infinite loop (%s, %s, %s, %s) (rare?)",
-			Vector3_t(x, y, z), dir, Vector3_t(dstx, dsty, dstz), length);
-			break;
-		}
-		loops--;
-	}
-	if(!hit_voxel)
-		collside=0;
-	return RayCastResult_t(x, y, z, colldist, collside);
+	return ret;
 }
 
 struct Object_t{
 	uint index;
-	Model_t *model;
 	ubyte minimap_img;
-	uint color;
 	bool modify_model, enable_bullet_holes, send_hits;
 	bool visible;
 	bool Is_Solid;
-	float weightfactor, bouncefactor, frictionfactor;
-	Vector3_t acl, pos, vel, rot, density;
-	//Maybe move this in its own struct - I'm planning even more advanced vertex stuff
-	Vector3_t[] Vertices;
-	bool[3][] Vertex_Collisions;
-	bool[3] Collision;
+	float weightfactor, frictionfactor;
+	Vector3_t acl;
 	ObjectPhysicsMode physics_mode;
 	ScriptIndex_t physics_script;
+	union{
+		PhysicalObject_t obj;
+		struct{mixin(__StructDefToString!PhysicalObject_t());}
+	}
 
 	DamageParticle_t[] particles;
-	
+
+	@property Model_t *model(){return obj.spr.model;} @property void model(Model_t *m){obj.spr.model=m;}
+	@property uint color(){return obj.spr.color_mod;} @property void color(uint c){obj.spr.color_mod=c;}
+
 	void Init(uint initindex){
 		index=initindex;
 		physics_mode=ObjectPhysicsMode.Standard;
-		Vertices=[Vector3_t(0.0, 0.0, 0.0)];
-		Vertex_Collisions.length=1;
 		if(DamagedObjects.canFind(index))
 			DamagedObjects.remove(index);
 		if(Solid_Objects.canFind(index))
 			Solid_Objects.remove(index);
 		if(Hittable_Objects.canFind(index))
 			Hittable_Objects.remove(index);
-		vel=Vector3_t(0.0, 0.0, 0.0); rot=vel; acl=vel;
+		acl=Vector3_t(0.0);
+		obj=PhysicalObject_t([Vector3_t(0.0, 0.0, 0.0)]);
 	}
 	
-	void Update(){
-		if(Vertex_Collisions.length!=Vertices.length)
-			Vertex_Collisions.length=Vertices.length;
-		Vector3_t deltapos=Check_Vertex_Collisions();
-		Update_Position(deltapos);
-	}
-	
-	void Update_Position(Vector3_t deltapos){
-		if(physics_mode!=ObjectPhysicsMode.Standard){
+	void Update(float dt=WorldSpeed){
+		if(physics_mode==ObjectPhysicsMode.Standard){
+			obj.Update(dt);
+			vel.y+=weightfactor ? (1.0-.05/weightfactor)*dt*Gravity : 0.0;
+			vel+=acl*dt;
+			if(Collision[0] || Collision[1] || Collision[2]){
+				vel*=bouncefactor;
+			}
+			else{
+				vel/=1.0+frictionfactor*dt;
+			}
+		}
+		else{
+			Vector3_t deltapos=obj.Vertices_CheckCollisions(vel*dt);
 			bool[3] inv_coll=[!Collision[0], !Collision[1], !Collision[2]];
 			Vector3_t fdeltapos=deltapos.filter(inv_coll);
 			uint[3] _coll=[Collision[0], Collision[1], Collision[2]];
@@ -1148,88 +1190,6 @@ struct Object_t{
 				return;
 			}
 		}
-		bool collision=false;
-		if(!Collision[0]){
-			pos.x+=deltapos.x;
-			vel.x+=acl.x;
-		}	
-		else{
-			vel.x*=-bouncefactor;
-			collision=true;
-		}
-		if(!Collision[1]){
-			pos.y+=deltapos.y;
-			vel.y+=acl.y;
-			vel.y+=weightfactor ? (1.0-.05/weightfactor)*WorldSpeed*Gravity : 0.0;
-		}
-		else{
-			vel.y*=-bouncefactor;
-			collision=true;
-		}
-		if(!Collision[2]){
-			pos.z+=deltapos.z;
-			vel.z+=acl.z;
-		}
-		else{
-			vel.z*=-bouncefactor;
-			collision=true;
-		}
-		if(collision){
-			vel*=bouncefactor;
-		}
-		else{
-			vel/=1.0+frictionfactor*WorldSpeed;
-		}
-	}
-	
-	Vector3_t Check_Vertex_Collisions(){
-		Vector3_t deltapos=vel*WorldSpeed;
-		bool[3] collision=[false, false, false];
-		foreach(uint i, ref model_vertex; Vertices){
-			Vector3_t worldvertex=model_vertex.rotate_raw(rot)+pos;
-			Vector3_t vertexdelta=deltapos;
-			Vertex_Collisions[i]=Check_Vertex_Collision(worldvertex, &vertexdelta);
-			bool[3] coll=Vertex_Collisions[i];
-			if(vertexdelta.length<deltapos.length)
-				deltapos=vertexdelta;
-			collision[0]|=coll[0];
-			collision[1]|=coll[1];
-			collision[2]|=coll[2];
-		}
-		Collision=collision;
-		return deltapos;
-	}
-	
-	bool[3] Check_Vertex_Collision(Vector3_t vertex, Vector3_t *deltapos){
-		Vector3_t vpos=vertex;
-		float poslen=deltapos.length;
-		Vector3_t deltadir=deltapos.abs();
-		Vector3_t npos=vertex;
-		for(uint i=0; i<max(toint(poslen), 1); i++){
-			if(poslen<1.0)
-				deltadir*=poslen;
-			npos=vpos+deltadir;
-			bool[3] coll=Check_Lowv_Vertex_Collision(vpos, npos);
-			if(coll[0] || coll[1] || coll[2]){
-				*deltapos=vpos-vertex;
-				return coll;
-			}
-			vpos=npos;
-		}
-		*deltapos=npos-vertex;
-		return [false, false, false];
-	}
-	
-	bool[3] Check_Lowv_Vertex_Collision(Vector3_t oldpos, Vector3_t newpos){
-		if(!Collides_At(newpos.x, newpos.y, newpos.z))
-			return [false, false, false];
-		bool[3] collsides=[false, false, false];
-		int cx=toint(oldpos.x), cy=toint(oldpos.y), cz=toint(oldpos.z);
-		int nx=toint(newpos.x), ny=toint(newpos.y), nz=toint(newpos.z);
-		collsides[0]|=Collides_At(nx, cy, cz);
-		collsides[1]|=Collides_At(cx, ny, cz);
-		collsides[2]|=Collides_At(cx, cy, nz);
-		return collsides;
 	}
 
 	bool Collides_At(T1, T2, T3)(T1 x, T2 y, T3 z){
@@ -1241,8 +1201,7 @@ struct Object_t{
 	bool Contains(XT, YT, ZT)(XT x, YT y, ZT z){
 		if(!visible)
 			return false;
-		Vector3_t size=density*Vector3_t(model.xsize, model.ysize, model.zsize);
-		Vector3_t startpos=pos-size/2.0, endpos=pos+size/2.0;
+		Vector3_t startpos=pos-spr.size/2.0, endpos=pos+spr.size/2.0;
 		return x>=startpos.x && x<endpos.x && y>=startpos.y && y<endpos.y && z>=startpos.z && z<endpos.z;
 	}
 	void Damage(Vector3_t particle_pos){
@@ -1252,9 +1211,23 @@ struct Object_t{
 		if(!DamagedObjects.canFind(index))
 			DamagedObjects~=index;
 	}
-	
-	float Collision_GetMinY(TX, TY, TZ)(TX x, TY y, TZ z){
-		return pos.y-density.y*tofloat(model.ysize)/2.0;
+	Sprite_t toSprite(){
+		Sprite_t ret;
+		ret.rti=rot.y; ret.rhe=rot.x; ret.rst=rot.z;
+		ret.density=spr.size/Vector3_t(spr.model.size);
+		ret.pos=pos;
+		ret.model=model;
+		ret.color_mod=0; ret.replace_black=0;
+		if(color){
+			if(color&0xff000000){
+				ret.color_mod=color;
+			}
+			ret.replace_black=color;
+		}
+		return ret;
+	}
+	void Render(){
+		return obj.Render();
 	}
 }
 
@@ -1262,24 +1235,34 @@ Object_t[] Objects;
 uint[] DamagedObjects;
 
 struct PhysicalObject_t{
-	Vector3_t pos, vel, rot;
+	Vector3_t pos, vel, rot, rotvel;
 	Vector3_t bouncefactor;
 	Vector3_t[] Vertices;
 	bool[3][] Vertex_Collisions;
 	bool[3] Collision;
 	bool is_stuck;
+	SpriteRenderData_t spr;
+	
+	this(Vector3_t[] ivertices){
+		Init(ivertices);
+	}
 	
 	void Init(Vector3_t[] ivertices=[Vector3_t(0.0)]){
 		Vertices=ivertices;
 		Collision[]=false;
-		pos=vel=rot=bouncefactor=Vector3_t(0.0);
+		pos=vel=rot=rotvel=bouncefactor=Vector3_t(0.0);
 	}
 	
 	void Update(T)(T delta_ticks){
 		is_stuck=false;
-		if(Vertex_Collisions.length!=Vertices.length)
-			Vertex_Collisions.length=Vertices.length;
 		Vector3_t deltapos=Vertices_CheckCollisions(vel*delta_ticks);
+		if(rotvel){
+			if(Try_Rotate(rot+rotvel*WorldSpeed))
+				rot+=rotvel*WorldSpeed;
+			else
+				rotvel*=.1;
+			rotvel/=1.0+WorldSpeed;
+		}
 		if(!is_stuck){
 			pos+=deltapos;
 		}
@@ -1290,6 +1273,8 @@ struct PhysicalObject_t{
 	}
 	
 	Vector3_t Vertices_CheckCollisions(Vector3_t delta_pos){
+		if(Vertex_Collisions.length!=Vertices.length)
+			Vertex_Collisions.length=Vertices.length;
 		Collision[]=false;
 		foreach(uint i, ref vertex; Vertices){
 			Vector3_t vdelta_pos;
@@ -1297,18 +1282,15 @@ struct PhysicalObject_t{
 			if(coll[0] || coll[1] || coll[2]){
 				delta_pos=delta_pos.vecabs().min(vdelta_pos.vecabs())*delta_pos.sgn();
 				Collision[]|=coll[];
-			}
-			if(!delta_pos)
-				break;
-			if(is_stuck){
-				return Vector3_t(0.0);
+				if(is_stuck)
+					return Vector3_t(0.0);
 			}
 		}
-		if(fabs(delta_pos.x)<.001)
+		if(fabs(delta_pos.x)<.00001)
 			delta_pos.x=0.0;
-		if(fabs(delta_pos.y)<.001)
+		if(fabs(delta_pos.y)<.00001)
 			delta_pos.y=0.0;
-		if(fabs(delta_pos.z)<.001)
+		if(fabs(delta_pos.z)<.00001)
 			delta_pos.z=0.0;
 		if(Collision[0])
 			vel.x*=-bouncefactor.x;
@@ -1320,25 +1302,38 @@ struct PhysicalObject_t{
 	}
 	
 	bool[3] Vertex_CheckCollision(Vector3_t vertex, Vector3_t delta_pos, out Vector3_t min_collision_delta){
-		Vector3_t vpos=vertex.rotate_raw(rot)+pos;
+		Vector3_t rvert=vertex.rotate(rot);
+		Vector3_t vpos=rvert+pos;
 		Vector3_t newpos=vpos+delta_pos;
-		if(!Coord_Collides(newpos))
+		if(!Coord_Collides(newpos)){
+			min_collision_delta=delta_pos;
 			return [false, false, false];
-		if(Coord_Collides(vertex)){
+		}
+		if(Coord_Collides(vpos)){
 			min_collision_delta=Vector3_t(0.0);
 			is_stuck=true;
 			return [true, true, true];
 		}
-		int cx=cast(int)vpos.x, cy=cast(int)vpos.y, cz=cast(int)vpos.z;
-		int nx=cast(int)newpos.x, ny=cast(int)newpos.y, nz=cast(int)newpos.z;
-		bool[3] coll=[Coord_Collides(nx, cy, cz), Coord_Collides(cx, ny, cz), Coord_Collides(cx, cy, nz)];
-		min_collision_delta=delta_pos*Line_NonCollPos!(true)(vpos, newpos);
-		if(Coord_Collides(vpos+min_collision_delta)){
+		bool[3] coll=[Coord_Collides(newpos.x, vpos.y, vpos.z),
+		Coord_Collides(vpos.x, newpos.y, vpos.z), Coord_Collides(vpos.x, vpos.y, newpos.z)];
+		min_collision_delta=delta_pos*Line_NonCollPos!(true)(vpos, vpos+delta_pos.filter(coll));
+		if(Coord_Collides(vpos+min_collision_delta))
 			min_collision_delta=Vector3_t(0.0);
-			is_stuck=true;
-			return [true, true, true];
-		}
+		/*Vector3_t advance_pos=pos+delta_pos;
+		rotvel-=(vpos-pos).normal().RotationAsDirection()-(vpos-advance_pos).normal().DirectionAsRotation();*/
 		return coll;
+	}
+	
+	bool Try_Rotate(Vector3_t newrot){
+		foreach(uint i, ref vertex; Vertices){
+			if(Coord_Collides(vertex.rotate(newrot)+pos))
+				return false;
+		}
+		return true;
+	}
+	
+	void Render(){
+		Renderer_DrawSprite(&spr, pos, rot);
 	}
 }
 

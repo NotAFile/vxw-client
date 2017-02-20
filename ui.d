@@ -19,6 +19,7 @@ import vector;
 import renderer;
 import packettypes;
 import script;
+import modlib;
 import core.stdc.stdio;
 
 uint CurrentChatCursor;
@@ -39,8 +40,6 @@ int MouseMovedX, MouseMovedY;
 bool MouseLeftClick, MouseRightClick;
 bool MouseLeftChanged, MouseRightChanged;
 
-float MouseAccuracy=0.075F;
-
 bool Render_MiniMap;
 
 string LastSentLine="";
@@ -49,6 +48,8 @@ float RendererQualitySet=1.5;
 
 bool Changed_Palette_Color=false;
 SDL_Surface *Palette_V_Colors, Palette_H_Colors;
+
+bool NoobMessage_Enable=false, ServerMessage_Enable=false;
 
 void ConvertScreenCoords(in float uxpos, in float uypos, out int lxpos, out int lypos){
 	float scrnw=cast(float)ScreenXSize, scrnh=cast(float)ScreenYSize;
@@ -312,7 +313,7 @@ void Check_Input(){
 					case SDLK_MINUS:{
 						if(!TypingChat){
 							if(KeyState[SDL_SCANCODE_LCTRL]){
-								if(RendererQualitySet>1.1)
+								if(RendererQualitySet>=1.1)
 									RendererQualitySet-=.1;
 								Renderer_SetQuality(RendererQualitySet);
 								WriteMsg(format("[GAME]Set renderer quality to %.2f", RendererQualitySet), Font_SpecialColor);
@@ -321,7 +322,7 @@ void Check_Input(){
 								Config_Write("fpscap", max(Config_Read!int("fpscap")-5, 0));
 								WriteMsg(format("[GAME]Set target FPS to %d", Config_Read!uint("fpscap")), Font_SpecialColor);
 							}
-						 }
+						}
 						break;
 					}
 					case SDLK_o:{
@@ -330,6 +331,20 @@ void Check_Input(){
 								Config_Write("smoke", !Config_Read!bool("smoke"));
 								WriteMsg(format("[GAME]Set smoke to %s", Config_Read!bool("smoke") ? "ON" : "OFF"), Font_SpecialColor);
 							}
+						}
+						break;
+					}
+					case SDLK_F1:{
+						NoobMessage_Enable=!NoobMessage_Enable;
+						break;
+					}
+					case SDLK_F2:{
+						ServerMessage_Enable=!ServerMessage_Enable;
+						if(ProtocolBuiltin_ServerMessageScript>=0){
+							if(ServerMessage_Enable)
+								Loaded_Scripts[ProtocolBuiltin_ServerMessageScript].Call_Func("Show");
+							else
+								Loaded_Scripts[ProtocolBuiltin_ServerMessageScript].Call_Func("Hide");
 						}
 						break;
 					}
@@ -562,7 +577,7 @@ void Render_HUD(){
 			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon){
 				Item_t *item=&Players[LocalPlayerID].items[Players[LocalPlayerID].item];
 				if(ProtocolBuiltin_AmmoCounterBG){
-					MenuElement_draw(ProtocolBuiltin_AmmoCounterBG);
+					MenuElement_Draw(ProtocolBuiltin_AmmoCounterBG);
 				}
 				if(ProtocolBuiltin_AmmoCounterBullet && !item.Reloading){
 					MenuElement_t *e=ProtocolBuiltin_AmmoCounterBullet;
@@ -574,7 +589,7 @@ void Render_HUD(){
 						xsizechange=e.xsize;
 					}
 					for(uint i=0; i<item.amount1; i++){
-						MenuElement_draw(e,e.xpos+i*xsizechange,e.ypos+i*ysizechange,e.xsize,e.ysize);
+						MenuElement_Draw(e,e.xpos+i*xsizechange,e.ypos+i*ysizechange,e.xsize,e.ysize);
 					}
 				}
 			}
@@ -586,16 +601,16 @@ void Render_HUD(){
 					if(ProtocolBuiltin_PaletteHFG){
 						y += ProtocolBuiltin_PaletteHFG.ysize/2;
 					}
-					MenuElement_draw(e,e.xpos+Palette_Color_HIndex-e.xsize/2,y,e.xsize,e.ysize);
+					MenuElement_Draw(e,e.xpos+Palette_Color_HIndex-e.xsize/2,y,e.xsize,e.ysize);
 				}
 				if(ProtocolBuiltin_PaletteHFG){
-					MenuElement_draw(ProtocolBuiltin_PaletteHFG);
+					MenuElement_Draw(ProtocolBuiltin_PaletteHFG);
 				}
 				if(ProtocolBuiltin_PaletteHFG && ProtocolBuiltin_PaletteVFG){
 					MenuElement_t *v=ProtocolBuiltin_PaletteVFG, h=ProtocolBuiltin_PaletteHFG;
 					uint color=Players[LocalPlayerID].color;
 					//SDL_SetRenderDrawColor(scrn_renderer, (color>>16)&255, (color>>8)&255, (color>>0)&255, (color>>24)&255);
-					//MenuElement_draw(v,v.xpos+Palette_Color_HIndex-v.xsize/2,h.ypos,v.xsize,v.ysize);
+					//MenuElement_Draw(v,v.xpos+Palette_Color_HIndex-v.xsize/2,h.ypos,v.xsize,v.ysize);
 					//SDL_RenderFillRect(scrn_renderer, &r);
 				}
 			}
@@ -606,23 +621,32 @@ void Render_HUD(){
 
 float ChatLineBlinkSpeed=30.0;
 float ChatLineTimer=0.0;
-uint __hud_prev_tick=0, __hud_tick_amount=0;
-float __hud_avg_delta_ticks=0.0;
+string InstructionsFile_Contents="";
 void Render_All_Text(){
+	if(!ChatBox_Y)
+		ChatBox_Y=FontHeight/16;
 	if(JoinedGame){
 		if(TypingChat){
 			ChatLineTimer+=WorldSpeed;
-			Render_Text_Line(ChatBox_X, ChatBox_Y, Font_SpecialColor, CurrentChatLine, font_texture, FontWidth, FontHeight, LetterPadding);
+			Render_Text_Line(ChatBox_X, ChatBox_Y+ChatText.length*(FontHeight/16), Font_SpecialColor, CurrentChatLine, font_texture, FontWidth, FontHeight, LetterPadding);
 			if(((cast(uint)(ChatLineTimer*ChatLineBlinkSpeed))%32)<16){
-				Render_Text_Line(ChatBox_X+CurrentChatCursor*(FontWidth/16-LetterPadding*2), ChatBox_Y-LetterPadding*2, 0x80808080, "_", font_texture,
+				Render_Text_Line(ChatBox_X+CurrentChatCursor*(FontWidth/16-LetterPadding*2),
+				ChatBox_Y+ChatText.length*(FontHeight/16)-LetterPadding*2, 0x80808080, "_", font_texture,
 				FontWidth, FontHeight, LetterPadding);
 			}
 		}
 		else{
 			ChatLineTimer=0.0;
 		}
-		foreach(uint i, line; ChatText)
-			Render_Text_Line(ChatBox_X, ChatBox_Y+(i+1)*(FontHeight/16), ChatColors[i], line, font_texture, FontWidth, FontHeight, LetterPadding);
+		{
+			uint linepos=0;
+			foreach_reverse(i, line; ChatText){
+				if(line.length){
+					Render_Text_Line(ChatBox_X, ChatBox_Y+linepos*(FontHeight/16), ChatColors[i], line, font_texture, FontWidth, FontHeight, LetterPadding);
+					linepos++;
+				}
+			}
+		}
 	}
 	foreach(ref box; TextBoxes){
 		if(box.font_index==255)
@@ -642,17 +666,32 @@ void Render_All_Text(){
 				ypos+=to!float(Mod_Picture_Sizes[box.font_index][1])*box.xsizeratio/16.0;
 		}
 	}
-	uint current_tick=SDL_GetTicks();
-	if(__hud_prev_tick && __hud_prev_tick!=current_tick){
+	if(NoobMessage_Enable){
+		if(!InstructionsFile_Contents.length){
+			import std.file;
+			InstructionsFile_Contents=readText("./Instructions.txt");
+			if(!InstructionsFile_Contents.length)
+				InstructionsFile_Contents.length=1;
+		}
+		Renderer_FillRect(null, 0x0000ffff);
+		string nick=JoinedGame ? Players[LocalPlayerID].name : Config_Read!string("nick");
+		Render_Text_Line(0, 0, Font_SpecialColor, "Welcome to VoxelWar version "~to!string(Protocol_Version)~", "~nick~"!
+Well, there's a short and simple instructions file, but why even bother reading that!1!1!111!!!1
+Anyways, here's the instructions:\n"~InstructionsFile_Contents, font_texture, FontWidth, FontHeight, LetterPadding);
+	}
+	static PreciseClock_t __hud_prev_tick;
+	static uint __hud_tick_amount;
+	static PreciseClockDiff_t __hud_ticks_sum;
+	auto current_tick=PreciseClock();
+	if(__hud_prev_tick>PreciseClock_TimeFromNSecs(0) && __hud_prev_tick!=current_tick){
 		__hud_tick_amount++;
-		float delta_t=1000.0/tofloat(current_tick-__hud_prev_tick);
-		__hud_avg_delta_ticks+=delta_t;
-		float avg=__hud_avg_delta_ticks/tofloat(__hud_tick_amount);
-		string fps_ping_str=format("%.2f FPS|%s ms", avg, Get_Ping());
+		__hud_ticks_sum+=current_tick-__hud_prev_tick;
+		real avg=(cast(real)10e9)*(cast(real)__hud_tick_amount)/(cast(real)PreciseClock_ToNSecs(__hud_ticks_sum));
+		string fps_ping_str=format("[%.2f FPS;%s ms]", avg, Get_Ping());
 		Render_Text_Line(cast(int)(ScreenXSize-(FontWidth/16-LetterPadding*2)*fps_ping_str.length), 0, Font_SpecialColor, fps_ping_str, font_texture, FontWidth, FontHeight, LetterPadding);
 		if(__hud_tick_amount>avg*5){
-			__hud_tick_amount=0;
-			__hud_avg_delta_ticks=avg;
+			__hud_ticks_sum/=__hud_tick_amount;
+			__hud_tick_amount=1;
 		}
 	}
 	__hud_prev_tick=current_tick;
@@ -691,6 +730,9 @@ void ClientConfig_Load(){
 		ClientConfig["anti_aliasing"]="false";
 		ClientConfig["smoke"]="true";
 		ClientConfig["fpscap"]="60";
+		ClientConfig["vsync"]="true";
+		ClientConfig["hwaccel"]="true";
+		ClientConfig["mouse_accuracy"]="0.075";
 		ClientConfig["last_addr"]="localhost";
 		ClientConfig["last_port"]="32887";
 		ClientConfig.rehash();
@@ -700,7 +742,7 @@ void ClientConfig_Load(){
 	string line;
 	while((line=f.readln())!=null){
 		string entry_name, entry_content;
-		int eqpos=line.indexOf('=');
+		size_t eqpos=line.indexOf('=');
 		if(eqpos<0)
 			continue;
 		entry_name=line[0..eqpos].strip();

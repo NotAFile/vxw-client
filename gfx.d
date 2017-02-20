@@ -62,8 +62,11 @@ uint LetterPadding=0;
 immutable bool Dank_Text=false;
 
 Vector3_t TerrainOverview;
+float TerrainOverviewRotation;
 
 bool Do_Sprite_Visibility_Checks=true;
+
+uint FrameCounter=0;
 
 //At the moment, there's at least one "hidden" undiscovered object model modification bug that can cause occassional unexpected crashes
 debug{
@@ -278,10 +281,11 @@ void Render_Text_Line(uint xpos, uint ypos, uint color, string line, RendererTex
 	}
 	uint[2] texsize=[font_surface.w, font_surface.h];
 	foreach(letter; line){
-		bool letter_processed=false;
+		bool letter_processed=true;
 		switch(letter){
-			case '\n':lrect.x=xpos; lrect.y+=lrect.h-padding; letter_processed=true; break;
-			default:break;
+			case '\n':lrect.x=xpos; lrect.y+=lrect.h-padding; break;
+			case '	':lrect.x+=(lrect.w-padding*xsizeratio)*5; break;
+			default:letter_processed=false; break;
 		}
 		if(letter_processed) continue;
 		fontsrcrect.x=(letter%16)*fontsrcrect.w;
@@ -333,7 +337,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 	particle_l=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].l;
 	foreach(ref bdmg; BlockDamage){
 		foreach(ref prtcl; bdmg.particles){
-			Renderer_Draw3DParticle(prtcl.x, prtcl.y, prtcl.z, particle_w, particle_h, particle_l, prtcl.col);
+			Renderer_Draw3DParticle!(true)(prtcl.x, prtcl.y, prtcl.z, particle_w, particle_h, particle_l, prtcl.col);
 		}
 	}
 	particle_w=ParticleSizes[ParticleSizeTypes.DamagedObjectParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.DamagedObjectParticle].h,
@@ -341,7 +345,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 	foreach(ref dmgobj_id; DamagedObjects){
 		Object_t *dmgobj=&Objects[dmgobj_id];
 		foreach(ref prtcl; dmgobj.particles){
-			Renderer_Draw3DParticle(prtcl.x, prtcl.y, prtcl.z, particle_w, particle_h, particle_l, prtcl.col);
+			Renderer_Draw3DParticle!(true)(prtcl.x, prtcl.y, prtcl.z, particle_w, particle_h, particle_l, prtcl.col);
 		}
 	}
 	particle_w=ParticleSizes[ParticleSizeTypes.Normal].w, particle_h=ParticleSizes[ParticleSizeTypes.Normal].h,
@@ -378,7 +382,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 			}
 			p.vel.y+=.005;
 		}
-		Renderer_Draw3DParticle(&p.pos, particle_w, particle_h, particle_l, p.col);
+		Renderer_Draw3DParticle(p.pos, particle_w, particle_h, particle_l, p.col);
 	}
 	particle_w=ParticleSizes[ParticleSizeTypes.BlockBreakParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.BlockBreakParticle].h,
 	particle_l=ParticleSizes[ParticleSizeTypes.BlockBreakParticle].l;
@@ -406,7 +410,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 			}
 			p.vel.y+=.005;
 		}
-		Renderer_Draw3DParticle(&p.pos, particle_w, particle_h, particle_l, p.col);
+		Renderer_Draw3DParticle(p.pos, particle_w, particle_h, particle_l, p.col);
 	}
 	foreach(ref effect; ExplosionEffectSprites){
 		if(effect.size>=1.0)
@@ -438,11 +442,14 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 	}
 	{
 		foreach(ref debris; Debris_Parts){
-			debris.obj.Update(WorldSpeed);
-			debris.spr.pos=debris.obj.pos;
-			debris.obj.vel.y+=Gravity*WorldSpeed*.1;
-			debris.obj.vel/=1.0+WorldSpeed*.1;
-			Renderer_DrawSprite(&debris.spr);
+			if(debris.timer)
+				debris.Update(WorldSpeed);
+		}
+		while(Debris_Parts.length){
+			if(!Debris_Parts[$-1].timer)
+				Debris_Parts.length--;
+			else
+				break;
 		}
 	}
 	{
@@ -466,10 +473,10 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 				break;
 		}
 	}
-	for(uint o=0; o<Objects.length; o++){
-		if(!Objects[o].visible)
+	foreach(obj; Objects){
+		if(!obj.visible)
 			continue;
-		Render_Object(o);
+		obj.Render();
 	}
 	if(Config_Read!bool("smoke")){
 		struct DrawSmokeCircleParams{
@@ -528,20 +535,11 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 	Renderer_UpdateFlashes!UpdateGfx(WorldSpeed);
 }
 
-void MenuElement_draw(MenuElement_t* e) {
-	if(e.inactive()) {
-		return;
-	}
-	SDL_Rect r={e.xpos,e.ypos,e.xsize,e.ysize};
-	if((e.icolor_mod&0x00ffffff)!=0x00ffffff) { //bcolor_mod exists
-		ubyte[3] cmod=proper_reverse(e.bcolor_mod);
-		Renderer_Blit2D(Mod_Pictures[e.picture_index], &Mod_Picture_Sizes[e.picture_index], &r, e.transparency, &cmod);
-	} else {
-		Renderer_Blit2D(Mod_Pictures[e.picture_index], &Mod_Picture_Sizes[e.picture_index], &r, e.transparency);
-	}
+void MenuElement_Draw(MenuElement_t* e){
+	return MenuElement_Draw(e, e.xpos, e.ypos, e.xsize, e.ysize);
 }
 
-void MenuElement_draw(MenuElement_t* e, int x, int y, int w, int h) {
+void MenuElement_Draw(MenuElement_t* e, int x, int y, int w, int h) {
 	if(e.inactive() || !w || !h) {
 		return;
 	}
@@ -555,6 +553,7 @@ void MenuElement_draw(MenuElement_t* e, int x, int y, int w, int h) {
 }
 
 void Render_Screen(){
+	FrameCounter++;
 	bool Render_Local_Player=false;
 	if(Joined_Game()){
 		Render_Local_Player|=Players[LocalPlayerID].Spawned && Players[LocalPlayerID].InGame;
@@ -586,7 +585,6 @@ void Render_Screen(){
 			}
 			if(Current_Blur_Amount!=effect_blur+BlurAmount+BaseBlurAmount){
 				Current_Blur_Amount=effect_blur+BlurAmount+BaseBlurAmount;
-				Renderer_SetBlur(Current_Blur_Amount);
 			}
 			Current_Shake_Amount=effect_shake+ShakeAmount+BaseShakeAmount;
 			Set_Sun(Sun_Position, brightness);
@@ -595,7 +593,7 @@ void Render_Screen(){
 		}
 		
 		if(Render_Local_Player){
-			float mousexvel=MouseMovedX*MouseAccuracy*X_FOV/90.0, mouseyvel=MouseMovedY*MouseAccuracy*Y_FOV/90.0;
+			float mousexvel=MouseMovedX*Config_Read!float("mouse_accuracy")*X_FOV/90.0, mouseyvel=MouseMovedY*Config_Read!float("mouse_accuracy")*Y_FOV/90.0;
 			if(!Menu_Mode){
 				if(Players[LocalPlayerID].items.length){
 					if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon){
@@ -607,6 +605,7 @@ void Render_Screen(){
 				}
 				MouseRot.x+=mousexvel; MouseRot.y+=mouseyvel;
 			}
+			MouseRot.z=0.0;
 			Vector3_t rt;
 			rt.x=MouseRot.y;
 			rt.y=MouseRot.x;
@@ -621,18 +620,20 @@ void Render_Screen(){
 			CameraRot=MouseRot;
 			MouseMovedX = 0;
 			MouseMovedY = 0;
+			Renderer_SetBlur(Current_Blur_Amount);
 		}
 		else{
-			MouseRot.x+=MouseMovedX*.7; MouseRot.y+=MouseMovedY*.5;
-			TerrainOverview.y+=uniform01()*.5;
-			TerrainOverview.x+=cos(TerrainOverview.y*PI/180.0)*.3;
-			TerrainOverview.z+=sin(TerrainOverview.y*PI/180.0)*.3;
+			MouseRot.x+=MouseMovedX*.7*14.0*Config_Read!float("mouse_accuracy")*X_FOV/90.0; MouseRot.y+=MouseMovedY*.5*14.0*Config_Read!float("mouse_accuracy")*Y_FOV/90.0;
+			TerrainOverview.x+=cos(TerrainOverviewRotation*PI/180.0)*.3*WorldSpeed*100.0/3.0;
+			TerrainOverview.z+=sin(TerrainOverviewRotation*PI/180.0)*.3*WorldSpeed*100.0/3.0;
+			TerrainOverview.y=TerrainOverview.y*.99+(Voxel_GetHighestY(TerrainOverview.x, 0.0, TerrainOverview.z)-48.0)*.01;
+			TerrainOverviewRotation=TerrainOverviewRotation*.8+(TerrainOverviewRotation+uniform01()*.1+.9)*.2;
 			CameraPos=TerrainOverview;
-			CameraPos.y=-15.0;
-			Vector3_t crot=MouseRot*.05+Vector3_t(0.0, 45.0, 0.0);
+			Vector3_t crot=MouseRot*Vector3_t(.05, .15, 0.0)+Vector3_t(0.0, 45.0, 0.0);
 			CameraRot=crot;
 			MouseMovedX = 0;
 			MouseMovedY = 0;
+			Renderer_SetBlur(0.0);
 		}
 		if(Current_Shake_Amount>0.0){
 			Vector3_t shake_cam=CameraPos;
@@ -674,7 +675,7 @@ void Render_Screen(){
 	}
 	foreach(ref elements; Z_MenuElements[StartZPos..MiniMapZPos]) {
 		foreach(e_index; elements) {
-			MenuElement_draw(&MenuElements[e_index]);
+			MenuElement_Draw(&MenuElements[e_index]);
 		}
 	}
 	Render_HUD();
@@ -751,7 +752,7 @@ void Render_Screen(){
 	}
 	foreach(ref elements; Z_MenuElements[MiniMapZPos..$]) {
 		foreach(e_index; elements) {
-			MenuElement_draw(&MenuElements[e_index]);
+			MenuElement_Draw(&MenuElements[e_index]);
 		}
 	}
 	if(List_Players){
@@ -796,25 +797,6 @@ bool LocalPlayerScoping(){
 	return false;		
 }
 
-Sprite_t Get_Object_Sprite(uint obj_id){
-	Object_t *obj=&Objects[obj_id];
-	Sprite_t spr;
-	spr.xpos=obj.pos.x+obj.density.x; spr.ypos=obj.pos.y; spr.zpos=obj.pos.z;
-	float xrot=obj.rot.x, yrot=obj.rot.y, zrot=obj.rot.z;
-	spr.rti=yrot; spr.rhe=xrot; spr.rst=zrot;
-	spr.xdensity=obj.density.x; spr.ydensity=obj.density.y; spr.zdensity=obj.density.z;
-	spr.model=obj.model;
-	spr.color_mod=0; spr.replace_black=0;
-	if(obj.color){
-		if(obj.color&0xff000000){
-			spr.color_mod=obj.color;
-		}
-		spr.replace_black=obj.color;
-	}
-	return spr;
-	
-}
-
 void Finish_Render(){
 	Renderer_FinishRendering();
 }
@@ -827,12 +809,6 @@ void UnInit_Gfx(){
 	Renderer_UnInit();
 	IMG_Quit();
 	SDL_Quit();
-}
-
-void Render_Object(uint obj_id){
-	Object_t *obj=&Objects[obj_id];
-	Sprite_t spr=Get_Object_Sprite(obj_id);
-	Renderer_DrawSprite(&spr);
 }
 
 void Render_Player(uint player_id){
@@ -889,7 +865,6 @@ Sprite_t[] Get_Player_Sprites(uint player_id){
 		spr.xpos=mpos.x; spr.ypos=mpos.y; spr.zpos=mpos.z;
 		spr.color_mod=0;
 		sprarr~=spr;
-		Sprite_Visible(&spr);
 	}
 	return sprarr;
 }
@@ -903,10 +878,7 @@ auto Get_Player_Scope(uint player_id){
 	result.rot=Vector3_t(spr.rhe-3.0, spr.rti, spr.rst);
 	float xoffset=spr.model.xsize/2.0-.5;
 	Item_t *item=Players[player_id].Equipped_Item();
-	auto current_tick=SDL_GetTicks();
-	/*if(!item.Reloading && item.amount1 && Players[player_id].left_click){
-		xoffset-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*-item.last_recoil*.1;
-	}*/
+	auto current_tick=PreciseClock_ToMSecs(PreciseClock());
 	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, Vector3_t(xoffset, -.3, spr.model.zpivot)));
 	if(Voxel_IsSolid(result.pos.x, result.pos.y, result.pos.z)){
 		if(result.pos.y>=63.0)
@@ -930,13 +902,24 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 		pos=CameraPos;
 	}
 	item_offset=Vector3_t(.8, 0.0, .4);
-	auto current_tick=SDL_GetTicks();
+	auto current_tick=PreciseClock_ToMSecs(PreciseClock());
 	Item_t *item=&Players[player_id].items[Players[player_id].item];
 	if(player_id==LocalPlayerID && ItemTypes[item.type].is_weapon){
-		if(LocalPlayerScoping()){
-			item_offset.z-=.3;
-			item_offset.x-=.2;
+		static float scope_offset_x=0.0, scope_offset_z=0.0;
+		static uint fcounter=0;
+		immutable float animation_length=(1.0-1.0/(ItemTypes[item.type].power+1.0))*.5+.1;
+		if(FrameCounter!=fcounter){
+			if(LocalPlayerScoping()){
+				scope_offset_x=scope_offset_x*animation_length+(-.2)*(1.0-animation_length);
+				scope_offset_z=scope_offset_z*animation_length+(-.3)*(1.0-animation_length);
+			}
+			else{
+				scope_offset_x*=animation_length; scope_offset_z*=animation_length;
+			}
+			fcounter=FrameCounter;
 		}
+		item_offset.x+=scope_offset_x;
+		item_offset.z+=scope_offset_z;
 		if(current_tick-item.use_timer<ItemTypes[item.type].use_delay){
 			item_offset.x-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), .7)*.1;
 		}
@@ -969,19 +952,17 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	return sprarr;
 }
 
-int SpriteHitScan(Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out ModelVoxel_t *outvoxptr, float vox_size=1.0){
+bool SpriteHitScan(in Sprite_t spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out ModelVoxel_t *outvoxptr, float vox_size=1.0){
 	uint x, z;
-	ModelVoxel_t *sblk, blk, eblk;
+	const(ModelVoxel_t)* sblk, blk, eblk, voxptr=null;
 	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
 	rot_sx=sin((spr.rhe)*PI/180.0); rot_cx=cos((spr.rhe)*PI/180.0);
 	rot_sy=sin(-(spr.rti+90.0)*PI/180.0); rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
 	rot_sz=sin(spr.rst*PI/180.0); rot_cz=cos(-spr.rst*PI/180.0);
 	if(!Sprite_BoundHitCheck(spr, pos, dir))
-		return 0;
+		return false;
 	voxpos=Vector3_t(spr.xpos, spr.ypos, spr.zpos);
-	return 1;
 	float voxxsize=fabs(spr.xdensity)*vox_size, voxysize=fabs(spr.ydensity)*vox_size, voxzsize=fabs(spr.zdensity)*vox_size;
-	ModelVoxel_t *voxptr=null;
 	float minvxdist=10e99;
 	for(x=0; x<spr.model.xsize; ++x){
 		for(z=0; z<spr.model.zsize; ++z){
@@ -1015,10 +996,10 @@ int SpriteHitScan(Sprite_t *spr, Vector3_t pos, Vector3_t dir, out Vector3_t vox
 			}
 		}
 	}
-	outvoxptr=voxptr;
+	outvoxptr=cast(ModelVoxel_t*)voxptr;
 	if(voxptr)
-		return 1;
-	return 0;
+		return true;
+	return false;
 }
 
 struct Bullet_t{
@@ -1122,9 +1103,47 @@ void Create_Smoke(Vector3_t pos, uint amount, uint col, float size, float speeds
 	}
 }
 
+//Leaving this as it is here (looks nice, even if far away from being finished), I have other things to do
 struct Debris_t{
-	Sprite_t spr;
 	PhysicalObject_t obj;
+	float timer;
+	this(Vector3_t pos, Vector_t!(4, uint)[] blocks){	
+		ModelVoxel_t[][] voxels;
+		Vector_t!(3, uint) minpos=uint.max, maxpos=uint.min;
+		Vector3_t[] vertices;
+		foreach(blk; blocks){
+			minpos.x=min(minpos.x, blk.x); maxpos.x=max(maxpos.x, blk.x);
+			minpos.y=min(minpos.y, blk.y); maxpos.y=max(maxpos.y, blk.y);
+			minpos.z=min(minpos.z, blk.z); maxpos.z=max(maxpos.z, blk.z);
+		}
+		Vector_t!(3, uint) size=[maxpos.x-minpos.x+1, maxpos.y-minpos.y+1, maxpos.z-minpos.z+1];
+		foreach(blk; blocks)
+			vertices~=Vector3_t(Vector3_t(blk.elements[0..3])-minpos-size/2);
+		voxels.length=size.x*size.z;
+		foreach(blk; blocks)
+			voxels[blk.x-minpos.x+(blk.z-minpos.z)*size.x]~=ModelVoxel_t(blk.w, cast(ushort)(blk.y-minpos.y), 15, 0);
+		obj=PhysicalObject_t(vertices);
+		obj.spr=SpriteRenderData_t((*Model_FromVoxelArray(voxels, size.x, size.z))<<1);
+		obj.rot.y=270.0;
+		obj.rot+=RandomVector()*360.0;
+		obj.pos=pos;
+		obj.spr.size=Vector3_t(size);
+		obj.spr.check_visibility=1;
+		obj.vel=Vector3_t(0.0);
+		obj.bouncefactor=Vector3_t(1.0);
+		timer=sqrt(cast(float)blocks.length);
+	}
+	void Update(float dt){
+		timer-=dt;
+		if(timer<=0.0){
+			timer=0.0;
+			return;
+		}
+		obj.Update(dt);
+		obj.vel.y+=Gravity*dt*.1;
+		obj.vel/=1.0+dt*.1;
+		obj.Render();
+	}
 }
 
 Debris_t[] Debris_Parts;
@@ -1138,11 +1157,11 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 			if(!obj.modify_model)
 				continue;
 			//Crappy early out case check; need to fix this and consider pivots
-			Vector3_t size=obj.density*Vector3_t(obj.model.xsize, obj.model.ysize, obj.model.zsize);
+			Vector3_t size=obj.spr.size;
 			Vector3_t dist=(obj.pos-pos).vecabs();
 			if(dist.x>radius+size.x*2.0 || dist.y>radius+size.y*2.0 || dist.z>radius+size.z*2.0)
 				continue;
-			Sprite_t spr=Get_Object_Sprite(obj_id);
+			Sprite_t spr=Objects[obj_id].toSprite();
 			{
 				float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 				float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
@@ -1184,7 +1203,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 			}
 		}
 	}
-	static if(0){
+	static if(1){
 		float powrad=radius*radius;
 		int miny=cast(int)max(0, -radius+pos.y), maxy=cast(int)min(MapYSize, radius+pos.y);
 		uint __rand_factor=(*(cast(uint*)&spread))^(*(cast(uint*)&pos.x))^(*(cast(uint*)&pos.y))^(*(cast(uint*)&pos.z));
@@ -1233,6 +1252,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 			}
 		}
 		uint randnum=(__rand_factor<<1)^((*(cast(uint*)&vel.x))<<1);
+		Vector_t!(4, uint)[] blocks;
 		for(int x=-cast(int)radius; x<radius; x++){
 			for(int z=-cast(int)radius; z<radius; z++){
 				if(x*x+z*z>powrad)
@@ -1244,29 +1264,29 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 				for(int y=sy; y<maxy; y++){
 					if(Voxel_IsSolid(mx, y, mz) && ((__rand_factor^(randnum<<2)^((*(cast(uint*)&vel.y))))%30)){
 						Debris_t b;
-						b.spr.model=Debris_BaseModel;
-						b.spr.color_mod=0;
 						float msize=.8;
-						b.spr.density=Vector3_t(msize)/Vector3_t(b.spr.model.size);
-						b.spr.rot=RandomVector()*360.0*0.0;
-						b.spr.replace_black=Voxel_GetColor(mx, y, mz);
-						b.spr.check_visibility=1;
-						b.spr.pos=Vector3_t(mx, y, mz)+.5;
-						b.obj.Init([Vector3_t(-msize*.5, -msize*.5, -msize*.5), Vector3_t(msize*.5, -msize*.5, -msize*.5),
+						b.obj=PhysicalObject_t([Vector3_t(-msize*.5, -msize*.5, -msize*.5), Vector3_t(msize*.5, -msize*.5, -msize*.5),
 						Vector3_t(-msize*.5, msize*.5, -msize*.5), Vector3_t(msize*.5, msize*.5, -msize*.5),
 						Vector3_t(-msize*.5, -msize*.5, msize*.5), Vector3_t(msize*.5, -msize*.5, msize*.5),
 						Vector3_t(-msize*.5, msize*.5, msize*.5), Vector3_t(msize*.5, msize*.5, msize*.5)]);
-						b.obj.rot=b.spr.rot;
-						b.obj.pos=b.spr.pos;
-						//b.obj.vel=(b.spr.pos-pos).abs()*RandomVector()*(1.0+(((((__rand_factor<<2)^(x<<1)^(y<<3)^z)))%1000)/1000.0*2.0)*1.0;
-						b.obj.vel=RandomVector()*2.0;
-						b.obj.bouncefactor=Vector3_t(.9);
-						Debris_Parts~=b;
+						b.obj.spr=SpriteRenderData_t(Debris_BaseModel);
+						b.obj.rot=RandomVector()*360.0*0.0;
+						b.obj.pos=Vector3_t(mx, y, mz)+.5;
+						b.obj.spr.size=Vector3_t(msize);
+						b.obj.spr.replace_black=Voxel_GetColor(mx, y, mz);
+						b.obj.spr.check_visibility=1;
+						b.obj.vel=(b.obj.pos-pos).abs()*(RandomVector()*.5+.75)*(1.0+(((((__rand_factor<<2)^(x<<1)^(y<<3)^z)))%1000)/1000.0*2.0)*5.0;
+						b.obj.bouncefactor=Vector3_t(1.0);
+						//Debris_Parts~=b;
 						randnum^=(*(cast(uint*)&vel.z))<<3;
+					}
+					if(Voxel_IsSolid(mx, y, mz)){
+						blocks~=Vector_t!(4, uint)(mx, y, mz, Voxel_GetColor(mx, y, mz));
 					}
 				}
 			}
 		}
+		Debris_Parts~=Debris_t(pos, blocks);
 	}
 	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount+1, 0xff808080, radius);
 	Create_Particles(pos, vel, radius, spread, amount*7, [], 1.0/(1.0+amount*.001));
@@ -1349,7 +1369,7 @@ Vector3_t Get_Absolute_Sprite_Coord(Sprite_t *spr, Vector3_t coord){
 	return Vector3_t(fnx, fny, fnz);
 }
 
-bool Sprite_Visible(Sprite_t *spr){
+bool Sprite_Visible(in Sprite_t spr){
 	/*if(!Do_Sprite_Visibility_Checks)
 		return true;
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
@@ -1392,7 +1412,7 @@ bool Sprite_Visible(Sprite_t *spr){
 }
 
 //Ok yeah, this code sux
-bool Sprite_BoundHitCheck(Sprite_t *spr, Vector3_t pos, Vector3_t dir){
+bool Sprite_BoundHitCheck(in Sprite_t spr, Vector3_t pos, Vector3_t dir){
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
 	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
@@ -1440,6 +1460,18 @@ struct ModelVoxel_t{
 	char visiblefaces, normalindex;
 }
 
+struct CModel_t{
+	float xpivot, ypivot, zpivot;
+	int xsize, ysize, zsize;
+	ModelVoxel_t *voxels;
+	size_t voxels_size;
+	uint *offsets;
+	size_t offsets_size;
+	ushort *column_lengths;
+	size_t column_lengths_size;
+}
+}
+
 struct Model_t{
 	union{
 		struct{
@@ -1453,7 +1485,10 @@ struct Model_t{
 		}
 		Vector3_t pivot;
 	}
-	Model_t *lowermip;
+	static if(is(Renderer_ModelAttachment_t)){
+		Renderer_ModelAttachment_t renderer_attachment;
+	}
+	Model_t *lower_mip_levels;
 	ModelVoxel_t[] voxels;
 	uint[] offsets;
 	ushort[] column_lengths;
@@ -1462,11 +1497,101 @@ struct Model_t{
 		Model_t *newmodel=new Model_t;
 		newmodel.xsize=xsize; newmodel.ysize=ysize; newmodel.zsize=zsize;
 		newmodel.xpivot=xpivot; newmodel.ypivot=ypivot; newmodel.zpivot=zpivot;
-		newmodel.lowermip=lowermip;
+		newmodel.lower_mip_levels=lower_mip_levels;
 		newmodel.voxels.length=voxels.length; newmodel.voxels[]=voxels[];
 		newmodel.offsets.length=offsets.length; newmodel.offsets[]=offsets[];
 		newmodel.column_lengths.length=column_lengths.length; newmodel.column_lengths[]=column_lengths[];
 		return newmodel;
+	}
+	ModelVoxel_t[][] opCast(){
+		ModelVoxel_t[][] ret;
+		ret.length=xsize*zsize;
+		for(uint x=0; x<xsize; x++){
+			for(uint z=0; z<zsize; z++){
+				ret[x+z*xsize]=voxels[offsets[x+z*xsize]..offsets[x+z*xsize]+column_lengths[x+z*xsize]];
+			}
+		}
+		return ret;
+	}
+	Model_t *opBinary(string op)(uint sizeincrease) if(op=="<<"){
+		if(sizeincrease<2)
+			return &this;
+		ModelVoxel_t[][] oldvoxels=cast(ModelVoxel_t[][])this;
+		ModelVoxel_t[][] retoldvoxels;
+		retoldvoxels.length=oldvoxels.length*sizeincrease*sizeincrease;
+		for(uint x=0; x<xsize; x++){
+			for(uint z=0; z<zsize; z++){
+				for(uint x2=0; x2<sizeincrease; x2++){
+					for(uint z2=0; z2<sizeincrease; z2++){
+						retoldvoxels[x*sizeincrease+x2+(z*sizeincrease+z2)*xsize*sizeincrease].length=oldvoxels[x+z*xsize].length*sizeincrease;
+						foreach(ind, vox; oldvoxels[x+z*xsize]){
+							vox.ypos*=sizeincrease;
+							for(uint y2=0; y2<sizeincrease; y2++){
+								vox.ypos++;
+								retoldvoxels[x*sizeincrease+x2+(z*sizeincrease+z2)*xsize*sizeincrease][ind*sizeincrease+y2]=vox;
+							}
+						}
+					}
+				}
+			}
+		}
+		uint min_y=uint.max;
+		foreach(ref voxcol; retoldvoxels){
+			foreach(ref vox; voxcol)
+				min_y=min(min_y, vox.ypos);
+		}
+		foreach(ref voxcol; retoldvoxels){
+			foreach(ref vox; voxcol)
+				vox.ypos-=min_y;
+		}
+		return Model_FromVoxelArray(retoldvoxels, xsize*sizeincrease, zsize*sizeincrease);
+	}
+	Model_t*[] opBinary(string op)(uint parts) if(op=="/"){
+		if(parts%2)
+			return null;
+		Model_t*[] ret;
+		return ret;
+	}
+}
+Model_t *Model_FromVoxelArray(ModelVoxel_t[][] voxels, uint xsize, uint zsize){
+	Model_t *model=new Model_t;
+	uint voxelcount=0, min_y=uint.max, max_y=uint.min;
+	foreach(ref voxcol; voxels){
+		voxelcount+=voxcol.length;
+		voxcol.sort!("a.ypos<b.ypos");
+		if(voxcol.length){
+			min_y=min(voxcol[0].ypos, min_y); max_y=max(voxcol[$-1].ypos, max_y);
+		}
+	}
+	model.voxels.length=voxelcount;
+	model.xsize=xsize; model.ysize=max_y-min_y+1; model.zsize=zsize;
+	model.pivot=Vector3_t(model.size)*.5;
+	model.lower_mip_levels=null;
+	model.offsets.length=model.column_lengths.length=xsize*zsize;
+	uint offset=0;
+	for(uint x=0; x<xsize; x++){
+		for(uint z=0; z<zsize; z++){
+			ushort col_len=to!ushort(voxels[x+z*xsize].length);
+			model.column_lengths[x+z*xsize]=col_len;
+			model.voxels[offset..offset+col_len]=voxels[x+z*xsize];
+			model.offsets[x+z*xsize]=offset;
+			offset+=col_len;
+		}
+	}
+	return model;
+	
+}
+
+struct SpriteRenderData_t{
+	Model_t *model;
+	Vector3_t size;
+	uint color_mod, replace_black;
+	ubyte check_visibility;
+	this(Model_t *imodel){
+		model=imodel;
+		color_mod=0; replace_black=0;
+		check_visibility=0;
+		size=Vector3_t(model.size);
 	}
 }
 
@@ -1493,8 +1618,12 @@ struct Sprite_t{
 		Vector3_t density;
 	}
 	uint color_mod, replace_black;
-	ubyte brightness;
 	ubyte check_visibility;
 	Model_t *model;
-}
+	this(Model_t *imodel){
+		rot=pos=Vector3_t(0.0);
+		density=Vector3_t(1.0);
+		color_mod=0; replace_black=0; check_visibility=0;
+		model=imodel;
+	}
 }
