@@ -12,8 +12,6 @@ main
 *.lib
 *.dll
 *.obj
-renderer.d
-voxlap.di
 *.bat
 compile_with_voxlap
 compile_with_voxlap_ldc
