@@ -24,7 +24,16 @@ trace.log
 trace.def
 a.out
 config.txt
-aofclient-voxlap-renderer/
+vxwclient-voxlap-renderer/
 aof-opengl/
+./vxwclient-voxlap-renderer/
+./aof-opengl/
+vxwclient-voxlap-renderer
+aof-opengl
+./vxwclient-voxlap-renderer
+./aof-opengl
+./vxwclient-voxlap-renderer/*
+./aof-opengl/*
+vxwclient-voxlap*
 *.S
 gmon.out

@@ -9,6 +9,7 @@ import std.string;
 import std.algorithm;
 import std.conv;
 import std.stdio;
+import std.file;
 import gfx;
 import main;
 import misc;
@@ -29,7 +30,7 @@ bool QuitGame=false;
 
 uint ChatBox_X=0, ChatBox_Y=0;
 
-ubyte* KeyState;
+ubyte[] KeyState;
 
 bool List_Players=false;
 
@@ -40,16 +41,63 @@ int MouseMovedX, MouseMovedY;
 bool MouseLeftClick, MouseRightClick;
 bool MouseLeftChanged, MouseRightChanged;
 
+bool Mouse_ManualUnlock=false;
+
 bool Render_MiniMap;
 
 string LastSentLine="";
 
-float RendererQualitySet=1.5;
-
 bool Changed_Palette_Color=false;
 SDL_Surface *Palette_V_Colors, Palette_H_Colors;
 
-bool NoobMessage_Enable=false, ServerMessage_Enable=false;
+bool NoobMessage_Enable=false, ServerMessage_Enable=false, SettingsMenu_Enable=false;
+enum SettingsMenu_Options{
+	Smoke, Quality, FPSTarget, Upscale
+}
+
+struct SettingsMenuEntry_t{
+	string key;
+	string entry;
+	string type;
+	float minval, maxval;
+	string description;
+}
+
+SettingsMenu_Options SettingsMenu_SelectedOption;
+SettingsMenuEntry_t[SettingsMenu_Options] SettingsMenu_ConfigEntries;
+
+void SettingsMenu_ChangeEntry(float val){
+	auto entry=SettingsMenu_ConfigEntries[SettingsMenu_SelectedOption];
+	if(entry.maxval==entry.minval)
+		return;
+	float rangestep;
+	if(entry.minval==float.infinity || entry.maxval==float.infinity)
+		rangestep=1.0;
+	else
+		rangestep=(entry.maxval-entry.minval)/10.0;
+	if(entry.type=="float"){
+		float newval=Config_Read!float(entry.entry)+val*rangestep;
+		newval=min(newval, entry.maxval); newval=max(newval, entry.minval);
+		Config_Write(entry.entry, newval);
+		if(SettingsMenu_SelectedOption==SettingsMenu_Options.Smoke)
+			SmokeAmount=Renderer_SmokeRenderSpeed*Config_Read!float("smoke")*10.0;
+		if(SettingsMenu_SelectedOption==SettingsMenu_Options.Quality)
+			Renderer_SetQuality(Config_Read!float("renderquality"));
+		if(SettingsMenu_SelectedOption==SettingsMenu_Options.Upscale)
+			Change_Resolution(WindowXSize, WindowYSize);
+	}
+	if(entry.type=="uint"){
+		val*=5.0;
+		uint oldval=Config_Read!uint(entry.entry);
+		uint newval=oldval;
+		int step=cast(int)(val*rangestep);
+		if(step>0 || oldval>=-step){
+			if((entry.minval==float.infinity || oldval>=entry.minval-step || step>0) && (entry.maxval==float.infinity || entry.maxval-step<oldval || step<0))
+				newval=oldval+step;
+		}
+		Config_Write(entry.entry, newval);
+	}
+}
 
 void ConvertScreenCoords(in float uxpos, in float uypos, out int lxpos, out int lypos){
 	float scrnw=cast(float)ScreenXSize, scrnh=cast(float)ScreenYSize;
@@ -156,30 +204,53 @@ TextBox_t[] TextBoxes;
 
 void Init_UI(){
 	ChatText.length=8; ChatColors.length=8;
-	KeyState=SDL_GetKeyboardState(null);
+	ubyte *kbstate;
+	int kbstatesize;
+	kbstate=SDL_GetKeyboardState(&kbstatesize);
+	KeyState=cast(ubyte[])kbstate[0..kbstatesize];
 	Set_Menu_Mode(false);
+	SettingsMenu_ConfigEntries=[
+		SettingsMenu_Options.Smoke : SettingsMenuEntry_t("o", "smoke", "float", 0.0, float.infinity, "sets smoke"),
+		SettingsMenu_Options.Quality : SettingsMenuEntry_t("q", "renderquality", "float", 1.0, float.infinity, "set render quality (smallest is 1.0, higher value = lower quality)"),
+		SettingsMenu_Options.FPSTarget : SettingsMenuEntry_t("f", "fpscap", "uint", 0.0, float.infinity, "sets the maximum framerate"),
+		SettingsMenu_Options.Upscale : SettingsMenuEntry_t("u", "upscale", "float", 0.0, 1.0, "sets the upscale rate")
+	];
 }
 
 void UnInit_UI(){
 }
 
+void Mouse_SetLock(bool lock){
+	SDL_SetRelativeMouseMode((lock && !Mouse_ManualUnlock) ? SDL_TRUE : SDL_FALSE);
+}
+
 void Set_Menu_Mode(bool mode){
 	Lock_Mouse=!mode;
-	SDL_SetRelativeMouseMode(Lock_Mouse ? SDL_TRUE : SDL_FALSE);
+	Mouse_SetLock(Lock_Mouse);
 	Menu_Mode=mode;
 }
 
 uint PrevKeyPresses=0;
+
+void Chat_StartTyping(){
+	if(JoinedGamePhase>=JoinedGameMaxPhases){
+		TypingChat=true;
+		SDL_StartTextInput();
+		CurrentChatLine="";
+		CurrentChatCursor=0;		
+	}
+}
 
 void Check_Input(){
 	SDL_Event event;
 	MouseMovedX=0; MouseMovedY=0;
 	MouseLeftChanged=false; MouseRightChanged=false;
 	bool Scrolling_Colors=false;
+	bool QuitEventReceived=false;
 	while(SDL_PollEvent(&event)){
 		switch(event.type){
 			case SDL_QUIT:{
-				QuitGame=true;
+				QuitEventReceived=true;
 				break;
 			}
 			case SDL_KEYDOWN:{
@@ -189,9 +260,7 @@ void Check_Input(){
 						if(JoinedGamePhase>=JoinedGameMaxPhases){
 							TypingChat=!TypingChat;
 							if(TypingChat){
-								SDL_StartTextInput();
-								CurrentChatLine="";
-								CurrentChatCursor=0;
+								Chat_StartTyping();
 							}
 							else{
 								SDL_StopTextInput();
@@ -232,10 +301,8 @@ void Check_Input(){
 					case SDLK_9:number_key_pressed=9; break;
 					case SDLK_0:number_key_pressed=10; break;
 					case SDLK_HOME:{
-						Lock_Mouse=!Lock_Mouse;
-						if(Menu_Mode)
-							Lock_Mouse=false;
-						SDL_SetRelativeMouseMode(Lock_Mouse ? SDL_TRUE : SDL_FALSE);
+						Mouse_ManualUnlock=!Mouse_ManualUnlock;
+						Mouse_SetLock(Lock_Mouse);
 						break;
 					}
 					case SDLK_LEFT:{
@@ -265,6 +332,10 @@ void Check_Input(){
 						}
 						break;
 					}
+					case SDLK_o:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Smoke;break;
+					case SDLK_q:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Quality;break;
+					case SDLK_f:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.FPSTarget;break;
+					case SDLK_u:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Upscale;break;
 					case SDLK_c:{
 						if(TypingChat && (KeyState[SDL_SCANCODE_LCTRL] || KeyState[SDL_SCANCODE_RCTRL])){
 							SDL_SetClipboardText(toStringz(CurrentChatLine));
@@ -297,45 +368,23 @@ void Check_Input(){
 						break;
 					}
 					case SDLK_PLUS:{
-						if(!TypingChat){
-							if(KeyState[SDL_SCANCODE_LCTRL]){
-								RendererQualitySet+=.1;
-								Renderer_SetQuality(RendererQualitySet);
-								WriteMsg(format("[GAME]Set renderer quality to %.2f", RendererQualitySet), Font_SpecialColor);
-							}
-							else{
-								Config_Write("fpscap", Config_Read!int("fpscap")+5);
-								WriteMsg(format("[GAME]Set target FPS to %d", Config_Read!uint("fpscap")), Font_SpecialColor);
-							}
+						if(!TypingChat && SettingsMenu_Enable){
+							SettingsMenu_ChangeEntry(KeyState[SDL_SCANCODE_LCTRL] ? 1.0 : .5);
 						}
 						break;
 					}
 					case SDLK_MINUS:{
-						if(!TypingChat){
-							if(KeyState[SDL_SCANCODE_LCTRL]){
-								if(RendererQualitySet>=1.1)
-									RendererQualitySet-=.1;
-								Renderer_SetQuality(RendererQualitySet);
-								WriteMsg(format("[GAME]Set renderer quality to %.2f", RendererQualitySet), Font_SpecialColor);
-							}
-							else{
-								Config_Write("fpscap", max(Config_Read!int("fpscap")-5, 0));
-								WriteMsg(format("[GAME]Set target FPS to %d", Config_Read!uint("fpscap")), Font_SpecialColor);
-							}
-						}
-						break;
-					}
-					case SDLK_o:{
-						if(!TypingChat){
-							if(KeyState[SDL_SCANCODE_LCTRL]){
-								Config_Write("smoke", !Config_Read!bool("smoke"));
-								WriteMsg(format("[GAME]Set smoke to %s", Config_Read!bool("smoke") ? "ON" : "OFF"), Font_SpecialColor);
-							}
+						if(!TypingChat && SettingsMenu_Enable){
+							SettingsMenu_ChangeEntry(KeyState[SDL_SCANCODE_LCTRL] ? -1.0 : -.5);
 						}
 						break;
 					}
 					case SDLK_F1:{
 						NoobMessage_Enable=!NoobMessage_Enable;
+						if(NoobMessage_Enable){
+							ServerMessage_Enable=false;
+							SettingsMenu_Enable=false;
+						}
 						break;
 					}
 					case SDLK_F2:{
@@ -345,6 +394,10 @@ void Check_Input(){
 								Loaded_Scripts[ProtocolBuiltin_ServerMessageScript].Call_Func("Show");
 							else
 								Loaded_Scripts[ProtocolBuiltin_ServerMessageScript].Call_Func("Hide");
+						}
+						if(ServerMessage_Enable){
+							NoobMessage_Enable=false;
+							SettingsMenu_Enable=false;
 						}
 						break;
 					}
@@ -450,7 +503,28 @@ void Check_Input(){
 				}
 				break;
 			}
+			case SDL_DROPFILE:{
+				string contents=readText(fromStringz(event.drop.file));
+				if(!TypingChat){
+					Chat_StartTyping();
+				}
+				if(TypingChat)
+					CurrentChatLine~=contents;
+				if(event.drop.file)
+					SDL_free(event.drop.file);
+				break;
+			}
 			default:{break;}
+		}
+	}
+	if(QuitEventReceived){
+		if(!KeyState[SDL_SCANCODE_LALT])
+			QuitGame=true;
+		else
+			SettingsMenu_Enable=!SettingsMenu_Enable;
+		if(SettingsMenu_Enable){
+			ServerMessage_Enable=false;
+			NoobMessage_Enable=false;
 		}
 	}
 	if(!TypingChat){
@@ -628,10 +702,10 @@ void Render_All_Text(){
 	if(JoinedGame){
 		if(TypingChat){
 			ChatLineTimer+=WorldSpeed;
-			Render_Text_Line(ChatBox_X, ChatBox_Y+ChatText.length*(FontHeight/16), Font_SpecialColor, CurrentChatLine, font_texture, FontWidth, FontHeight, LetterPadding);
+			Render_Text_Line(ChatBox_X, ChatBox_Y+to!uint(ChatText.length)*(FontHeight/16), Font_SpecialColor, CurrentChatLine, font_texture, FontWidth, FontHeight, LetterPadding);
 			if(((cast(uint)(ChatLineTimer*ChatLineBlinkSpeed))%32)<16){
 				Render_Text_Line(ChatBox_X+CurrentChatCursor*(FontWidth/16-LetterPadding*2),
-				ChatBox_Y+ChatText.length*(FontHeight/16)-LetterPadding*2, 0x80808080, "_", font_texture,
+				ChatBox_Y+to!uint(ChatText.length)*(FontHeight/16)-LetterPadding*2, 0x80808080, "_", font_texture,
 				FontWidth, FontHeight, LetterPadding);
 			}
 		}
@@ -678,6 +752,12 @@ void Render_All_Text(){
 		Render_Text_Line(0, 0, Font_SpecialColor, "Welcome to VoxelWar version "~to!string(Protocol_Version)~", "~nick~"!
 Well, there's a short and simple instructions file, but why even bother reading that!1!1!111!!!1
 Anyways, here's the instructions:\n"~InstructionsFile_Contents, font_texture, FontWidth, FontHeight, LetterPadding);
+	}
+	if(SettingsMenu_Enable){
+		string settings_str="VoxelWar engine settings:\n";
+		foreach(entry; SettingsMenu_ConfigEntries.byValue())
+			settings_str~="	"~entry.key~" = "~entry.description~" {"~Config_Read!string(entry.entry)~"}\n";
+		Render_Text_Line(0, 0, Font_SpecialColor, settings_str, font_texture, FontWidth, FontHeight, LetterPadding);
 	}
 	static PreciseClock_t __hud_prev_tick;
 	static uint __hud_tick_amount;
@@ -728,8 +808,9 @@ void ClientConfig_Load(){
 		ClientConfig["fullscreen"]="false";
 		ClientConfig["upscale"]="0.5";
 		ClientConfig["anti_aliasing"]="false";
-		ClientConfig["smoke"]="true";
+		ClientConfig["smoke"]="1.0";
 		ClientConfig["fpscap"]="60";
+		ClientConfig["renderquality"]="1.5";
 		ClientConfig["vsync"]="true";
 		ClientConfig["hwaccel"]="true";
 		ClientConfig["mouse_accuracy"]="0.075";

@@ -528,7 +528,7 @@ struct Player_t{
 				object_hit_id=LastHitID;
 			}
 			if(itemtype.Is_Gun()){
-				Create_Smoke(usepos+spreadeddir*1.0, to!uint(10*itemtype.power), 0xff808080, 1.0*sqrt(itemtype.power), .1, .1, spreadeddir*.1*sqrt(itemtype.power));
+				Create_Smoke(usepos+spreadeddir*1.0, to!uint(2*itemtype.power), 0xff808080, 1.0*sqrt(itemtype.power), .1, .1, spreadeddir*.1*sqrt(itemtype.power));
 				if(itemtype.bullet_sprite.model!=null)
 					Bullet_Shoot(usepos+spreadeddir*.5, spreadeddir*200.0, LastHitDist, &itemtype.bullet_sprite);
 			}
@@ -1127,7 +1127,7 @@ string __StructDefToString(T)(){
 	alias st_types=Fields!T;
 	alias st_names=FieldNameTuple!T;
 	foreach(uint i, name; st_names){
-		ret~=fullyQualifiedName!(st_types[i])~" "~name~";";
+		ret~=TypeName!(st_types[i])()~" "~name~";";
 	}
 	return ret;
 }
@@ -1334,6 +1334,21 @@ struct PhysicalObject_t{
 	
 	void Render(){
 		Renderer_DrawSprite(&spr, pos, rot);
+		static if(1){
+			foreach(vertex; Vertices){
+				Vector3_t vpos=vertex.rotate(rot)+pos;
+				int scrx, scry;
+				float dist;
+				if(Project2D(vpos.x, vpos.y, vpos.z, scrx, scry, dist)){
+					immutable float inv_renddist=1.0/dist;
+					immutable int w=cast(int)(10*inv_renddist)+1, h=cast(int)(10*inv_renddist)+1;
+					scrx-=w>>1; scry-=h>>1;
+					if(scrx+w<0 || scry+h<0 || scrx>=vxrend_framebuf_w || scry>=vxrend_framebuf_h)
+						continue;
+					Renderer_DrawRect2D(scrx, scry, w, h, 0xff00ff00, 0);
+				}
+			}
+		}
 	}
 }
 

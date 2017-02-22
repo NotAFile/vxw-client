@@ -13,6 +13,7 @@ import std.range;
 import std.conv;
 import std.random;
 import std.traits;
+import std.string;
 import main;
 import renderer;
 import protocol;
@@ -83,6 +84,8 @@ ubyte MiniMapZPos=250, InvisibleZPos=0, StartZPos=1;
 
 Model_t *ProtocolBuiltin_BlockBuildWireframe;
 
+float SmokeAmount;
+
 void Init_Gfx(){
 	DerelictSDL2.load();
 	DerelictSDL2Image.load();
@@ -90,6 +93,7 @@ void Init_Gfx(){
 		writeflnlog("[WARNING] SDL2 didn't initialize properly: %s", SDL_GetError());
 	if(IMG_Init(IMG_INIT_PNG)!=IMG_INIT_PNG)
 		writeflnlog("[WARNING] IMG for PNG didn't initialize properly: %s", IMG_GetError());
+	SDL_SetHintWithPriority(toStringz("SDL_HINT_WINDOWS_NO_CLOSE_ON_ALT_F4"), toStringz("1"), SDL_HINT_OVERRIDE);
 	Renderer_Init();
 	WindowXSize=Config_Read!uint("resolution_x"); WindowYSize=Config_Read!uint("resolution_y");
 	scrn_window=SDL_CreateWindow("Voxelwar", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WindowXSize, WindowYSize, Renderer_WindowFlags
@@ -102,12 +106,13 @@ void Init_Gfx(){
 			SDL_FreeSurface(font_surface);
 		}
 	}
+	SmokeAmount=Renderer_SmokeRenderSpeed*Config_Read!float("smoke")*10.0;
 }
 
 void Change_Resolution(uint newxsize, uint newysize){
 	if(Config_Read!float("upscale")>=0){
 		float lsize=sqrt(cast(float)(WindowXSize*WindowXSize+WindowYSize*WindowYSize));
-		ScreenSizeRatio=1.0f-.4f*(1.0f-1.0f/(lsize/1000.0f))*Config_Read!float("upscale");
+		ScreenSizeRatio=1.0f-.99f*(1.0f-1.0f/(lsize/1000.0f))*Config_Read!float("upscale");
 	}
 	else{
 		ScreenSizeRatio=1.0f;
@@ -116,8 +121,7 @@ void Change_Resolution(uint newxsize, uint newysize){
 	ScreenXSize=WindowXSize=newxsize; ScreenYSize=WindowYSize=newysize;
 	newxsize=cast(uint)(WindowXSize*ScreenSizeRatio); newysize=cast(uint)(WindowYSize*ScreenSizeRatio);
 	Renderer_SetUp(newxsize, newysize);
-	Renderer_SetQuality(RendererQualitySet);
-	//ScreenXSize=newxsize; ScreenYSize=newysize;
+	Renderer_SetQuality(Config_Read!float("renderquality"));
 	foreach(ref elem; MenuElements){
 		ConvertScreenCoords(elem.fxpos, elem.fypos, elem.xpos, elem.ypos);
 		ConvertScreenCoords(elem.fxsize, elem.fysize, elem.xsize, elem.ysize);
@@ -133,6 +137,56 @@ void Change_Resolution(uint newxsize, uint newysize){
 		ParticleSizes[sizetype]=ParticleSize_t();
 		ParticleSizes[sizetype].w=pixelsize[0]; ParticleSizes[sizetype].h=pixelsize[1]; ParticleSizes[sizetype].l=pixelsize[2];
 	}
+}
+
+SDL_Surface *MapLoadingSrfc;
+RendererTexture_t MapLoadingTex;
+void Gfx_MapLoadingStart(uint xsize, uint zsize){
+	MapLoadingSrfc=SDL_CreateRGBSurface(0, xsize, zsize, 32, 0, 0, 0, 0);
+	(cast(uint*)MapLoadingSrfc.pixels)[0..xsize*zsize]=0;
+	MapLoadingTex=Renderer_NewTexture(xsize, zsize, true);
+	SDL_SetWindowTitle(scrn_window, toStringz("[VoxelWar] Loading map \""~CurrentMapName~"\" ..."));
+}
+
+@save void Gfx_OnMapDataAdd(uint[] loading_map){
+	uint[] map_pixels=cast(uint[])(cast(uint*)MapLoadingSrfc.pixels)[0..MapLoadingSrfc.w*MapLoadingSrfc.h];
+	uint maxx, maxz;
+	SDL_SetWindowTitle(scrn_window, toStringz("[VoxelWar] Loading map \""~CurrentMapName~"\" ... ("~to!string(loading_map.length*100/MapTargetSize)~"%)"));
+	try{
+		uint map_ind=0;
+		for(uint z=0; z<MapLoadingSrfc.h; z++){
+			for(uint x=0; x<MapLoadingSrfc.w; x++){
+				int y=0;
+				uint min_y=uint.max;
+				while(1){
+					uint header=loading_map[map_ind];
+					int datasize=(header)&255, col_start2=(header>>8)&255, col_end2=(header>>16)&255;
+					int col_height2=col_end2-col_start2;
+					uint color_ind=map_ind-col_start2+1;
+					if(col_start2<min_y){
+						min_y=col_start2;
+						map_pixels[x+z*MapLoadingSrfc.w]=loading_map[color_ind+col_start2];
+					}
+					if(!datasize){
+						map_ind+=col_height2+2;
+						break;
+					}	
+					map_ind+=datasize;
+					int airstart=(loading_map[map_ind]>>24)&255;
+					color_ind=map_ind-airstart;
+				}
+			}
+		}
+	}
+	catch(core.exception.RangeError){}
+}
+
+void Gfx_OnMapLoadFinish(){
+	if(MapLoadingSrfc)
+		SDL_FreeSurface(MapLoadingSrfc);
+	if(MapLoadingTex)
+		Renderer_DestroyTexture(MapLoadingTex);
+	SDL_SetWindowTitle(scrn_window, toStringz("VoxelWar"));
 }
 
 void Set_ModFile_Font(ubyte index){
@@ -441,15 +495,35 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 			break;
 	}
 	{
+		Model_t *[] split_models;
+		Vector3_t[] split_pos;
+		Vector3_t[] split_vel;
+		uint[] split_counter;
 		foreach(ref debris; Debris_Parts){
-			if(debris.timer)
+			if(debris.timer){
 				debris.Update(WorldSpeed);
+				if(!debris.timer && debris.obj.spr.model.voxels.length>4){
+					split_models~=(*debris.obj.spr.model)/2;
+					split_pos~=debris.obj.pos;
+					split_pos~=debris.obj.pos;
+					split_vel~=debris.obj.vel;
+					split_vel~=debris.obj.vel;
+					split_counter~=debris.split_counter;
+					split_counter~=debris.split_counter;
+				}
+			}
 		}
 		while(Debris_Parts.length){
 			if(!Debris_Parts[$-1].timer)
 				Debris_Parts.length--;
 			else
 				break;
+		}
+		foreach(ind, model; split_models){
+			auto d=Debris_t(split_pos[ind], model);
+			d.obj.vel=split_vel[ind]+RandomVector()*Vector3_t(d.obj.spr.model.size).length*(1.0/(split_counter[ind]+1))*(split_counter[ind] ? 1.0 : 3.0);
+			d.split_counter=split_counter[ind]+1;
+			Debris_Parts~=d;
 		}
 	}
 	{
@@ -478,7 +552,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 			continue;
 		obj.Render();
 	}
-	if(Config_Read!bool("smoke")){
+	if(SmokeAmount){
 		struct DrawSmokeCircleParams{
 			float dst;
 			uint color, alpha;
@@ -486,8 +560,8 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 			float xpos, ypos, zpos;
 		}
 		DrawSmokeCircleParams[] params;
-		float SmokeParticleSizeIncrease=1.0f+WorldSpeed*.03f/Renderer_SmokeRenderSpeed, SmokeParticleAlphaDecay=(1.0f*.99f)/SmokeParticleSizeIncrease;
-		float DenseSmokeParticleSizeIncrease=1.0f+WorldSpeed*.01f/Renderer_SmokeRenderSpeed, DenseSmokeParticleAlphaDecay=(1.0f*.99f)/DenseSmokeParticleSizeIncrease;
+		float SmokeParticleSizeIncrease=1.0f+WorldSpeed*.03f/SmokeAmount, SmokeParticleAlphaDecay=(1.0f*.99f)/SmokeParticleSizeIncrease;
+		float DenseSmokeParticleSizeIncrease=1.0f+WorldSpeed*.01f/SmokeAmount, DenseSmokeParticleAlphaDecay=(1.0f*.99f)/DenseSmokeParticleSizeIncrease;
 		foreach(ref p; SmokeParticles){
 			if(!p.alpha)
 				continue;
@@ -510,7 +584,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 			}
 			float dst;
 			int scrx, scry;
-			if(!Project2D(p.pos.x, p.pos.y, p.pos.z, scrx, scry, &dst))
+			if(!Project2D(p.pos.x, p.pos.y, p.pos.z, scrx, scry, dst))
 				continue;
 			if(dst<=0.0)
 				continue;
@@ -671,6 +745,11 @@ void Render_Screen(){
 					}
 				}
 			}
+		}
+		else if(MapLoadingSrfc && MapLoadingTex){
+			Renderer_UploadToTexture(MapLoadingSrfc, MapLoadingTex);
+			uint[2] size=[MapLoadingSrfc.w, MapLoadingSrfc.h];
+			Renderer_Blit2D(MapLoadingTex, &size, null);
 		}
 	}
 	foreach(ref elements; Z_MenuElements[StartZPos..MiniMapZPos]) {
@@ -1091,6 +1170,7 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 
 void Create_Smoke(Vector3_t pos, uint amount, uint col, float size, float speedspread=1.0, float alpha=1.0, Vector3_t cvel=Vector3_t(0)){
 	uint old_size=cast(uint)SmokeParticles.length;
+	amount=to!uint((amount+1)*SmokeAmount);
 	SmokeParticles.length+=amount;
 	float sizeratio=pow(size, .2);
 	for(uint i=old_size; i<old_size+amount; i++){
@@ -1107,41 +1187,58 @@ void Create_Smoke(Vector3_t pos, uint amount, uint col, float size, float speeds
 struct Debris_t{
 	PhysicalObject_t obj;
 	float timer;
-	this(Vector3_t pos, Vector_t!(4, uint)[] blocks){	
+	uint sizefactor;
+	uint split_counter;
+	this(Vector3_t pos, Model_t *model, uint isizefactor=1){
+		sizefactor=isizefactor;
+		Vector3_t[] vertices;
+		obj.spr.size=Vector3_t(model.size)/sizefactor;
+		for(uint z=0; z<model.zsize; z++){
+			for(uint x=0; x<model.xsize; x++){
+				foreach(blk; model.voxels[model.offsets[x+z*model.xsize]..model.offsets[x+z*model.xsize]+model.column_lengths[x+z*model.xsize]]){
+					for(int ex=0; ex<2; ex++){
+						for(int ey=0; ey<2; ey++){
+							for(int ez=0; ez<2; ez++){
+								vertices~=Vector3_t(x, blk.ypos, z)+Vector3_t(ex*2-1, ey*2-1, ez*2-1)*(obj.spr.size/Vector3_t(model.size));
+							}
+						}
+					}
+				}
+			}
+		}
+		obj=PhysicalObject_t(vertices);
+		obj.spr=SpriteRenderData_t(model);
+		obj.pos=pos;
+		obj.spr.check_visibility=1;
+		obj.vel=RandomVector();
+		obj.bouncefactor=Vector3_t(.8);
+		timer=sqrt(cast(float)model.voxels.length)*100.0;
+		split_counter=0;
+	}
+	this(Vector3_t pos, Vector_t!(4, uint)[] blocks, uint isizefactor=1){	
 		ModelVoxel_t[][] voxels;
 		Vector_t!(3, uint) minpos=uint.max, maxpos=uint.min;
-		Vector3_t[] vertices;
 		foreach(blk; blocks){
 			minpos.x=min(minpos.x, blk.x); maxpos.x=max(maxpos.x, blk.x);
 			minpos.y=min(minpos.y, blk.y); maxpos.y=max(maxpos.y, blk.y);
 			minpos.z=min(minpos.z, blk.z); maxpos.z=max(maxpos.z, blk.z);
 		}
 		Vector_t!(3, uint) size=[maxpos.x-minpos.x+1, maxpos.y-minpos.y+1, maxpos.z-minpos.z+1];
-		foreach(blk; blocks)
-			vertices~=Vector3_t(Vector3_t(blk.elements[0..3])-minpos-size/2);
 		voxels.length=size.x*size.z;
 		foreach(blk; blocks)
 			voxels[blk.x-minpos.x+(blk.z-minpos.z)*size.x]~=ModelVoxel_t(blk.w, cast(ushort)(blk.y-minpos.y), 15, 0);
-		obj=PhysicalObject_t(vertices);
-		obj.spr=SpriteRenderData_t((*Model_FromVoxelArray(voxels, size.x, size.z))<<1);
-		obj.rot.y=270.0;
-		obj.rot+=RandomVector()*360.0;
-		obj.pos=pos;
-		obj.spr.size=Vector3_t(size);
-		obj.spr.check_visibility=1;
-		obj.vel=Vector3_t(0.0);
-		obj.bouncefactor=Vector3_t(1.0);
-		timer=sqrt(cast(float)blocks.length);
+		this(pos, (*Model_FromVoxelArray(voxels, size.x, size.z))<<(1+cast(uint)log2(isizefactor)), isizefactor);
 	}
 	void Update(float dt){
 		timer-=dt;
+		if(obj.Collision[2] || ((obj.vel.length<.2 || obj.Collision[0] || obj.Collision[1]) && !(uniform!uint()%20)))
+			timer=0.0;
 		if(timer<=0.0){
 			timer=0.0;
-			return;
 		}
 		obj.Update(dt);
-		obj.vel.y+=Gravity*dt*.1;
-		obj.vel/=1.0+dt*.1;
+		obj.vel.y+=Gravity*dt;
+		obj.vel/=1.0+dt*.2;
 		obj.Render();
 	}
 }
@@ -1207,7 +1304,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 		float powrad=radius*radius;
 		int miny=cast(int)max(0, -radius+pos.y), maxy=cast(int)min(MapYSize, radius+pos.y);
 		uint __rand_factor=(*(cast(uint*)&spread))^(*(cast(uint*)&pos.x))^(*(cast(uint*)&pos.y))^(*(cast(uint*)&pos.z));
-		if(!Debris_BaseModel){
+		if(!Debris_BaseModel && 0){
 			Debris_BaseModel=new Model_t;
 			Debris_BaseModel.xsize=Debris_BaseModel.ysize=Debris_BaseModel.zsize=10;
 			Debris_BaseModel.xpivot=Debris_BaseModel.ypivot=Debris_BaseModel.zpivot=Debris_BaseModel.xsize/2;
@@ -1262,7 +1359,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 					continue;
 				int sy=Voxel_GetHighestY(mx, miny, mz);
 				for(int y=sy; y<maxy; y++){
-					if(Voxel_IsSolid(mx, y, mz) && ((__rand_factor^(randnum<<2)^((*(cast(uint*)&vel.y))))%30)){
+					if(Voxel_IsSolid(mx, y, mz) && ((__rand_factor^(randnum<<2)^((*(cast(uint*)&vel.y))))%30) && 0){
 						Debris_t b;
 						float msize=.8;
 						b.obj=PhysicalObject_t([Vector3_t(-msize*.5, -msize*.5, -msize*.5), Vector3_t(msize*.5, -msize*.5, -msize*.5),
@@ -1286,9 +1383,14 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 				}
 			}
 		}
-		Debris_Parts~=Debris_t(pos, blocks);
+		Debris_t d=Debris_t(pos, blocks);
+		d.obj.rot.y=270.0;
+		d.timer=.0001;
+		d.split_counter=0;
+		d.obj.vel=RandomVector();
+		Debris_Parts~=d;
 	}
-	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount+1, 0xff808080, radius);
+	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount/4, 0xff808080, radius);
 	Create_Particles(pos, vel, radius, spread, amount*7, [], 1.0/(1.0+amount*.001));
 	Create_Particles(pos, vel, 0, spread*3.0, amount*10, [0x00ffff00, 0x00ffa000], .05);
 	Renderer_AddFlash(pos, radius*1.5, 1.0);
@@ -1549,11 +1651,114 @@ struct Model_t{
 	Model_t*[] opBinary(string op)(uint parts) if(op=="/"){
 		if(parts%2)
 			return null;
+		if(parts>2){
+			Model_t *[] ret;
+			for(uint i=0; i<cast(uint)(log(parts)/log(2)); i++){
+				auto p=this.opBinary!("/")(2);
+				ret~=p[0]; ret~=p[1];
+			}
+			return ret;
+		}
 		Model_t*[] ret;
+		Vector3_t normal=RandomVector(), pos=Vector3_t(size)/2;
+		ModelVoxel_t[][] voxels1, voxels2;
+		voxels1.length=voxels2.length=xsize*zsize;
+		for(uint z=0; z<zsize; z++){
+			for(uint x=0; x<xsize; x++){
+				foreach(vox; voxels[offsets[x+z*xsize]..offsets[x+z*xsize]+column_lengths[x+z*xsize]]){
+					Vector3_t vpos=Vector3_t(x, vox.ypos, z)-size;
+					if(vpos.dot(normal)<0.0)
+						voxels1[x+z*xsize]~=vox;
+					else
+						voxels2[x+z*xsize]~=vox;
+				}
+			}
+		}
+		ret~=Model_FromVoxelArray(voxels1, xsize, zsize);
+		ret~=Model_FromVoxelArray(voxels2, xsize, zsize);
 		return ret;
 	}
 }
-Model_t *Model_FromVoxelArray(ModelVoxel_t[][] voxels, uint xsize, uint zsize){
+Model_t *Model_FromVoxelArray(ModelVoxel_t[][] _voxels, uint xsize, uint zsize){
+	ModelVoxel_t[][] voxels=_voxels.dup;
+	for(uint zctr=0; zctr<zsize; zctr++){
+		bool empty_rows=true;
+		for(uint x=0; x<xsize; x++){
+			if(voxels[x].length){
+				empty_rows=false;
+				break;
+			}
+		}
+		if(!empty_rows)
+			break;
+		for(uint z=0; z<zsize-1; z++){
+			for(uint x=0; x<xsize; x++){
+				voxels[x+z*xsize]=voxels[x+(z+1)*xsize];
+			}
+		}
+		for(uint x=0; x<xsize; x++)
+			voxels[x+(zsize-1)*xsize].length=0;
+	}
+	for(uint xctr=0; xctr<xsize; xctr++){
+		bool empty_rows=true;
+		for(uint z=0; z<zsize; z++){
+			if(voxels[z*xsize].length){
+				empty_rows=false;
+				break;
+			}
+		}
+		if(!empty_rows)
+			break;
+		for(uint z=0; z<zsize; z++){
+			for(uint x=0; x<xsize-1; x++){
+				voxels[x+z*xsize]=voxels[x+1+z*xsize];
+			}
+		}
+		for(uint z=0; z<zsize; z++)
+			voxels[xsize-1+z*xsize].length=0;
+	}
+	uint origzsize=zsize;
+	for(uint zctr=0; zctr<origzsize; zctr++){
+		bool empty_rows=true;
+		for(uint x=0; x<xsize; x++){
+			if(voxels[x+(zsize-1)*xsize].length){
+				empty_rows=false;
+				break;
+			}
+		}
+		if(!empty_rows)
+			break;
+		zsize--;
+		ModelVoxel_t[][] nvoxels;
+		nvoxels.length=xsize*zsize;
+		for(uint x=0; x<xsize; x++){
+			for(uint z=0; z<zsize; z++){
+				nvoxels[x+z*xsize]=voxels[x+z*xsize];
+			}
+		}
+		voxels=nvoxels;
+	}
+	uint origxsize=xsize;
+	for(uint xctr=0; xctr<origxsize; xctr++){
+		bool empty_rows=true;
+		for(uint z=0; z<zsize; z++){
+			if(voxels[xsize-1+z*xsize].length){
+				empty_rows=false;
+				break;
+			}
+		}
+		if(!empty_rows)
+			break;
+		xsize--;
+		ModelVoxel_t[][] nvoxels;
+		nvoxels.length=xsize*zsize;
+		for(uint x=0; x<xsize; x++){
+			for(uint z=0; z<zsize; z++){
+				nvoxels[x+z*xsize]=voxels[x+z*(xsize+1)];
+			}
+		}
+		voxels=nvoxels;
+	}
 	Model_t *model=new Model_t;
 	uint voxelcount=0, min_y=uint.max, max_y=uint.min;
 	foreach(ref voxcol; voxels){

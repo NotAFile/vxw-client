@@ -25,6 +25,52 @@ template Parameters(alias func){
 	alias ParameterTypeTuple!(func) Parameters;
 }
 
+template Fields(T)
+{
+    static if (is(T == struct) || is(T == union))
+        alias Fields = typeof(T.tupleof[0 .. $ - isNested!T]);
+    else static if (is(T == class))
+        alias Fields = typeof(T.tupleof);
+    else
+        alias Fields = TypeTuple!T;
+}
+
+template FieldNameTuple(T)
+{
+    static if (is(T == struct) || is(T == union))
+        alias FieldNameTuple = staticMap!(NameOf, T.tupleof[0 .. $ - isNested!T]);
+    else static if (is(T == class))
+        alias FieldNameTuple = staticMap!(NameOf, T.tupleof);
+    else
+        alias FieldNameTuple = TypeTuple!"";
+}
+
+template staticMap(alias F, T...)
+{
+    static if (T.length == 0)
+    {
+        alias staticMap = AliasSeq!();
+    }
+    else static if (T.length == 1)
+    {
+        alias staticMap = AliasSeq!(F!(T[0]));
+    }
+    else
+    {
+        alias staticMap =
+            AliasSeq!(
+                staticMap!(F, T[ 0  .. $/2]),
+                staticMap!(F, T[$/2 ..  $ ]));
+    }
+}
+
+private enum NameOf(alias T) = T.stringof;
+
+template AliasSeq(TList...)
+{
+    alias AliasSeq = TList;
+}
+
 version(LDC){
 	immutable string idup(string st){
 		immutable string dupl=st[0..$];

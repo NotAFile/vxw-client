@@ -1,4 +1,0 @@
-#!/bin/bash
-dmd -c ./derelict/sdl2/*.d ./derelict/enet/*.d ./derelict/util/*.d
-ar rcs libderelict.a *.o
-rm *.o

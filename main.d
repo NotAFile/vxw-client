@@ -86,6 +86,7 @@ void main(string[] args){
 	Send_Disconnect_Packet();
 	UnInit_Game();
 	ClientConfig_Save();
+	SDL_Quit();
 }
 
 void __do_gc_collect(){

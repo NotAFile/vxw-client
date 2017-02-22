@@ -1,7 +1,7 @@
 #!/bin/bash
-git clone http://github.com/LeComm/aofclient-voxlap-renderer
-cd aofclient-voxlap-renderer
+git clone http://github.com/LeComm/vxwclient-voxlap-renderer
+cd vxwclient-voxlap-renderer
 ./compile_gcc_opt
 cp compile_with_* ..
 cd ..
-rm -rf aofclient-voxlap-renderer
+rm -rf vxwclient-voxlap-renderer

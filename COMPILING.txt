@@ -2,7 +2,7 @@ If you haven't already installed DMD, you can download the latest version here:
 https://dlang.org/download.html
 
 You need at least one renderer module.
-Probably the most reliable one is the Voxlap module, which can be downloaded here:
+Probably the most reliable one (used for developing the game) is the Voxlap module, which can be downloaded here:
 https://github.com/LeComm/aofclient-voxlap-renderer
 
 On Linux:
@@ -14,10 +14,7 @@ If not, install SDL2, ENet and git the way you would do it on your distribution.
 2. Open a terminal in this directory and write
 ./configure
 to download derelict files
-./compile-derelict
-to compile the derelict files into a compact .a file
-./compile
-to compile the source
+3. Use your renderer's compile script
 
 On Windows (untested):
 1. Put SDL2.dll and ENet.dll into the .exe directory

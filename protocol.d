@@ -89,6 +89,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				LoadingMap=true;
 				LoadedCompleteMap=false;
 				JoinedGame=0;
+				Gfx_MapLoadingStart(MapXSize, MapZSize);
 				break;
 			}
 			case MapChunkPacketID:{
@@ -97,6 +98,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					break;*/
 				CurrentLoadingMap~=packet.data;
 				writeflnlog("Received map chunk of size %s (%s/%s)", packet.data.length, CurrentLoadingMap.length, MapTargetSize);
+				Gfx_OnMapDataAdd(cast(uint[])CurrentLoadingMap);
 				if(CurrentLoadingMap.length==MapTargetSize){
 					Set_MiniMap_Size(MapXSize, MapZSize);
 					switch(MapEncoding){
@@ -114,6 +116,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					LoadedCompleteMap=true;
 					CurrentLoadingMap=[];
 					On_Map_Loaded();
+					Gfx_OnMapLoadFinish();
 				}
 				break;
 			}

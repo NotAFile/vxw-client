@@ -8,6 +8,7 @@ import std.conv;
 import core.time;
 import std.datetime;
 import core.thread;
+import std.traits;
 
 version(D_NoBoundsChecks){
 	immutable bool Program_Is_Optimized=true;
@@ -17,12 +18,26 @@ else{
 }
 version(X86){
 	alias register_t=uint;
+	alias signed_register_t=int;
 }
 version(X86_64){
 	alias register_t=ulong;
+	alias signed_register_t=long;
 }
 static if(!is(register_t)){
 	alias register_t=uint;
+	alias signed_register_t=int;
+}
+
+version(DigitalMars){
+	string TypeName(T)(){
+		return fullyQualifiedName!T;
+	}
+}
+else{
+	string TypeName(T)(){
+		return T.stringof;
+	}
 }
 
 static if(__traits(compiles, MonoTime.currTime)){
