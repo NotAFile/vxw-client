@@ -151,7 +151,7 @@ void Gfx_MapLoadingStart(uint xsize, uint zsize){
 @save void Gfx_OnMapDataAdd(uint[] loading_map){
 	uint[] map_pixels=cast(uint[])(cast(uint*)MapLoadingSrfc.pixels)[0..MapLoadingSrfc.w*MapLoadingSrfc.h];
 	uint maxx, maxz;
-	SDL_SetWindowTitle(scrn_window, toStringz("[VoxelWar] Loading map \""~CurrentMapName~"\" ... ("~to!string(loading_map.length*100/MapTargetSize)~"%)"));
+	SDL_SetWindowTitle(scrn_window, toStringz("[VoxelWar] Loading map \""~CurrentMapName~"\" ... ("~to!string(loading_map.length*400/MapTargetSize)~"%)"));
 	try{
 		uint map_ind=0;
 		for(uint z=0; z<MapLoadingSrfc.h; z++){
@@ -325,7 +325,7 @@ void Render_Text_Line(uint xpos, uint ypos, uint color, string line, RendererTex
 		fontsrcrect.w=borderless_font_surface.w/16-letter_padding*2; fontsrcrect.h=borderless_font_surface.h/16-letter_padding*2;
 		font=borderless_font_texture;
 		padding=0;
-		bgcol=0x00a00a0;
+		bgcol=0xf0a00a0;
 		cmod=[(bgcol>>16)&255, (bgcol>>8)&255, bgcol&255];
 		cmod[]=~cmod[];
 	}
@@ -904,7 +904,7 @@ void Render_Player(uint player_id){
 Sprite_t[] Get_Player_Sprites(uint player_id){
 	Player_t *plr=&Players[player_id];
 	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
-	Vector3_t pos=Players[player_id].pos;
+	Vector3_t pos=Players[player_id].CameraPos;
 	if(player_id==LocalPlayerID)
 		pos=CameraPos;
 	Sprite_t[] sprarr;
@@ -973,7 +973,7 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	if(ItemTypes[Players[player_id].items[Players[player_id].item].type].model_id==255)
 		return[];
 	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
-	Vector3_t pos=Players[player_id].pos;
+	Vector3_t pos=Players[player_id].CameraPos;
 	Sprite_t[] sprarr;
 	Sprite_t spr;
 	Vector3_t item_offset;
@@ -1125,6 +1125,7 @@ struct ExplosionSprite_t{
 ExplosionSprite_t[] ExplosionEffectSprites;
 
 void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint[] col, float timer_ratio=1.0){
+	amount=to!uint(amount*Config_Read!float("particles"));
 	uint old_size=cast(uint)Particles.length;
 	bool use_sent_cols=radius==0;
 	Particles.length+=amount;
@@ -1300,7 +1301,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 			}
 		}
 	}
-	static if(1){
+	if(Config_Read!bool("effects")){
 		float powrad=radius*radius;
 		int miny=cast(int)max(0, -radius+pos.y), maxy=cast(int)min(MapYSize, radius+pos.y);
 		uint __rand_factor=(*(cast(uint*)&spread))^(*(cast(uint*)&pos.x))^(*(cast(uint*)&pos.y))^(*(cast(uint*)&pos.z));
@@ -1393,7 +1394,8 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount/4, 0xff808080, radius);
 	Create_Particles(pos, vel, radius, spread, amount*7, [], 1.0/(1.0+amount*.001));
 	Create_Particles(pos, vel, 0, spread*3.0, amount*10, [0x00ffff00, 0x00ffa000], .05);
-	Renderer_AddFlash(pos, radius*1.5, 1.0);
+	if(Config_Read!bool("effects"))
+		Renderer_AddFlash(pos, radius*1.5, 1.0);
 	//WIP (go cham!)
 	/*ExplosionSprite_t effect;
 	Model_t *model=new Model_t;
@@ -1515,6 +1517,7 @@ bool Sprite_Visible(in Sprite_t spr){
 
 //Ok yeah, this code sux
 bool Sprite_BoundHitCheck(in Sprite_t spr, Vector3_t pos, Vector3_t dir){
+	return true;
 	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
 	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);

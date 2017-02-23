@@ -216,7 +216,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				ubyte[] player_bit_table=PacketData[0..player_bit_table_size];
 				float[3][] positiondata=cast(float[3][])PacketData[player_bit_table_size+1..$];
 				uint posdataindex=0;
-				for(uint b=1; b<player_bit_table_size*8; b++){
+				for(uint b=0; b<player_bit_table_size*8; b++){
 					if(player_bit_table[b/8]&(1<<(b%8))){
 						float[3] pos=positiondata[posdataindex];
 						posdataindex++;
@@ -227,7 +227,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 								coord=ConvertArrayToVariable!(float)(content);
 							}
 						}
-						uint player_id=b-1;
+						uint player_id=b;
 						if(player_id!=LocalPlayerID){
 							Players[player_id].pos=Vector3_t(pos);
 						}

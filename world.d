@@ -284,8 +284,10 @@ struct Player_t{
 		} else {
 			if(!airborne && airborne_old) { //fall or jump end
 				float d = pos.y-airborne_start;
-				if(d>0.0F) {
-					printf("Fall distance: %f\n",d);
+				debug{
+					if(d>0.0F) {
+						printf("Fall distance: %f\n",d);
+					}
 				}
 			}
 		}
@@ -1169,7 +1171,6 @@ struct Object_t{
 		if(physics_mode==ObjectPhysicsMode.Standard){
 			obj.Update(dt);
 			vel.y+=weightfactor ? (1.0-.05/weightfactor)*dt*Gravity : 0.0;
-			vel+=acl*dt;
 			if(Collision[0] || Collision[1] || Collision[2]){
 				vel*=bouncefactor;
 			}
@@ -1238,7 +1239,6 @@ struct PhysicalObject_t{
 	Vector3_t pos, vel, rot, rotvel;
 	Vector3_t bouncefactor;
 	Vector3_t[] Vertices;
-	bool[3][] Vertex_Collisions;
 	bool[3] Collision;
 	bool is_stuck;
 	SpriteRenderData_t spr;
@@ -1273,8 +1273,6 @@ struct PhysicalObject_t{
 	}
 	
 	Vector3_t Vertices_CheckCollisions(Vector3_t delta_pos){
-		if(Vertex_Collisions.length!=Vertices.length)
-			Vertex_Collisions.length=Vertices.length;
 		Collision[]=false;
 		foreach(uint i, ref vertex; Vertices){
 			Vector3_t vdelta_pos;
@@ -1333,8 +1331,11 @@ struct PhysicalObject_t{
 	}
 	
 	void Render(){
-		Renderer_DrawSprite(&spr, pos, rot);
-		static if(1){
+		if(vel.length>2.0)
+			Renderer_DrawSprite!(true)(&spr, pos, rot);
+		else
+			Renderer_DrawSprite!(false)(&spr, pos, rot);
+		static if(0){
 			foreach(vertex; Vertices){
 				Vector3_t vpos=vertex.rotate(rot)+pos;
 				int scrx, scry;

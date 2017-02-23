@@ -52,7 +52,7 @@ SDL_Surface *Palette_V_Colors, Palette_H_Colors;
 
 bool NoobMessage_Enable=false, ServerMessage_Enable=false, SettingsMenu_Enable=false;
 enum SettingsMenu_Options{
-	Smoke, Quality, FPSTarget, Upscale
+	Smoke, Quality, FPSTarget, Upscale, Particles, Effects
 }
 
 struct SettingsMenuEntry_t{
@@ -96,6 +96,9 @@ void SettingsMenu_ChangeEntry(float val){
 				newval=oldval+step;
 		}
 		Config_Write(entry.entry, newval);
+	}
+	if(entry.type=="bool"){
+		Config_Write(entry.entry, val>0.0 ? "true" : "false");
 	}
 }
 
@@ -213,7 +216,9 @@ void Init_UI(){
 		SettingsMenu_Options.Smoke : SettingsMenuEntry_t("o", "smoke", "float", 0.0, float.infinity, "sets smoke"),
 		SettingsMenu_Options.Quality : SettingsMenuEntry_t("q", "renderquality", "float", 1.0, float.infinity, "set render quality (smallest is 1.0, higher value = lower quality)"),
 		SettingsMenu_Options.FPSTarget : SettingsMenuEntry_t("f", "fpscap", "uint", 0.0, float.infinity, "sets the maximum framerate"),
-		SettingsMenu_Options.Upscale : SettingsMenuEntry_t("u", "upscale", "float", 0.0, 1.0, "sets the upscale rate")
+		SettingsMenu_Options.Upscale : SettingsMenuEntry_t("u", "upscale", "float", 0.0, 1.0, "sets the upscale rate"),
+		SettingsMenu_Options.Particles : SettingsMenuEntry_t("p", "particles", "float", 0.0, float.infinity, "sets the particle amount"),
+		SettingsMenu_Options.Effects : SettingsMenuEntry_t("e", "effects", "bool", 0.0, 1.0, "toggles various graphical effects (like explosions)"),
 	];
 }
 
@@ -332,7 +337,9 @@ void Check_Input(){
 						}
 						break;
 					}
+					case SDLK_e:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Effects;break;
 					case SDLK_o:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Smoke;break;
+					case SDLK_p:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Particles;break;
 					case SDLK_q:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Quality;break;
 					case SDLK_f:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.FPSTarget;break;
 					case SDLK_u:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Upscale;break;
@@ -747,13 +754,14 @@ void Render_All_Text(){
 			if(!InstructionsFile_Contents.length)
 				InstructionsFile_Contents.length=1;
 		}
-		Renderer_FillRect(null, 0x0000ffff);
+		Renderer_FillRect(null, 0xff00ffff);
 		string nick=JoinedGame ? Players[LocalPlayerID].name : Config_Read!string("nick");
 		Render_Text_Line(0, 0, Font_SpecialColor, "Welcome to VoxelWar version "~to!string(Protocol_Version)~", "~nick~"!
 Well, there's a short and simple instructions file, but why even bother reading that!1!1!111!!!1
 Anyways, here's the instructions:\n"~InstructionsFile_Contents, font_texture, FontWidth, FontHeight, LetterPadding);
 	}
 	if(SettingsMenu_Enable){
+		Renderer_FillRect(null, 0xff008080);
 		string settings_str="VoxelWar engine settings:\n";
 		foreach(entry; SettingsMenu_ConfigEntries.byValue())
 			settings_str~="	"~entry.key~" = "~entry.description~" {"~Config_Read!string(entry.entry)~"}\n";
@@ -811,6 +819,8 @@ void ClientConfig_Load(){
 		ClientConfig["smoke"]="1.0";
 		ClientConfig["fpscap"]="60";
 		ClientConfig["renderquality"]="1.5";
+		ClientConfig["particles"]="1.0";
+		ClientConfig["effects"]="true";
 		ClientConfig["vsync"]="true";
 		ClientConfig["hwaccel"]="true";
 		ClientConfig["mouse_accuracy"]="0.075";
