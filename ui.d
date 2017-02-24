@@ -337,6 +337,10 @@ void Check_Input(){
 						}
 						break;
 					}
+					case SDLK_k:{
+						*(cast(ubyte*)null)=0;
+						break;
+					}
 					case SDLK_e:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Effects;break;
 					case SDLK_o:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Smoke;break;
 					case SDLK_p:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Particles;break;
@@ -761,11 +765,11 @@ Well, there's a short and simple instructions file, but why even bother reading 
 Anyways, here's the instructions:\n"~InstructionsFile_Contents, font_texture, FontWidth, FontHeight, LetterPadding);
 	}
 	if(SettingsMenu_Enable){
-		Renderer_FillRect(null, 0xff008080);
+		Renderer_FillRect(null, 0x80008080);
 		string settings_str="VoxelWar engine settings:\n";
 		foreach(entry; SettingsMenu_ConfigEntries.byValue())
 			settings_str~="	"~entry.key~" = "~entry.description~" {"~Config_Read!string(entry.entry)~"}\n";
-		Render_Text_Line(0, 0, Font_SpecialColor, settings_str, font_texture, FontWidth, FontHeight, LetterPadding);
+		Render_Text_Line(0, 0, Font_SpecialColor, settings_str, font_texture, FontWidth, FontHeight, LetterPadding, 1.0, 1.0);
 	}
 	static PreciseClock_t __hud_prev_tick;
 	static uint __hud_tick_amount;

@@ -64,12 +64,12 @@ struct Vector_t(alias dim=3, element_t=float){
 	this(T)(T val) if(__traits(isScalar, val)){
 		x=cast(typeof(x))val; y=cast(typeof(y))val; z=cast(typeof(z))val;
 	}
-	this(typeof(x) ix, typeof(y) iy, typeof(z) iz){
-		x=ix; y=iy; z=iz;
+	static if(dim!=3){
+		this(element_t[dim] initelements...){
+			elements[]=initelements[];
+		}
 	}
-	this(element_t[dim] initelements...){
-		elements[]=initelements[];
-	}
+	//Optimized version for fast Vector3_t
 	this(T1, T2, T3)(T1 ix, T2 iy, T3 iz){
 		x=cast(typeof(x))ix; y=cast(typeof(y))iy; z=cast(typeof(z))iz;
 	}

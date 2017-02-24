@@ -325,7 +325,7 @@ void Render_Text_Line(uint xpos, uint ypos, uint color, string line, RendererTex
 		fontsrcrect.w=borderless_font_surface.w/16-letter_padding*2; fontsrcrect.h=borderless_font_surface.h/16-letter_padding*2;
 		font=borderless_font_texture;
 		padding=0;
-		bgcol=0xff0000a0;
+		bgcol=0xf0a00a0;
 		cmod=[(bgcol>>16)&255, (bgcol>>8)&255, bgcol&255];
 		cmod[]=~cmod[];
 	}
@@ -835,7 +835,6 @@ void Render_Screen(){
 		}
 	}
 	if(List_Players){
-		Renderer_FillRect(null, 0xf0008080);
 		//Some random optimization cause I don't want to have to allocate the same stuff on each frame
 		uint[] list_player_amount;
 		list_player_amount.length=Teams.length;
@@ -851,25 +850,13 @@ void Render_Screen(){
 			list_player_amount[p.team]++;
 			Player_List_Table[p.team][list_player_amount[p.team]-1]=p.player_id;
 		}
-		immutable uint teamlist_w=cast(uint)(ScreenXSize/Teams.length); //cast for 64 bit systems
-		//.6 looks ok-ish
-		immutable float letter_xsize=.675;
-		float team_xpos=0.0;
+		uint teamlist_w=cast(uint)(ScreenXSize/Teams.length); //cast for 64 bit systems
 		for(uint t=0; t<Teams.length; t++){
 			for(uint plist_index=0; plist_index<list_player_amount[t]; plist_index++){
 				Player_t *plr=&Players[Player_List_Table[t][plist_index]];
-				string plrentry;
-				if(Teams[t].playing)
-					plrentry=format("%-32s [#%3d] `%d` *%d*", plr.name, plr.player_id, plr.score, plr.gmscore);
-				else
-					plrentry=format("%-32s [#%3d]", plr.name, plr.player_id);
-				Render_Text_Line(cast(uint)team_xpos, (plist_index*2+1)*FontHeight/16,
-				Color_ActionPerComponent!("min(a<<1, 255)")(Teams[t].icolor), plrentry, font_texture, FontWidth, FontHeight, LetterPadding, letter_xsize, 1.0);
+				string plrentry=format("%s [#%s] %d", plr.name, plr.player_id, plr.score);
+				Render_Text_Line(t*teamlist_w, plist_index*FontHeight/16, Teams[t].icolor, plrentry, font_texture, FontWidth, FontHeight, LetterPadding);
 			}
-			if(Teams[t].playing)
-				team_xpos+=(32+1+2+3+2+9+2+9+1)*letter_xsize*FontWidth/16;
-			else
-				team_xpos+=(32+2+3+1)*letter_xsize*FontWidth/16;
 		}
 	}
 	if(!Render_Local_Player)
@@ -886,7 +873,7 @@ bool LocalPlayerScoping(){
 			}
 		}
 	}
-	return false;
+	return false;		
 }
 
 void Finish_Render(){
@@ -926,7 +913,7 @@ Sprite_t[] Get_Player_Sprites(uint player_id){
 	Vector3_t hands_pos;
 	if(attached_sprites.length)
 		hands_pos=Vector3_t(attached_sprites[0].xpos, attached_sprites[0].ypos, attached_sprites[0].zpos);
-	foreach(immutable model; plr.models){
+	foreach(ref model; plr.models){
 		if(player_id==LocalPlayerID && !model.FirstPersonModel)
 			continue;
 		Vector3_t mrot=rot;
@@ -945,7 +932,7 @@ Sprite_t[] Get_Player_Sprites(uint player_id){
 		Vector3_t mpos=pos;
 		Vector3_t offsetrot=mrot;
 		offsetrot.x=0.0; offsetrot.z=0.0; offsetrot.y=-rot.y;
-		Vector3_t offset=Vector3_t(model.offset).rotate_raw(offsetrot);
+		Vector3_t offset=model.offset.rotate_raw(offsetrot);
 		mpos-=offset;
 		if(model.Rotate && model.FirstPersonModel){
 			Vector3_t hand_offset=(hands_pos-mpos).abs();
@@ -990,38 +977,32 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	Sprite_t[] sprarr;
 	Sprite_t spr;
 	Vector3_t item_offset;
-	Player_t *plr=&Players[player_id];
 	if(player_id==LocalPlayerID){
 		pos=CameraPos;
 	}
+	item_offset=Vector3_t(.8, 0.0, .4);
 	auto current_tick=PreciseClock_ToMSecs(PreciseClock());
-	Item_t *item=&plr.items[plr.item];
-	bool item_is_weapon=ItemTypes[item.type].is_weapon;
-	Vector3_t target_item_offset;
-	if(player_id==LocalPlayerID){
-		if(LocalPlayerScoping()){
-			target_item_offset=Vector3_t(.5, 0.0, .1);
+	Item_t *item=&Players[player_id].items[Players[player_id].item];
+	immutable Vector3_t fp_offset=Vector3_t(0.0, -.2, 0.0);
+	item_offset+=fp_offset;
+	bool put_item_in_front=player_id==LocalPlayerID  && ((LocalPlayerScoping()!=false) || (Players[player_id].left_click!=false));
+	if(put_item_in_front){
+		static float scope_offset_x=0.0, scope_offset_z=0.0;
+		static Vector3_t scope_offset=Vector3_t(0.0);
+		static uint fcounter=0;
+		immutable float animation_length=(1.0-1.0/(ItemTypes[item.type].power+1.0))*.5+.1;
+		if(FrameCounter!=fcounter){
+			if(LocalPlayerScoping()){
+				scope_offset=scope_offset*animation_length+(Vector3_t(-.2, 0.0, -.3)-fp_offset)*(1.0-animation_length);
+			}
+			else{
+				scope_offset*=animation_length;
+			}
+			fcounter=FrameCounter;
 		}
-		else
-		if(plr.left_click && !item_is_weapon){
-			target_item_offset=Vector3_t(1.2, 0.0, .9);
-		}
-		else{
-			target_item_offset=Vector3_t(.7, -.4, .45);
-		}
+		item_offset+=scope_offset;
 	}
-	else{
-		target_item_offset=Vector3_t(.7, -.05, .45);
-	}
-	if(1){
-		immutable float animation_length=(1.0-1.0/(ItemTypes[item.type].power+1.0))*.7+.1;
-		if(FrameCounter!=plr.item_animation_counter && plr.current_item_offset!=target_item_offset){
-			plr.current_item_offset=plr.current_item_offset*animation_length+Vector3_t(target_item_offset)*(1.0-animation_length);
-			plr.item_animation_counter=FrameCounter;
-		}
-		item_offset=plr.current_item_offset;
-	}
-	if(player_id==LocalPlayerID && item_is_weapon){
+	if(player_id==LocalPlayerID && ItemTypes[item.type].is_weapon){
 		if(current_tick-item.use_timer<ItemTypes[item.type].use_delay){
 			item_offset.x-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), .7)*.1;
 		}
@@ -1033,7 +1014,7 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	spr.xpos=itempos.x; spr.ypos=itempos.y; spr.zpos=itempos.z;
 	spr.xdensity=.04; spr.ydensity=.04; spr.zdensity=.04;
 	//BIG WIP
-	if(item_is_weapon){
+	if(ItemTypes[item.type].is_weapon){
 		if(!item.Reloading){
 			if(current_tick-item.use_timer<ItemTypes[item.type].use_delay)
 				spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), .7)*sgn(item.last_recoil)*.025;
@@ -1046,10 +1027,10 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 		}
 	}
 	if(ItemTypes[item.type].color_mod==true)
-		spr.color_mod=(plr.color&0x00ffffff) | 0xff000000;
+		spr.color_mod=(Players[player_id].color&0x00ffffff) | 0xff000000;
 	else
 		spr.color_mod=0;
-	spr.model=Mod_Models[ItemTypes[plr.items[plr.item].type].model_id];
+	spr.model=Mod_Models[ItemTypes[Players[player_id].items[Players[player_id].item].type].model_id];
 	sprarr~=spr;
 	return sprarr;
 }
@@ -1538,19 +1519,19 @@ bool Sprite_Visible(in Sprite_t spr){
 	return true;
 }
 
-@safe bool Sprite_BoundHitCheck(in Sprite_t spr, Vector3_t pos, Vector3_t dir, immutable real tolerance=3.0){
-	real rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
-	real rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
-	real rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
-	real minx=10e99, maxx=-10e99, miny=10e99, maxy=-10e99, minz=10e99, maxz=-10e99;
+bool Sprite_BoundHitCheck(in Sprite_t spr, Vector3_t pos, Vector3_t dir){
+	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
+	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
+	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
+	float minx=10e99, maxx=-10e99, miny=10e99, maxy=-10e99, minz=10e99, maxz=-10e99;
 	for(uint edgeindex=0; edgeindex<8; edgeindex++){
-		real fnx=cast(real)(toint(edgeindex%2)*spr.model.xsize);
-		real fny=cast(real)(toint((edgeindex%4)>1)*spr.model.ysize);
-		real fnz=cast(real)(toint(edgeindex>3)*spr.model.zsize);
+		float fnx=tofloat(toint(edgeindex%2)*spr.model.xsize);
+		float fny=tofloat(toint((edgeindex%4)>1)*spr.model.ysize);
+		float fnz=tofloat(toint(edgeindex>3)*spr.model.zsize);
 		fnx=(fnx-spr.model.xpivot+.5)*spr.xdensity;
 		fny=(fny-spr.model.ypivot+.5)*spr.ydensity;
 		fnz=(fnz-spr.model.zpivot-.5)*spr.zdensity;
-		real rot_y=fny, rot_z=fnz, rot_x=fnx;
+		float rot_y=fny, rot_z=fnz, rot_x=fnx;
 		fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
 		rot_x=fnx; rot_z=fnz;
 		fnz=rot_z*rot_cy - rot_x*rot_sy; fnx=rot_z*rot_sy + rot_x*rot_cy;
@@ -1559,13 +1540,13 @@ bool Sprite_Visible(in Sprite_t spr){
 		fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
 		minx=min(fnx, minx); maxx=max(fnx, maxx); miny=min(fny, miny); maxy=max(fny, maxy); minz=min(fnz, minz); maxz=max(fnz, maxz);
 	}
-	auto start=Vector_t!(3, real)(minx, miny, minz), end=Vector_t!(3, real)(maxx, maxy, maxz);
-	auto size=end-start;
-	auto mpos=start+size/2.0;
-	auto plane=Vector_t!(4, real)(dir.x, dir.y, dir.z, dir.dot(-mpos));
-	real slength=-(plane.x*pos.x+plane.y*pos.y+plane.z*pos.z+plane.w);
-	real slength_div=(plane.x*dir.x+plane.y*dir.y+plane.z*dir.z);
-	auto plane_point=((Vector_t!(3, real)(pos)+Vector_t!(3, real)(dir)*slength/slength_div)-mpos).vecabs-Vector_t!(3, real)(spr.density)*tolerance;
+	Vector3_t start=Vector3_t(minx, miny, minz);
+	Vector3_t end=Vector3_t(maxx, maxy, maxz);
+	Vector3_t size=end-start;
+	Vector3_t mpos=start+size/2.0;
+	Vector4_t plane=Vector4_t(dir.x, dir.y, dir.z, dir.dot(-mpos));
+	float slength=-(plane.x*pos.x+plane.y*pos.y+plane.z*pos.z+plane.w)/(plane.x*dir.x+plane.y*dir.y+plane.z*dir.z);
+	Vector3_t plane_point=((pos+dir*slength)-mpos).vecabs-Vector3_t(spr.density)*2.0; //A certain tolerance value
 	return (plane_point.x<=size.x && plane_point.y<=size.y && plane_point.z<=size.z);
 }
 
@@ -1573,15 +1554,6 @@ uint Calculate_Alpha(uint c1, uint c2, ushort alpha){
 	ushort inv_alpha=255-to!ubyte(alpha);
 	return (((((c1>>24)&255)*alpha+((c2>>24)&255)*inv_alpha)>>8)<<24) | (((((c1>>16)&255)*alpha+((c2>>16)&255)*inv_alpha)>>8)<<16) |
 	(((((c1>>8)&255)*alpha+((c2>>8)&255)*inv_alpha)>>8)<<8) | (((c1&255)*alpha+(c2&255)*inv_alpha)>>8);
-}
-
-uint Color_ActionPerComponent(string action, Args ...)(uint col, Args args){
-	uint ret, a;
-	a=(col>>24)&255; a=mixin(action); ret=a<<24;
-	a=(col>>16)&255; a=mixin(action); ret|=a<<16;
-	a=(col>>8)&255; a=mixin(action); ret|=a<<8;
-	a=(col>>0)&255; a=mixin(action); ret|=a<<0;
-	return ret;
 }
 
 //Never change this format
@@ -1822,13 +1794,11 @@ struct SpriteRenderData_t{
 	Vector3_t size;
 	uint color_mod, replace_black;
 	ubyte check_visibility;
-	float motion_blur;
 	this(Model_t *imodel){
 		model=imodel;
 		color_mod=0; replace_black=0;
 		check_visibility=0;
 		size=Vector3_t(model.size);
-		motion_blur=0.0;
 	}
 }
 
@@ -1857,12 +1827,10 @@ struct Sprite_t{
 	uint color_mod, replace_black;
 	ubyte check_visibility;
 	Model_t *model;
-	ubyte motion_blur;
 	this(Model_t *imodel){
 		rot=pos=Vector3_t(0.0);
 		density=Vector3_t(1.0);
 		color_mod=0; replace_black=0; check_visibility=0;
 		model=imodel;
-		motion_blur=0;
 	}
 }

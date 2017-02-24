@@ -27,11 +27,26 @@ import std.conv;
 import std.stdio;
 import std.random;
 
+class SLangFunctionNotFound : Exception
+{
+    this(string msg, string file = __FILE__, size_t line = __LINE__) {
+        super(msg, file, line);
+    }
+}
+
+
+class SLangException : Exception
+{
+    this(string msg, string file = __FILE__, size_t line = __LINE__) {
+        super(msg, file, line);
+    }
+}
+
 extern(C){
 
-alias ScriptIndex_t=ushort;
+alias ScriptIndex_t=short;
 
-int Current_Script_Index=-1;
+ScriptIndex_t Current_Script_Index=-1;
 char* toCString(string st){return cast(char*)toStringz(st);}
 
 void SLStdLib_DisabledFunc(){}
@@ -210,7 +225,7 @@ void Push_DLang_Object(T)(T obj){
 }
 
 struct Script_t{
-	int index;
+	ScriptIndex_t index;
 	bool initialized;
 	bool has_exception;
 	string name, content;
@@ -218,7 +233,7 @@ struct Script_t{
 	bool enabled, call_on_frame, call_on_minimap_render;
 	SLang_NameSpace_Type *localns;
 	ScriptLib_t *sclibrary;
-	this(int initindex, string filename, string initcontent){
+	this(ScriptIndex_t initindex, string filename, string initcontent){
 		index=initindex;
 		name=filename;
 		content=initcontent;
@@ -306,11 +321,13 @@ struct Script_t{
 		if(ret<1){
 			if(!ret){
 				has_exception=true;
-				writeflnerr("SLang function %s(%s) doesn't exist in script %s", funcname, fromStringz(nsfuncname), name);
+				//writeflnerr("SLang function %s(%s) doesn't exist in script %s", funcname, fromStringz(nsfuncname), name);
+				throw new SLangFunctionNotFound(format("SLang function %s(%s) doesn't exist in script %s", funcname, fromStringz(nsfuncname), name));
 			}
 			else{
 				has_exception=true;
-				writeflnerr("Exception while executing SLang function %s(%s) in script %s", funcname, fromStringz(nsfuncname), name);
+				//writeflnerr("Exception while executing SLang function %s(%s) in script %s", funcname, fromStringz(nsfuncname), name);
+				throw new SLangException(format("Exception while executing SLang function %s(%s) in script %s", funcname, fromStringz(nsfuncname), name));
 			}
 		}
 		if(sclibrary){

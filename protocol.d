@@ -136,12 +136,17 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case TeamDataPacketID:{
 				auto packet=UnpackPacketToStruct!(TeamDataPacketLayout)(PacketData);
-				Init_Team(packet.name, packet.team_id, packet.col);
+				Init_Team(packet.name, packet.team_id, packet.col, !(packet.flags&TeamDataPacketFlags.NonPlaying));
+				//Note: One of the last historic ancient notes, surviving through being neglected
+				
+				
 				/*if(packet.team_id<3){
 					//Hardcoded key handling
 					//Somebody make a GUI please so I can remove the team limits
 					WriteMsg(format(">>>>>>>PRESS %d TO JOIN %s TEAM<<<<<<<<", packet.team_id+1, packet.name), Teams[packet.team_id].icolor);
 				}*/
+				
+				
 				break;
 			}
 			case ChatPacketID:{
@@ -650,6 +655,11 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				Object_t *obj=&Objects[packet.obj_id];
 				obj.physics_mode=to!ObjectPhysicsMode(packet.physics_mode);
 				obj.physics_script=packet.script;
+				break;
+			}
+			case SetGMScorePacketID:{
+				auto packet=UnpackPacketToStruct!(SetGMScorePacketLayout)(PacketData);
+				Players[packet.player_id].gmscore=packet.score;
 				break;
 			}
 			default:{

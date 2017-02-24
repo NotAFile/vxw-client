@@ -5,6 +5,7 @@ import std.conv;
 import std.format;
 import core.memory;
 import core.time;
+import core.stdc.signal;
 import network;
 import protocol;
 import gfx;
@@ -100,10 +101,30 @@ void Init_Game(){
 	Init_Gfx();
 	Init_UI();
 	Init_Script();
+	version(DMD){
+		signal(SIGSEGV, &SignalHandler);
+	}
 }
 
 void UnInit_Game(){
 	UnInit_UI();
 	UnInit_Gfx();
 	UnInit_Netcode();
+}
+
+version(DMD){
+	extern(C) @nogc @system nothrow void SignalHandler(int signum){
+		if(signum==SIGSEGV){
+			SDL_SetRelativeMouseMode(SDL_FALSE);
+			signal(SIGSEGV, SIG_DFL);
+		}
+	}
+}
+else{
+	extern(C) @system nothrow void SignalHandler(int signum){
+		if(signum==SIGSEGV){
+			SDL_SetRelativeMouseMode(SDL_FALSE);
+			signal(SIGSEGV, SIG_DFL);
+		}
+	}
 }

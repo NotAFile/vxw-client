@@ -10,11 +10,11 @@ import std.datetime;
 import core.thread;
 import std.traits;
 
-version(D_NoBoundsChecks){
-	immutable bool Program_Is_Optimized=true;
+version(DigitalMars){
+	immutable bool Program_Is_Optimized=false;
 }
 else{
-	immutable bool Program_Is_Optimized=false;
+	immutable bool Program_Is_Optimized=true;
 }
 version(X86){
 	alias register_t=uint;

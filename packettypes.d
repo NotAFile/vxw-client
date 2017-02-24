@@ -124,9 +124,14 @@ immutable PacketID_t PlayerSpawnPacketID=9;
 struct TeamDataPacketLayout{
 	TeamID_t team_id;
 	uint col;
+	ubyte flags;
 	string name;
 }
 immutable PacketID_t TeamDataPacketID=10;
+
+enum TeamDataPacketFlags{
+	NonPlaying=(1<<0)
+}
 
 //NOTE: Importance approved
 //NOTE: You can never compress this one enough
@@ -431,7 +436,7 @@ immutable PacketID_t ObjectHitPacketID=47;
 
 struct SetScorePacketLayout{
 	PlayerID_t player_id;
-	uint score;
+	int score;
 }
 immutable PacketID_t SetScorePacketID=48;
 
@@ -459,6 +464,13 @@ struct SetObjectPhysicsPacketLayout{
 	ubyte script;
 }
 immutable PacketID_t SetObjectPhysicsPacketID=51;
+
+
+struct SetGMScorePacketLayout{
+	PlayerID_t player_id;
+	int score;
+}
+immutable PacketID_t SetGMScorePacketID=52;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)

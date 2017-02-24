@@ -130,7 +130,7 @@ struct Player_t{
 	string name;
 	bool Spawned;
 	bool InGame;
-	uint score;
+	uint score, gmscore;
 	
 	PlayerModel_t[] models;
 	
@@ -149,6 +149,8 @@ struct Player_t{
 	Item_t[] items;
 	ubyte[] selected_item_types;
 	uint item;
+	uint item_animation_counter;
+	Vector3_t current_item_offset;
 	bool left_click, right_click;
 	uint color;
 	Object_t *standing_on_obj, stood_on_obj;
@@ -172,6 +174,9 @@ struct Player_t{
 		pos=Vector3_t(0.0); vel=Vector3_t(0.0); dir=Vector3_t(1.0, 0.0, 0.0);
 		Model=-1;
 		Gun_Timer=0;
+		current_item_offset=Vector3_t(0.0);
+		score=0; gmscore=0;
+		Walk_Forwards_Timer=0.0; Walk_Sidewards_Timer=0.0;
 	}
 	Team_t *Get_Team(){
 		if(team==255)
@@ -466,19 +471,17 @@ struct Player_t{
 			PlayerID_t LastHitPlayer;
 			float LastHitDist=block_hit_dist;
 			Renderer_AddFlash(usepos, 4.0, 1.0);
-			foreach(PlayerID_t pid, ref plr; Players){
+			foreach(PlayerID_t pid, const plr; Players){
 				if(pid==player_id)
 					continue;
 				if(!plr.Spawned || !plr.InGame)
 					continue;
-				if((plr.pos-pos).length>min(Current_Visibility_Range+5, block_hit_dist+5))
+				if((pos-plr.pos).length>min(Current_Visibility_Range+5, block_hit_dist+5))
 					continue;
 				Sprite_t[] sprites=Get_Player_Sprites(pid);
 				foreach(ubyte spindex, ref spr; sprites){
 					Vector3_t vxpos; ModelVoxel_t *vx;
-					if(!Sprite_BoundHitCheck(spr, usepos, spreadeddir))
-						continue;
-					if(SpriteHitScan(spr, usepos, spreadeddir, vxpos, vx, 3.0)){
+					if(SpriteHitScan(spr, usepos, spreadeddir, vxpos, vx, 5.0)){
 						//vx.color=0x00ff0000;
 						if(player_id==LocalPlayerID){
 							hit_player=true;
@@ -747,25 +750,27 @@ void Init_Player(string name, PlayerID_t id){
 struct Team_t{
 	TeamID_t id;
 	string name;
+	bool playing;
 	union{
 		ubyte[4] color;
 		uint icolor;
 	}
-	void Init(string initname, TeamID_t team_id, uint initcolor){
+	void Init(string initname, TeamID_t team_id, uint initcolor, bool iplaying){
 		id=team_id;
 		name=initname;
 		icolor=initcolor;
+		playing=iplaying;
 	}
 }
 
 Team_t[] Teams;
 
-void Init_Team(string name, TeamID_t team_id, uint color){
+void Init_Team(string name, TeamID_t team_id, uint color, bool playing){
 	if(team_id>=Teams.length){
 		Teams.length=team_id+1;
 	}
 	Team_t *team=&Teams[team_id];
-	team.Init(name, team_id, color);
+	team.Init(name, team_id, color, playing);
 }
 
 float WorldSpeed=1.0;
@@ -1168,7 +1173,14 @@ struct Object_t{
 	}
 	
 	void Update(float dt=WorldSpeed){
-		if(physics_mode==ObjectPhysicsMode.Standard){
+		if(physics_mode==ObjectPhysicsMode.Standard || physics_mode==ObjectPhysicsMode.Scripted){
+			if(physics_mode==ObjectPhysicsMode.Scripted){
+				Vector3_t deltapos=obj.Vertices_CheckCollisions(vel*dt);
+				bool[3] inv_coll=[!Collision[0], !Collision[1], !Collision[2]];
+				Vector3_t fdeltapos=deltapos.filter(inv_coll);
+				uint[3] _coll=[Collision[0], Collision[1], Collision[2]];
+				Loaded_Scripts[physics_script].Call_Func("Update_Position", &_coll, &fdeltapos, &pos, &vel, &acl, &rot, WorldSpeed);
+			}
 			obj.Update(dt);
 			vel.y+=weightfactor ? (1.0-.05/weightfactor)*dt*Gravity : 0.0;
 			if(Collision[0] || Collision[1] || Collision[2]){
@@ -1290,12 +1302,14 @@ struct PhysicalObject_t{
 			delta_pos.y=0.0;
 		if(fabs(delta_pos.z)<.00001)
 			delta_pos.z=0.0;
-		if(Collision[0])
+		/*if(Collision[0])
 			vel.x*=-bouncefactor.x;
 		if(Collision[1])
 			vel.y*=-bouncefactor.y;
 		if(Collision[2])
-			vel.z*=-bouncefactor.z;
+			vel.z*=-bouncefactor.z;*/
+		if(Collision[0] || Collision[1] || Collision[2])
+			vel*=bouncefactor;
 		return delta_pos;
 	}
 	
@@ -1331,10 +1345,8 @@ struct PhysicalObject_t{
 	}
 	
 	void Render(){
-		if(vel.length>2.0)
-			Renderer_DrawSprite!(true)(&spr, pos, rot);
-		else
-			Renderer_DrawSprite!(false)(&spr, pos, rot);
+		spr.motion_blur=min(vel.length/299_792_458.0, 1.0);
+		Renderer_DrawSprite(&spr, pos, rot);
 		static if(0){
 			foreach(vertex; Vertices){
 				Vector3_t vpos=vertex.rotate(rot)+pos;
