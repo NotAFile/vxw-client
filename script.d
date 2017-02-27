@@ -499,7 +499,7 @@ void ScrGuiLib_MenuElementDelete(SLang_Struct_Type *slelement){
 }
 
 void ScrGuiLib_TextBoxCreate(){
-	string[] fieldnames=["boxindex", "fontindex", "xpos", "ypos", "xsize", "ysize", "xsizeratio", "ysizeratio", "wrap_lines", "move_lines_down",
+	string[] fieldnames=["boxindex", "fontindex", "xpos", "ypos", "xsize", "ysize", "wrap_lines", "move_lines_down",
 	"move_lines_up", "lines", "colors"];
 	char*[] c_fieldnames;
 	foreach(ref field; fieldnames)
@@ -516,10 +516,10 @@ void ScrGuiLib_TextBoxCreate(){
 		box=cast(int)TextBoxes.length;
 		TextBoxes.length++;
 	}
-	TextBoxes[box].set(0, 0.0, 0.0, 1.0f/float.infinity, 1.0f/float.infinity, 1.0f/float.infinity, 1.0f/float.infinity, 0);
+	TextBoxes[box].set(0, 0.0, 0.0, 1.0f/float.infinity, 1.0f/float.infinity, 0);
 	SLang_push_uchar(cast(ubyte)box); SLang_push_uchar(cast(ubyte)0); SLang_push_float(0.0); SLang_push_float(0.0);
-	SLang_push_float(1.0f/float.infinity); SLang_push_float(1.0f/float.infinity); SLang_push_float(1.0f/float.infinity);
-	SLang_push_float(1.0f/float.infinity); SLang_push_uchar(cast(ubyte)0); SLang_push_uchar(cast(ubyte)0); SLang_push_uchar(cast(ubyte)0);
+	SLang_push_float(1.0f/float.infinity); SLang_push_float(1.0f/float.infinity); 
+	SLang_push_uchar(cast(ubyte)0); SLang_push_uchar(cast(ubyte)0); SLang_push_uchar(cast(ubyte)0);
 	SLindex_Type dim=0;
 	SLang_push_array(SLang_create_array(SLANG_STRING_TYPE, 0, null, &dim, 1), 1);
 	SLang_push_array(SLang_create_array(SLANG_UINT_TYPE, 0, null, &dim, 1), 1);
@@ -528,17 +528,17 @@ void ScrGuiLib_TextBoxCreate(){
 }
 
 void ScrGuiLib_TextBoxUpdate(SLang_Struct_Type *slelement){
-	string[] fieldnames=["boxindex", "fontindex", "xpos", "ypos", "xsize", "ysize", "xsizeratio", "ysizeratio", "wrap_lines", "move_lines_down",
+	string[] fieldnames=["boxindex", "fontindex", "xpos", "ypos", "xsize", "ysize", "wrap_lines", "move_lines_down",
 	"move_lines_up", "lines", "colors"];
 	foreach(ref field; fieldnames)
 		SLang_push_struct_field(slelement, cast(char*)toStringz(field));
 	ubyte boxindex, fontindex; float xpos, ypos, xsize, ysize, xsizeratio, ysizeratio; ubyte wrap_lines, move_lines_down, move_lines_up;
 	SLang_Array_Type* lines, colors;
 	SLang_pop_array_of_type(&colors, SLANG_UINT_TYPE); SLang_pop_array_of_type(&lines, SLANG_STRING_TYPE);
-	SLang_pop_uchar(&move_lines_up); SLang_pop_uchar(&move_lines_up); SLang_pop_uchar(&wrap_lines); SLang_pop_float(&ysizeratio);
-	SLang_pop_float(&xsizeratio); SLang_pop_float(&ysize); SLang_pop_float(&xsize); SLang_pop_float(&ypos);
+	SLang_pop_uchar(&move_lines_up); SLang_pop_uchar(&move_lines_up); SLang_pop_uchar(&wrap_lines); 
+	SLang_pop_float(&ysize); SLang_pop_float(&xsize); SLang_pop_float(&ypos);
 	SLang_pop_float(&xpos); SLang_pop_uchar(&fontindex); SLang_pop_uchar(&boxindex);
-	TextBoxes[boxindex].set(fontindex, xpos, ypos, xsize, ysize, xsizeratio, ysizeratio,
+	TextBoxes[boxindex].set(fontindex, xpos, ypos, xsize, ysize,
 	to!ubyte((wrap_lines*TEXTBOX_FLAG_WRAP) | (move_lines_up*TEXTBOX_FLAG_MOVELINESDOWN) | (move_lines_down*TEXTBOX_FLAG_MOVELINESUP)));
 	TextBoxes[boxindex].lines.length=lines.dims[0];
 	for(SLindex_Type i=0; i<TextBoxes[boxindex].lines.length; i++){

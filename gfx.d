@@ -16,6 +16,7 @@ import std.traits;
 import std.string;
 import main;
 import renderer;
+import renderer_templates;
 import protocol;
 import misc;
 import world;
@@ -122,10 +123,12 @@ void Change_Resolution(uint newxsize, uint newysize){
 	newxsize=cast(uint)(WindowXSize*ScreenSizeRatio); newysize=cast(uint)(WindowYSize*ScreenSizeRatio);
 	Renderer_SetUp(newxsize, newysize);
 	Renderer_SetQuality(Config_Read!float("renderquality"));
-	foreach(ref elem; MenuElements){
-		ConvertScreenCoords(elem.fxpos, elem.fypos, elem.xpos, elem.ypos);
-		ConvertScreenCoords(elem.fxsize, elem.fysize, elem.xsize, elem.ysize);
-	}
+	foreach(ref elem; MenuElements){elem.AdjustToScreen();}
+	foreach (ref tbox; TextBoxes){tbox.AdjustToScreen();}
+	if(ProtocolBuiltin_AmmoCounterBG)
+		ProtocolBuiltin_AmmoCounterBG.AdjustToScreen();
+	if(ProtocolBuiltin_AmmoCounterBullet)
+		ProtocolBuiltin_AmmoCounterBullet.AdjustToScreen();
 	ParticleSizeRatios=[
 		ParticleSizeTypes.Normal: [.1, .1, .1],
 		ParticleSizeTypes.BlockDamageParticle: [.05, .05, .05],
@@ -306,48 +309,82 @@ SDL_Surface *Shade_Text(SDL_Surface *srfc){
 	return dst;
 }
 
-void Render_Text_Line(uint xpos, uint ypos, uint color, string line, RendererTexture_t font, uint font_w, uint font_h, uint letter_padding, float xsizeratio=1.0, float ysizeratio=1.0){
-	SDL_Rect lrect, fontsrcrect;
+void Render_Text_Line(TC, TL)(uint xpos, uint ypos, TC coloring, TL text, RendererTexture_t font, uint font_w, uint font_h, uint letter_padding){
+	return Render_Text_Line(xpos, ypos, coloring, text, font, font_w, font_h, letter_padding, null);
+}
+
+void Render_Text_Line(TC, TL, TS)(uint xpos, uint ypos, TC coloring, TL text, RendererTexture_t font, uint font_w, uint font_h, uint letter_padding, TS args){
 	if(!font)
 		return;
+	SDL_Rect lrect, fontsrcrect;
 	lrect.x=xpos; lrect.y=ypos;
-	uint padding;
-	ubyte old_r, old_g, old_b;
-	ubyte[3] cmod;
-	uint bgcol;
-	if(color!=Font_SpecialColor){
-		fontsrcrect.w=font_w/16; fontsrcrect.h=font_h/16;
-		padding=letter_padding*2;
-		cmod=[cast(ubyte)((color>>16)&255),cast(ubyte)((color>>8)&255),cast(ubyte)(color&255)];
+	fontsrcrect.w=font_w/16; fontsrcrect.h=font_h/16;
+	uint padding=letter_padding*2;
+	immutable char tab_char='	';
+	string[] lines;
+	static if(is(TL==string[]))
+		lines=text;
+	else
+		lines=[text];
+	uint[] cols;
+	static if(is(TC==uint[]))
+		cols=coloring;
+	else
+		cols=[coloring];
+	real xsizeratio, ysizeratio;
+	static if(is(TS==typeof(null))){
+		xsizeratio=1.0; ysizeratio=1.0;
 	}
-	else{
-		letter_padding=0;
-		fontsrcrect.w=borderless_font_surface.w/16-letter_padding*2; fontsrcrect.h=borderless_font_surface.h/16-letter_padding*2;
-		font=borderless_font_texture;
-		padding=0;
-		bgcol=0xff0000a0;
-		cmod=[(bgcol>>16)&255, (bgcol>>8)&255, bgcol&255];
-		cmod[]=~cmod[];
+	else
+	static if(isArray!TS){
+		static if(isFloatingPoint!(typeof(args[0]))){
+			xsizeratio=args[0]; ysizeratio=args[1];
+		}
+		else{
+			
+			uint maxlinelength=uint.min;
+			foreach(l; lines)
+				maxlinelength=max(l.length+count!"a==b"(l, tab_char), maxlinelength);
+			if(!maxlinelength)
+				return;
+			xsizeratio=(args[0]-xpos)/cast(real)maxlinelength/cast(real)fontsrcrect.w;
+			ysizeratio=(args[1]-ypos)/cast(real)lines.length/cast(real)fontsrcrect.h;
+		}
 	}
+	else
+	static assert(0); //Unknown type of argument passed
 	lrect.w=to!int(to!float(fontsrcrect.w)*xsizeratio); lrect.h=to!int(to!float(fontsrcrect.h)*ysizeratio);
 	if(Dank_Text){
 		lrect.w++; lrect.h++;
 	}
 	uint[2] texsize=[font_surface.w, font_surface.h];
-	foreach(letter; line){
-		bool letter_processed=true;
-		switch(letter){
-			case '\n':lrect.x=xpos; lrect.y+=lrect.h-padding; break;
-			case '	':lrect.x+=(lrect.w-padding*xsizeratio)*5; break;
-			default:letter_processed=false; break;
+	foreach(immutable ind, immutable line; lines){
+		immutable auto col=cols[ind];
+		ubyte[3] cmod;
+		immutable auto bgcol=0xff0000a0;
+		if(col==Font_SpecialColor){
+			cmod=[(bgcol>>16)&255, (bgcol>>8)&255, bgcol&255];
+			cmod[]=~cmod[];
 		}
-		if(letter_processed) continue;
-		fontsrcrect.x=(letter%16)*fontsrcrect.w;
-		fontsrcrect.y=(letter/16)*fontsrcrect.h;
-		if(color==Font_SpecialColor)
-			Renderer_FillRect(&lrect, bgcol);
-		Renderer_Blit2D(font, &texsize, &lrect, 255, &cmod, &fontsrcrect);
-		lrect.x+=lrect.w-padding*xsizeratio;
+		else{
+			cmod=[cast(ubyte)((col>>16)&255),cast(ubyte)((col>>8)&255),cast(ubyte)(col&255)];
+		}
+		foreach(immutable letter; line){
+			bool letter_processed=true;
+			switch(letter){
+				case '\n':lrect.x=xpos; lrect.y+=lrect.h-padding; break;
+				case tab_char:lrect.x+=(lrect.w-padding*xsizeratio)*5; break;
+				default:letter_processed=false; break;
+			}
+			if(letter_processed) continue;
+			fontsrcrect.x=(letter%16)*fontsrcrect.w;
+			fontsrcrect.y=(letter/16)*fontsrcrect.h;
+			if(col==Font_SpecialColor)
+				Renderer_FillRect(&lrect, bgcol);
+			Renderer_Blit2D(font, &texsize, &lrect, col>>24, &cmod, &fontsrcrect);
+			lrect.x+=lrect.w-padding*xsizeratio;
+		}
+		lrect.x=xpos; lrect.y+=lrect.h-padding;
 	}
 }
 
@@ -382,7 +419,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 				spr.color_mod=(Players[LocalPlayerID].color&0x00ffffff) | 0xff000000;
 				spr.replace_black=spr.color_mod;
 				spr.model=ProtocolBuiltin_BlockBuildWireframe;
-				Renderer_DrawWireframe(&spr);
+				Renderer_DrawWireframe(spr);
 			}
 		}
 	}
@@ -606,7 +643,8 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 				break;
 		}
 	}
-	Renderer_UpdateFlashes!UpdateGfx(WorldSpeed);
+	if(Config_Read!bool("flashes"))
+		Renderer_UpdateFlashes!UpdateGfx(WorldSpeed);
 }
 
 void MenuElement_Draw(MenuElement_t* e){
@@ -669,13 +707,9 @@ void Render_Screen(){
 		if(Render_Local_Player){
 			float mousexvel=MouseMovedX*Config_Read!float("mouse_accuracy")*X_FOV/90.0, mouseyvel=MouseMovedY*Config_Read!float("mouse_accuracy")*Y_FOV/90.0;
 			if(!Menu_Mode){
-				if(Players[LocalPlayerID].items.length){
-					if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon){
-						if(MouseRightClick){
-							MouseRot.x+=mouseyvel*(uniform01()*2.0-1.0)*.75; MouseRot.y+=mousexvel*(uniform01()*2.0-1.0)*.75;
-							mousexvel*=.6; mouseyvel*=.6;
-						}
-					}
+				if(LocalPlayerScoping()){
+					MouseRot.x+=mouseyvel*(uniform01()*2.0-1.0)*.75; MouseRot.y+=mousexvel*(uniform01()*2.0-1.0)*.75;
+					mousexvel*=.6; mouseyvel*=.6;
 				}
 				MouseRot.x+=mousexvel; MouseRot.y+=mouseyvel;
 			}
@@ -864,7 +898,7 @@ void Render_Screen(){
 				else
 					plrentry=format("%-32s [#%3d]", plr.name, plr.player_id);
 				Render_Text_Line(cast(uint)team_xpos, (plist_index*2+1)*FontHeight/16,
-				Color_ActionPerComponent!("min(a<<1, 255)")(Teams[t].icolor), plrentry, font_texture, FontWidth, FontHeight, LetterPadding, letter_xsize, 1.0);
+				Color_ActionPerComponent!("min(a<<1, 255)")(Teams[t].icolor), plrentry, font_texture, FontWidth, FontHeight, LetterPadding, [letter_xsize, 1.0]);
 			}
 			if(Teams[t].playing)
 				team_xpos+=(32+1+2+3+2+9+2+9+1)*letter_xsize*FontWidth/16;
@@ -881,7 +915,7 @@ bool LocalPlayerScoping(){
 	if(LocalPlayerID<Players.length){
 		if(Players[LocalPlayerID].items.length){
 			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon
-			&& !Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading && MouseRightClick && BlurAmount<.2){
+			&& !Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading && MouseRightClick && BlurAmount<.8){
 				return true;
 			}
 		}
@@ -949,7 +983,7 @@ Sprite_t[] Get_Player_Sprites(uint player_id){
 		mpos-=offset;
 		if(model.Rotate && model.FirstPersonModel){
 			Vector3_t hand_offset=(hands_pos-mpos).abs();
-			if(player_id==LocalPlayerID) 					//QUICK HACK TO GET THE HANDS OUT OF THE SCOPE (MAKE THIS CALCULATE STUFF PROPERLY)
+			if(player_id==LocalPlayerID)
 				mpos-=hand_offset*.5;
 			Vector3_t hand_rot=hand_offset.DirectionAsRotation;
 			spr.rst=hand_rot.z; spr.rti=hand_rot.y; spr.rhe=hand_rot.x;
@@ -1031,7 +1065,7 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	spr.rst=rot.z*0.0; spr.rhe=rot.x; spr.rti=rot.y;
 	Vector3_t itempos=pos+item_offset.rotate_raw(Vector3_t(0.0, 90.0-rot.x, 90.0)).rotate_raw(Vector3_t(0.0, 90.0-rot.y+180.0, 0.0));
 	spr.xpos=itempos.x; spr.ypos=itempos.y; spr.zpos=itempos.z;
-	spr.xdensity=.04; spr.ydensity=.04; spr.zdensity=.04;
+	spr.density=Vector3_t(player_id!=LocalPlayerID ? .03 : .04);
 	//BIG WIP
 	if(item_is_weapon){
 		if(!item.Reloading){
@@ -1207,7 +1241,7 @@ void Create_Smoke(Vector3_t pos, uint amount, uint col, float size, float speeds
 	}
 }
 
-//Leaving this as it is here (looks nice, even if far away from being finished), I have other things to do
+//Leaving this as it is here (looks nice already, even if far away from being finished), I have other things to do
 struct Debris_t{
 	PhysicalObject_t obj;
 	float timer;
@@ -1324,7 +1358,8 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 			}
 		}
 	}
-	if(Config_Read!bool("effects")){
+	//Honestly, that's such a piece of crap that we don't even want to OPTIONALLY expose players to it xd
+	if(Config_Read!bool("effects") && 0){
 		float powrad=radius*radius;
 		int miny=cast(int)max(0, -radius+pos.y), maxy=cast(int)min(MapYSize, radius+pos.y);
 		uint __rand_factor=(*(cast(uint*)&spread))^(*(cast(uint*)&pos.x))^(*(cast(uint*)&pos.y))^(*(cast(uint*)&pos.z));
@@ -1417,7 +1452,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount/4, 0xff808080, radius);
 	Create_Particles(pos, vel, radius, spread, amount*7, [], 1.0/(1.0+amount*.001));
 	Create_Particles(pos, vel, 0, spread*3.0, amount*10, [0x00ffff00, 0x00ffa000], .05);
-	if(Config_Read!bool("effects"))
+	if(Config_Read!bool("flashes"))
 		Renderer_AddFlash(pos, radius*1.5, 1.0);
 	//WIP (go cham!)
 	/*ExplosionSprite_t effect;
@@ -1538,7 +1573,7 @@ bool Sprite_Visible(in Sprite_t spr){
 	return true;
 }
 
-@safe bool Sprite_BoundHitCheck(in Sprite_t spr, Vector3_t pos, Vector3_t dir, immutable real tolerance=3.0){
+pure @safe bool Sprite_BoundHitCheck(in Sprite_t spr, Vector3_t pos, Vector3_t dir, immutable real tolerance=3.0){
 	real rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
 	real rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
 	real rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
@@ -1706,6 +1741,11 @@ struct Model_t{
 		}
 		ret~=Model_FromVoxelArray(voxels1, xsize, zsize);
 		ret~=Model_FromVoxelArray(voxels2, xsize, zsize);
+		return ret;
+	}
+	Model_t *Model_RemoveInvBlocks(){
+		Model_t* ret;
+		ret.size=size; ret.pivot=pivot;
 		return ret;
 	}
 }

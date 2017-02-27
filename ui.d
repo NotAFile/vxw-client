@@ -52,7 +52,7 @@ SDL_Surface *Palette_V_Colors, Palette_H_Colors;
 
 bool NoobMessage_Enable=false, ServerMessage_Enable=false, SettingsMenu_Enable=false;
 enum SettingsMenu_Options{
-	Smoke, Quality, FPSTarget, Upscale, Particles, Effects
+	Smoke, Quality, FPSTarget, Upscale, Particles, Effects, FPSPingCounter, Flashes, ChatAlpha
 }
 
 struct SettingsMenuEntry_t{
@@ -88,12 +88,32 @@ void SettingsMenu_ChangeEntry(float val){
 	}
 	if(entry.type=="uint"){
 		val*=5.0;
-		uint oldval=Config_Read!uint(entry.entry);
+		immutable uint oldval=Config_Read!uint(entry.entry);
 		uint newval=oldval;
 		int step=cast(int)(val*rangestep);
-		if(step>0 || oldval>=-step){
-			if((entry.minval==float.infinity || oldval>=entry.minval-step || step>0) && (entry.maxval==float.infinity || entry.maxval-step<oldval || step<0))
+		if((step>0 && uint.max-step>oldval) || (step<0 && oldval>=-step)){
+			if((entry.minval==float.infinity || oldval>=entry.minval-step || step>0) && (entry.maxval==float.infinity || entry.maxval-step>oldval || step<0))
 				newval=oldval+step;
+			else
+				newval=step<0 ? cast(uint)entry.minval : cast(uint)entry.maxval;
+		}
+		else{
+			newval=step<0 ? uint.min : uint.max;
+		}
+		Config_Write(entry.entry, newval);
+	}
+	if(entry.type=="ubyte"){
+		immutable ubyte oldval=Config_Read!ubyte(entry.entry);
+		ubyte newval=oldval;
+		byte step=cast(byte)(val*rangestep);
+		if((step>0 && ubyte.max-step>oldval) || (step<0 && oldval>=-step)){
+			if((entry.minval==float.infinity || oldval>=entry.minval-step || step>0) && (entry.maxval==float.infinity || entry.maxval-step>oldval || step<0))
+				newval=cast(ubyte)(oldval+step);
+			else
+				newval=step<0 ? cast(ubyte)entry.minval : cast(ubyte)entry.maxval;
+		}
+		else{
+			newval=step<0 ? ubyte.min : ubyte.max;
 		}
 		Config_Write(entry.entry, newval);
 	}
@@ -127,10 +147,9 @@ struct MenuElement_t{
 		picture_index=picindex;
 		fxpos=sxpos; fypos=sypos;
 		fxsize=sxsize; fysize=sysize;
-		ConvertScreenCoords(sxpos, sypos, xpos, ypos);
-		ConvertScreenCoords(sxsize, sysize, xsize, ysize);
 		transparency=inittransparency;
 		icolor_mod=colormod;
+		AdjustToScreen();
 		move_z(zval);
 	}
 	void move_z(ubyte zval){
@@ -144,6 +163,10 @@ struct MenuElement_t{
 	}
 	bool inactive(){
 		return this.picture_index==255 || this.transparency==0 || !this.xsize || !this.ysize;
+	}
+	void AdjustToScreen(){
+		ConvertScreenCoords(fxpos, fypos, xpos, ypos);
+		ConvertScreenCoords(fxsize, fysize, xsize, ysize);
 	}
 }
 
@@ -160,18 +183,19 @@ struct TextBox_t{
 	ubyte font_index;
 	int xpos, ypos;
 	int xsize, ysize;
-	float xsizeratio, ysizeratio;
+	float fxpos, fypos;
+	float fxsize, fysize;
 	bool wrap_lines;
 	ubyte move_lines;
 	string[] lines;
 	uint[] colors;
-	void set(ubyte picindex, float sxpos, float sypos, float sxsize, float sysize, float sxsizeratio, float sysizeratio, ubyte flags){
+	void set(ubyte picindex, float sxpos, float sypos, float sxsize, float sysize, ubyte flags){
 		font_index=picindex;
-		ConvertScreenCoords(sxpos, sypos, xpos, ypos);
-		ConvertScreenCoords(sxsize, sysize, xsize, ysize);
+		fxpos=sxpos; fypos=sypos;
+		fxsize=sxsize; fysize=sysize;
 		wrap_lines=cast(bool)(flags&TEXTBOX_FLAG_WRAP);
 		move_lines=(flags&TEXTBOX_FLAG_MOVELINESDOWN) | (flags&TEXTBOX_FLAG_MOVELINESUP);
-		xsizeratio=sxsizeratio; ysizeratio=sysizeratio;
+		AdjustToScreen();
 	}
 	void set_line(ubyte line, uint color, string text){
 		if(line>=lines.length){
@@ -201,6 +225,10 @@ struct TextBox_t{
 	bool inactive(){
 		return this.font_index==255 || !this.lines.length || !this.xsize || !this.ysize;
 	}
+	void AdjustToScreen(){
+		ConvertScreenCoords(fxpos, fypos, xpos, ypos);
+		ConvertScreenCoords(fxsize, fysize, xsize, ysize);
+	}
 }
 
 TextBox_t[] TextBoxes;
@@ -219,6 +247,9 @@ void Init_UI(){
 		SettingsMenu_Options.Upscale : SettingsMenuEntry_t("u", "upscale", "float", 0.0, 1.0, "sets the upscale rate"),
 		SettingsMenu_Options.Particles : SettingsMenuEntry_t("p", "particles", "float", 0.0, float.infinity, "sets the particle amount"),
 		SettingsMenu_Options.Effects : SettingsMenuEntry_t("e", "effects", "bool", 0.0, 1.0, "toggles various graphical effects (like explosions)"),
+		SettingsMenu_Options.FPSPingCounter : SettingsMenuEntry_t("c", "fps_ping_counter", "bool", 0.0, 1.0, "toggles the FPS and ping counter"),
+		SettingsMenu_Options.Flashes : SettingsMenuEntry_t("l", "flashes", "bool", 0.0, 1.0, "toggles flashes from shots and explosions"),
+		SettingsMenu_Options.ChatAlpha : SettingsMenuEntry_t("h", "chat_alpha", "ubyte", 0, 255, "sets chat transparency")
 	];
 }
 
@@ -337,10 +368,6 @@ void Check_Input(){
 						}
 						break;
 					}
-					case SDLK_k:{
-						*(cast(ubyte*)null)=0;
-						break;
-					}
 					case SDLK_e:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Effects;break;
 					case SDLK_o:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Smoke;break;
 					case SDLK_p:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Particles;break;
@@ -351,8 +378,11 @@ void Check_Input(){
 						if(TypingChat && (KeyState[SDL_SCANCODE_LCTRL] || KeyState[SDL_SCANCODE_RCTRL])){
 							SDL_SetClipboardText(toStringz(CurrentChatLine));
 						}
+						if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.FPSPingCounter;
 						break;
 					}
+					case SDLK_l:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Flashes;break;
+					case SDLK_h:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.ChatAlpha;break;
 					case SDLK_v:{
 						if(TypingChat && (KeyState[SDL_SCANCODE_LCTRL] || KeyState[SDL_SCANCODE_RCTRL])){
 							if(SDL_HasClipboardText()){
@@ -725,9 +755,10 @@ void Render_All_Text(){
 		}
 		{
 			uint linepos=0;
+			immutable uint chat_alpha=Config_Read!ubyte("chat_alpha")<<24;
 			foreach_reverse(i, line; ChatText){
 				if(line.length){
-					Render_Text_Line(ChatBox_X, ChatBox_Y+linepos*(FontHeight/16), ChatColors[i], line, font_texture, FontWidth, FontHeight, LetterPadding);
+					Render_Text_Line(ChatBox_X, ChatBox_Y+linepos*(FontHeight/16), ChatColors[i] | chat_alpha, line, font_texture, FontWidth, FontHeight, LetterPadding);
 					linepos++;
 				}
 			}
@@ -742,13 +773,13 @@ void Render_All_Text(){
 			if(box.colors.length)
 				col=box.colors[i];
 			else
-				col=0x00ffffff;
+				col=0xffffffff;
 			//Render_Text_Line(box.xpos, ypos, col, line, Mod_Pictures[box.font_index], Mod_Picture_Sizes[box.font_index][0], Mod_Picture_Sizes[box.font_index][1], 0,
 			//box.xsizeratio, box.ysizeratio);
 			Render_Text_Line(box.xpos, ypos, col, line, Mod_Pictures[box.font_index], Mod_Picture_Sizes[box.font_index][0], Mod_Picture_Sizes[box.font_index][1], 0,
-			box.xsizeratio, box.ysizeratio);
+			[box.xpos+box.xsize, ypos+box.ysize/box.lines.length]);
 			if(box.wrap_lines)
-				ypos+=to!float(Mod_Picture_Sizes[box.font_index][1])*box.xsizeratio/16.0;
+				ypos+=to!float(Mod_Picture_Sizes[box.font_index][1]);
 		}
 	}
 	if(NoobMessage_Enable){
@@ -769,7 +800,7 @@ Anyways, here's the instructions:\n"~InstructionsFile_Contents, font_texture, Fo
 		string settings_str="VoxelWar engine settings:\n";
 		foreach(entry; SettingsMenu_ConfigEntries.byValue())
 			settings_str~="	"~entry.key~" = "~entry.description~" {"~Config_Read!string(entry.entry)~"}\n";
-		Render_Text_Line(0, 0, Font_SpecialColor, settings_str, font_texture, FontWidth, FontHeight, LetterPadding, 1.0, 1.0);
+		Render_Text_Line(0, 0, Font_SpecialColor, settings_str, font_texture, FontWidth, FontHeight, LetterPadding, [ScreenXSize, ScreenYSize]);
 	}
 	static PreciseClock_t __hud_prev_tick;
 	static uint __hud_tick_amount;
@@ -779,8 +810,10 @@ Anyways, here's the instructions:\n"~InstructionsFile_Contents, font_texture, Fo
 		__hud_tick_amount++;
 		__hud_ticks_sum+=current_tick-__hud_prev_tick;
 		real avg=(cast(real)10e9)*(cast(real)__hud_tick_amount)/(cast(real)PreciseClock_ToNSecs(__hud_ticks_sum));
-		string fps_ping_str=format("[%.2f FPS;%s ms]", avg, Get_Ping());
-		Render_Text_Line(cast(int)(ScreenXSize-(FontWidth/16-LetterPadding*2)*fps_ping_str.length), 0, Font_SpecialColor, fps_ping_str, font_texture, FontWidth, FontHeight, LetterPadding);
+		if(Config_Read!bool("fps_ping_counter")){
+			string fps_ping_str=format("[%.2f FPS;%s ms]", avg, Get_Ping());
+			Render_Text_Line(cast(int)(ScreenXSize-(FontWidth/16-LetterPadding*2)*fps_ping_str.length), 0, Font_SpecialColor, fps_ping_str, font_texture, FontWidth, FontHeight, LetterPadding);
+		}
 		if(__hud_tick_amount>avg*5){
 			__hud_ticks_sum/=__hud_tick_amount;
 			__hud_tick_amount=1;
@@ -827,6 +860,9 @@ void ClientConfig_Load(){
 		ClientConfig["effects"]="true";
 		ClientConfig["vsync"]="true";
 		ClientConfig["hwaccel"]="true";
+		ClientConfig["flashes"]="true";
+		ClientConfig["chat_alpha"]="255";
+		ClientConfig["fps_ping_counter"]="false";
 		ClientConfig["mouse_accuracy"]="0.075";
 		ClientConfig["last_addr"]="localhost";
 		ClientConfig["last_port"]="32887";

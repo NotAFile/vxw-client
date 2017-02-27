@@ -15,6 +15,7 @@ import std.traits;
 import packettypes;
 import vector;
 import renderer;
+import renderer_templates;
 import misc;
 import gfx;
 import ui;
@@ -251,6 +252,7 @@ struct Player_t{
 	}
 	
 	void Update_Physics() {
+		Vector3_t prev_pos=CameraPos();
 		float dt = 1.0F/(cast(float)ticks_ps);
 		AABB_t player_aabb;
 		
@@ -418,17 +420,21 @@ struct Player_t{
 			pos.z += vel.z*dt;
 		}
 		ticks++;
+		if(player_id==LocalPlayerID){
+			if(LocalPlayerScoping()){
+				float v=(CameraPos()-prev_pos).length*300.0*dt;
+				MouseRot.x+=v*(uniform01()*2.0-1.0);
+				MouseRot.y+=v*(uniform01()*2.0-1.0);
+			}
+		}
 	}
 	void Use_Item(){
 		uint current_tick=PreciseClock_ToMSecs(PreciseClock());
 		Item_t *current_item=&items[item];
 		ItemType_t *itemtype=&ItemTypes[current_item.type];
 		int timediff=current_tick-current_item.use_timer;
-		if(timediff<ItemTypes[current_item.type].use_delay || current_item.Reloading || (!current_item.amount1 && itemtype.maxamount1))
+		if(timediff<ItemTypes[current_item.type].use_delay || current_item.Reloading || (!current_item.amount1 && itemtype.maxamount1 && player_id==LocalPlayerID))
 			return;
-		/*if(toint(timediff)<toint(ItemTypes[current_item.type].use_delay)-toint(Get_Ping())-toint(10)){
-			Update_Position_Data(true);
-		}*/
 		Update_Position_Data(true);
 		Update_Rotation_Data(true);
 		current_item.use_timer=current_tick;
@@ -470,7 +476,8 @@ struct Player_t{
 			ubyte LastHitSpriteIndex;
 			PlayerID_t LastHitPlayer;
 			float LastHitDist=block_hit_dist;
-			Renderer_AddFlash(usepos, 4.0, 1.0);
+			if(Config_Read!bool("flashes"))
+				Renderer_AddFlash(usepos, 4.0, 1.0);
 			foreach(PlayerID_t pid, const plr; Players){
 				if(pid==player_id)
 					continue;
@@ -493,7 +500,7 @@ struct Player_t{
 								LastHitDist=hitdist;
 							}
 						}
-						Create_Particles(vxpos, Vector3_t(0.0), 0.0, .075, 10, [0x00ff0000]);
+						Create_Particles(vxpos, Vector3_t(0.0), 0.0, .05, 3, [0x00ff0000], .2);
 					}
 				}
 			}

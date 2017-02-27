@@ -387,7 +387,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				auto packet=UnpackPacketToStruct!(SetTextBoxPacketLayout)(PacketData);
 				if(packet.box_id>=TextBoxes.length)
 					TextBoxes.length=packet.box_id+1;
-				TextBoxes[packet.box_id].set(packet.fontpic, packet.xpos, packet.ypos, packet.xsize, packet.ysize, packet.xsizeratio, packet.ysizeratio, packet.flags);
+				TextBoxes[packet.box_id].set(packet.fontpic, packet.xpos, packet.ypos, packet.xsize, packet.ysize, packet.flags);
 				break;
 			}
 			case SetTextBoxTextPacketID:{
