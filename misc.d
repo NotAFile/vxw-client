@@ -29,6 +29,34 @@ static if(!is(register_t)){
 	alias signed_register_t=int;
 }
 
+static immutable bool Use_Assembler_Code=false;
+
+static if(Use_Assembler_Code){
+	version(D_InlineAsm_X86){
+		immutable bool AssemblerCode_Enabled=true;
+	}
+	else{
+		version(D_InlineAsm_X86_64){
+			immutable bool AssemblerCode_Enabled=true;
+			
+		}
+		else{
+			immutable bool AssemblerCode_Enabled=false;
+		}
+	}
+	static if(AssemblerCode_Enabled){
+		version(LDC){
+			immutable string AssemblerCode_BlockStart="asm";
+		}
+		else{
+			immutable string AssemblerCode_BlockStart="asm nothrow pure";
+		}
+	}
+}
+else{
+	immutable bool AssemblerCode_Enabled=false;
+}
+
 version(DigitalMars){
 	string TypeName(T)(){
 		return fullyQualifiedName!T;

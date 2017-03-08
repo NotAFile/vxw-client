@@ -18,6 +18,7 @@ import protocol;
 import world;
 import vector;
 import renderer;
+import renderer_templates;
 import packettypes;
 import script;
 import modlib;
@@ -51,9 +52,6 @@ bool Changed_Palette_Color=false;
 SDL_Surface *Palette_V_Colors, Palette_H_Colors;
 
 bool NoobMessage_Enable=false, ServerMessage_Enable=false, SettingsMenu_Enable=false;
-enum SettingsMenu_Options{
-	Smoke, Quality, FPSTarget, Upscale, Particles, Effects, FPSPingCounter, Flashes, ChatAlpha
-}
 
 struct SettingsMenuEntry_t{
 	string key;
@@ -61,10 +59,37 @@ struct SettingsMenuEntry_t{
 	string type;
 	float minval, maxval;
 	string description;
+	string default_val;
+	this(string ikey, string ientry, string itype, string idesc, float iminval=-float.infinity, float imaxval=float.infinity, string idefault=""){
+		key=ikey; entry=ientry; type=itype; description=idesc; minval=iminval; maxval=imaxval;
+		if(idefault.length){
+			default_val=idefault;
+		}
+		else{
+			switch(type){
+				case "float":default_val="0.0"; break;
+				case "uint":default_val="0"; break;
+				case "bool":default_val="false"; break;
+				default: break;
+			}
+		}
+	}
 }
 
-SettingsMenu_Options SettingsMenu_SelectedOption;
-SettingsMenuEntry_t[SettingsMenu_Options] SettingsMenu_ConfigEntries;
+size_t SettingsMenu_SelectedOption;
+immutable SettingsMenu_ConfigEntries=[
+	SettingsMenuEntry_t("o", "smoke", "float", "sets smoke", 0.0, float.infinity, "1.0"),
+	SettingsMenuEntry_t("q", "render_lod", "float", "set render LOD (smallest (no LOD) is 1.0, higher value = lower quality)", 1.0, float.infinity, "1.5"),
+	SettingsMenuEntry_t("f", "fpscap", "uint", "sets the maximum framerate", 0.0, float.infinity, "60"),
+	SettingsMenuEntry_t("u", "upscale", "float", "sets the upscale rate", 0.0, 1.0, "0.5"),
+	SettingsMenuEntry_t("p", "particles", "float", "sets the particle amount", 0.0, float.infinity, "1.0"),
+	SettingsMenuEntry_t("e", "effects", "bool", "toggles various graphical effects (like explosions)", 0.0, 1.0, "false"),
+	SettingsMenuEntry_t("c", "fps_ping_counter", "bool", "toggles the FPS and ping counter", 0.0, 1.0, "false"),
+	SettingsMenuEntry_t("l", "gun_flashes", "bool", "toggles flashes from shots (big source of lag if you have lots of fellow players!)", 0.0, 1.0, "false"),
+	SettingsMenuEntry_t("x", "explosion_flashes", "bool", "toggles flashes from explosions", 0.0, 1.0, "true"),
+	SettingsMenuEntry_t("h", "chat_alpha", "ubyte", "sets chat transparency",  0, 255, "255"),
+	SettingsMenuEntry_t("g", "bound_hit_checks", "bool", "toggles bound hit checking (faster, but may not register hits)", 0.0, 1.0, "true")
+];
 
 void SettingsMenu_ChangeEntry(float val){
 	auto entry=SettingsMenu_ConfigEntries[SettingsMenu_SelectedOption];
@@ -79,11 +104,11 @@ void SettingsMenu_ChangeEntry(float val){
 		float newval=Config_Read!float(entry.entry)+val*rangestep;
 		newval=min(newval, entry.maxval); newval=max(newval, entry.minval);
 		Config_Write(entry.entry, newval);
-		if(SettingsMenu_SelectedOption==SettingsMenu_Options.Smoke)
+		if(entry.entry=="smoke")
 			SmokeAmount=Renderer_SmokeRenderSpeed*Config_Read!float("smoke")*10.0;
-		if(SettingsMenu_SelectedOption==SettingsMenu_Options.Quality)
-			Renderer_SetQuality(Config_Read!float("renderquality"));
-		if(SettingsMenu_SelectedOption==SettingsMenu_Options.Upscale)
+		if(entry.entry=="render_lod")
+			Renderer_SetQuality(Config_Read!float("render_lod"));
+		if(entry.entry=="upscale")
 			Change_Resolution(WindowXSize, WindowYSize);
 	}
 	if(entry.type=="uint"){
@@ -240,17 +265,6 @@ void Init_UI(){
 	kbstate=SDL_GetKeyboardState(&kbstatesize);
 	KeyState=cast(ubyte[])kbstate[0..kbstatesize];
 	Set_Menu_Mode(false);
-	SettingsMenu_ConfigEntries=[
-		SettingsMenu_Options.Smoke : SettingsMenuEntry_t("o", "smoke", "float", 0.0, float.infinity, "sets smoke"),
-		SettingsMenu_Options.Quality : SettingsMenuEntry_t("q", "renderquality", "float", 1.0, float.infinity, "set render quality (smallest is 1.0, higher value = lower quality)"),
-		SettingsMenu_Options.FPSTarget : SettingsMenuEntry_t("f", "fpscap", "uint", 0.0, float.infinity, "sets the maximum framerate"),
-		SettingsMenu_Options.Upscale : SettingsMenuEntry_t("u", "upscale", "float", 0.0, 1.0, "sets the upscale rate"),
-		SettingsMenu_Options.Particles : SettingsMenuEntry_t("p", "particles", "float", 0.0, float.infinity, "sets the particle amount"),
-		SettingsMenu_Options.Effects : SettingsMenuEntry_t("e", "effects", "bool", 0.0, 1.0, "toggles various graphical effects (like explosions)"),
-		SettingsMenu_Options.FPSPingCounter : SettingsMenuEntry_t("c", "fps_ping_counter", "bool", 0.0, 1.0, "toggles the FPS and ping counter"),
-		SettingsMenu_Options.Flashes : SettingsMenuEntry_t("l", "flashes", "bool", 0.0, 1.0, "toggles flashes from shots and explosions"),
-		SettingsMenu_Options.ChatAlpha : SettingsMenuEntry_t("h", "chat_alpha", "ubyte", 0, 255, "sets chat transparency")
-	];
 }
 
 void UnInit_UI(){
@@ -291,6 +305,16 @@ void Check_Input(){
 			}
 			case SDL_KEYDOWN:{
 				byte number_key_pressed=0;
+				if(!TypingChat && SettingsMenu_Enable){
+					const char *ckeyname=SDL_GetScancodeName(SDL_GetScancodeFromKey(event.key.keysym.sym));
+					if(ckeyname){
+						string keyname=(cast(string)fromStringz(ckeyname)).toLower();
+						foreach(ind, entry; SettingsMenu_ConfigEntries){
+							if(entry.key==keyname)
+								SettingsMenu_SelectedOption=ind;
+						}
+					}
+				}
 				switch(event.key.keysym.sym){
 					case SDLK_RETURN:{
 						if(JoinedGamePhase>=JoinedGameMaxPhases){
@@ -368,21 +392,12 @@ void Check_Input(){
 						}
 						break;
 					}
-					case SDLK_e:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Effects;break;
-					case SDLK_o:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Smoke;break;
-					case SDLK_p:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Particles;break;
-					case SDLK_q:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Quality;break;
-					case SDLK_f:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.FPSTarget;break;
-					case SDLK_u:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Upscale;break;
 					case SDLK_c:{
 						if(TypingChat && (KeyState[SDL_SCANCODE_LCTRL] || KeyState[SDL_SCANCODE_RCTRL])){
 							SDL_SetClipboardText(toStringz(CurrentChatLine));
 						}
-						if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.FPSPingCounter;
 						break;
 					}
-					case SDLK_l:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.Flashes;break;
-					case SDLK_h:if(!TypingChat && SettingsMenu_Enable)SettingsMenu_SelectedOption=SettingsMenu_Options.ChatAlpha;break;
 					case SDLK_v:{
 						if(TypingChat && (KeyState[SDL_SCANCODE_LCTRL] || KeyState[SDL_SCANCODE_RCTRL])){
 							if(SDL_HasClipboardText()){
@@ -649,12 +664,28 @@ string[] ChatText;
 uint[] ChatColors;
 string CurrentChatLine="";
 void WriteMsg(string msg, uint color){
-	for(uint i=cast(uint)ChatText.length-1; i; i--){
-		ChatColors[i]=ChatColors[i-1];
-		ChatText[i]=ChatText[i-1];
+	uint maxlinelength=ScreenXSize/(FontWidth/16);
+	if(msg.length<=maxlinelength){
+		for(uint i=cast(uint)ChatText.length-1; i; i--){
+			ChatColors[i]=ChatColors[i-1];
+			ChatText[i]=ChatText[i-1];
+		}
+		ChatColors[0]=color;
+		ChatText[0]=msg;
 	}
-	ChatColors[0]=color;
-	ChatText[0]=msg;
+	else{
+		uint lines=msg.length/maxlinelength+1;
+		foreach(j; 0..lines){
+			for(uint i=cast(uint)ChatText.length-1; i; i--){
+				ChatColors[i]=ChatColors[i-1];
+				ChatText[i]=ChatText[i-1];
+			}
+			ChatColors[0]=color;
+			ChatText[0]=msg[0..min($, maxlinelength)];
+			if(j!=lines-1)
+				msg=msg[maxlinelength..$];
+		}
+	}
 }
 
 void Check_Palette_Color(){
@@ -726,7 +757,7 @@ void Render_HUD(){
 					uint color=Players[LocalPlayerID].color;
 					//SDL_SetRenderDrawColor(scrn_renderer, (color>>16)&255, (color>>8)&255, (color>>0)&255, (color>>24)&255);
 					//MenuElement_Draw(v,v.xpos+Palette_Color_HIndex-v.xsize/2,h.ypos,v.xsize,v.ysize);
-					//SDL_RenderFillRect(scrn_renderer, &r);
+					//SDL_RenderFillRect2D(scrn_renderer, &r);
 				}
 			}
 		}
@@ -789,18 +820,25 @@ void Render_All_Text(){
 			if(!InstructionsFile_Contents.length)
 				InstructionsFile_Contents.length=1;
 		}
-		Renderer_FillRect(null, 0xff00ffff);
+		Renderer_FillRect2D(null, 0xff00ffff);
 		string nick=JoinedGame ? Players[LocalPlayerID].name : Config_Read!string("nick");
 		Render_Text_Line(0, 0, Font_SpecialColor, "Welcome to VoxelWar version "~to!string(Protocol_Version)~", "~nick~"!
 Well, there's a short and simple instructions file, but why even bother reading that!1!1!111!!!1
 Anyways, here's the instructions:\n"~InstructionsFile_Contents, font_texture, FontWidth, FontHeight, LetterPadding);
 	}
 	if(SettingsMenu_Enable){
-		Renderer_FillRect(null, 0x80008080);
-		string settings_str="VoxelWar engine settings:\n";
-		foreach(entry; SettingsMenu_ConfigEntries.byValue())
-			settings_str~="	"~entry.key~" = "~entry.description~" {"~Config_Read!string(entry.entry)~"}\n";
-		Render_Text_Line(0, 0, Font_SpecialColor, settings_str, font_texture, FontWidth, FontHeight, LetterPadding, [ScreenXSize, ScreenYSize]);
+		Renderer_FillRect2D(null, 0x80008080);
+		string[] settings_text;
+		settings_text.length=SettingsMenu_ConfigEntries.length+1;
+		settings_text[0]="VoxelWar engine settings:\n";
+		foreach(ind, entry; SettingsMenu_ConfigEntries){
+			if(SettingsMenu_SelectedOption!=ind){
+				settings_text[ind+1]=format("	%s = %s {%s}", entry.key, entry.description,Config_Read!string(entry.entry));
+			}
+			else
+				settings_text[ind+1]=format("%s = %s {%s}", entry.key, entry.description,Config_Read!string(entry.entry));
+		}
+		Render_Text_Line(0, 0, Font_SpecialColor, settings_text, font_texture, FontWidth, FontHeight, LetterPadding);
 	}
 	static PreciseClock_t __hud_prev_tick;
 	static uint __hud_tick_amount;
@@ -851,21 +889,16 @@ void ClientConfig_Load(){
 		ClientConfig["resolution_x"]="800";
 		ClientConfig["resolution_y"]="600";
 		ClientConfig["fullscreen"]="false";
-		ClientConfig["upscale"]="0.5";
 		ClientConfig["anti_aliasing"]="false";
-		ClientConfig["smoke"]="1.0";
-		ClientConfig["fpscap"]="60";
-		ClientConfig["renderquality"]="1.5";
-		ClientConfig["particles"]="1.0";
-		ClientConfig["effects"]="true";
 		ClientConfig["vsync"]="true";
+		ClientConfig["videodriver"]="auto";
 		ClientConfig["hwaccel"]="true";
-		ClientConfig["flashes"]="true";
-		ClientConfig["chat_alpha"]="255";
-		ClientConfig["fps_ping_counter"]="false";
 		ClientConfig["mouse_accuracy"]="0.075";
 		ClientConfig["last_addr"]="localhost";
 		ClientConfig["last_port"]="32887";
+		foreach(immutable entry; SettingsMenu_ConfigEntries){
+			ClientConfig[entry.entry]=entry.default_val;
+		}
 		ClientConfig.rehash();
 		return;
 	}

@@ -55,9 +55,96 @@ struct PlayerModel_t{
 	float WalkRotate;
 }
 
+//Coming soon: changing it to duck typing
 struct AABB_t {
-	float min_x = 0.0F, min_y = 0.0F, min_z = 0.0F;
-	float max_x = 0.0F, max_y = 0.0F, max_z = 0.0F;
+	union{
+		struct{
+			float min_x = 0.0F, min_y = 0.0F, min_z = 0.0F;
+		}
+		Vector3_t minvec;
+	}
+	union{
+		struct{
+			float max_x = 0.0F, max_y = 0.0F, max_z = 0.0F;
+		}
+		Vector3_t maxvec;
+	}
+	
+	this(T1, T2)(T1 vec1, T2 vec2){
+		static if(isVector3Like!T1() && isVector3Like!T2()){
+			minvec=Vector3_t(min(vec1.x, vec2.x), min(vec1.y, vec2.y), min(vec1.z, vec2.z));
+			maxvec=Vector3_t(max(vec1.x, vec2.x), max(vec1.y, vec2.y), max(vec1.z, vec2.z));
+		}
+	}
+	this(TX1, TY1, TZ1, TX2, TY2, TZ2)(TX1 x1, TY1 y1, TZ1 z1, TX2 x2, TY2 y2, TZ2 z2){
+		min_x=min(x1, x2); max_x=max(x1, x2);
+		min_y=min(y1, y2); max_y=max(y1, y2);
+		min_z=min(z1, z2); max_z=max(z1, z2);
+	}
+	
+	/*Taken from (public domain code) (btw really great code, gj guys):
+	    "Fast Ray-Axis Aligned Bounding Box Overlap Tests With Pluecker Coordinates" by
+		Jeffrey Mahovsky and Brian Wyvill
+		Department of Computer Science, University of Calgary
+	*/
+	TR Intersect(TP, TD, TR=real)(TP pos, TD dir){
+		TR tnear=-TR.max, tfar=TR.max;
+		if(!dir.x){
+			if((pos.x<minvec.x) || (pos.x>maxvec.x))
+				return TR.nan;
+		}
+		else{
+			TR t1=(minvec.x-pos.x)/dir.x;
+			TR t2=(maxvec.x-pos.x)/dir.x;
+			if(t1>t2)
+				swap(t1, t2);
+			if(t1>tnear)
+				tnear=t1;
+			if(t2<tfar)
+				tfar=t2;
+			if(tnear>tfar)
+				return TR.nan;
+			if(tfar<0.0)
+				return TR.nan;
+		}
+		if(!dir.y){
+			if((pos.y<minvec.y) || (pos.y>maxvec.y))
+				return TR.nan;
+		}
+		else{
+			TR t1=(minvec.y-pos.y)/dir.y;
+			TR t2=(maxvec.y-pos.y)/dir.y;
+			if(t1>t2)
+				swap(t1, t2);
+			if(t1>tnear)
+				tnear=t1;
+			if(t2<tfar)
+				tfar=t2;
+			if(tnear>tfar)
+				return TR.nan;
+			if(tfar<0.0)
+				return TR.nan;
+		}
+		if(!dir.z){
+			if((pos.z<minvec.z) || (pos.z>maxvec.z))
+				return TR.nan;
+		}
+		else{
+			TR t1=(minvec.z-pos.z)/dir.z;
+			TR t2=(maxvec.z-pos.z)/dir.z;
+			if(t1>t2)
+				swap(t1, t2);
+			if(t1>tnear)
+				tnear=t1;
+			if(t2<tfar)
+				tfar=t2;
+			if(tnear>tfar)
+				return TR.nan;
+			if(tfar<0.0)
+				return TR.nan;
+		}
+		return tnear;
+	}
 	
 	void set_center(float x, float y, float z) {
 		float size_x = max_x-min_x;
@@ -235,6 +322,11 @@ struct Player_t{
 			if(left_click){
 				if(player_id!=LocalPlayerID || !Menu_Mode)
 					Use_Item();
+			}
+			if(Equipped_Item()){
+				if(PreciseClock_ToMSecs(PreciseClock())-Equipped_Item().use_timer>ItemTypes[Equipped_Item().type].use_delay){
+					Equipped_Item.last_recoil=0.0;
+				}
 			}
 		} else {
 			physics_start = PreciseClock_ToMSecs(PreciseClock());
@@ -429,10 +521,10 @@ struct Player_t{
 		}
 	}
 	void Use_Item(){
-		uint current_tick=PreciseClock_ToMSecs(PreciseClock());
+		auto current_tick=PreciseClock_ToMSecs(PreciseClock());
 		Item_t *current_item=&items[item];
 		ItemType_t *itemtype=&ItemTypes[current_item.type];
-		int timediff=current_tick-current_item.use_timer;
+		auto timediff=current_tick-current_item.use_timer;
 		if(timediff<ItemTypes[current_item.type].use_delay || current_item.Reloading || (!current_item.amount1 && itemtype.maxamount1 && player_id==LocalPlayerID))
 			return;
 		Update_Position_Data(true);
@@ -440,7 +532,7 @@ struct Player_t{
 		current_item.use_timer=current_tick;
 		
 		Vector3_t usepos, usedir;
-		if(player_id==LocalPlayerID && MouseRightClick && itemtype.Is_Gun()){
+		if(player_id==LocalPlayerID && LocalPlayerScoping()){
 			auto scp=Get_Player_Scope(player_id);
 			usepos=scp.pos; usedir=scp.rot.RotationAsDirection();
 		}
@@ -476,7 +568,7 @@ struct Player_t{
 			ubyte LastHitSpriteIndex;
 			PlayerID_t LastHitPlayer;
 			float LastHitDist=block_hit_dist;
-			if(Config_Read!bool("flashes"))
+			if(Config_Read!bool("gun_flashes"))
 				Renderer_AddFlash(usepos, 4.0, 1.0);
 			foreach(PlayerID_t pid, const plr; Players){
 				if(pid==player_id)
@@ -488,8 +580,7 @@ struct Player_t{
 				Sprite_t[] sprites=Get_Player_Sprites(pid);
 				foreach(ubyte spindex, ref spr; sprites){
 					Vector3_t vxpos; ModelVoxel_t *vx;
-					if(SpriteHitScan(spr, usepos, spreadeddir, vxpos, vx, 5.0)){
-						//vx.color=0x00ff0000;
+					if(SpriteHitScan(spr, usepos, spreadeddir, vxpos, vx)){
 						if(player_id==LocalPlayerID){
 							hit_player=true;
 							float hitdist=(vxpos-usepos).length;
@@ -578,10 +669,16 @@ struct Player_t{
 		float xrecoil=(itemtype.recoil_xc+itemtype.recoil_xm*uniform01())*((uniform!int()&1)*2-1);
 		float yrecoil=itemtype.recoil_yc+itemtype.recoil_ym*uniform01()*((uniform!int()&1)*2-1);
 		if(player_id==LocalPlayerID && itemtype.is_weapon){
-			MouseRot.y+=yrecoil;
-			MouseRot.x+=xrecoil;
+			if(LocalPlayerScoping()){
+				MouseRot.x+=xrecoil*.5;
+				MouseRot.y+=yrecoil*.5;
+			}
+			else{
+				MouseRot.y+=yrecoil;
+				MouseRot.x+=xrecoil;
+			}
 		}
-		current_item.last_recoil=yrecoil;
+		current_item.last_recoil=(1.0-1.0/(1.0+abs(yrecoil)))*2.0*sgn(yrecoil);
 		dir.rotate(Vector3_t(0, yrecoil, xrecoil));
 		if(itemtype.is_weapon)
 			current_item.amount1--;
@@ -1069,7 +1166,7 @@ struct RCRay_t{
 	float lastdist;
 	uint loops;
 	this(Vector3_t ipos, Vector3_t idir, float imaxlength){
-		pos=ipos; dir=idir; maxlength=imaxlength;
+		pos=ipos; dir=idir.normal(); maxlength=imaxlength;
 		Vector3_t dst=pos+dir*maxlength;
 		rayx=cast(int)pos.x; rayy=cast(int)pos.y; rayz=cast(int)pos.z;
 		dstx=cast(int)dst.x; dsty=cast(int)dst.y; dstz=cast(int)dst.z;
@@ -1188,12 +1285,9 @@ struct Object_t{
 				uint[3] _coll=[Collision[0], Collision[1], Collision[2]];
 				Loaded_Scripts[physics_script].Call_Func("Update_Position", &_coll, &fdeltapos, &pos, &vel, &acl, &rot, WorldSpeed);
 			}
-			obj.Update(dt);
 			vel.y+=weightfactor ? (1.0-.05/weightfactor)*dt*Gravity : 0.0;
-			if(Collision[0] || Collision[1] || Collision[2]){
-				vel*=bouncefactor;
-			}
-			else{
+			obj.Update(dt);
+			if(!Collision[0] && !Collision[1] && !Collision[2]){
 				vel/=1.0+frictionfactor*dt;
 			}
 		}
@@ -1271,7 +1365,7 @@ struct PhysicalObject_t{
 		Collision[]=false;
 		pos=vel=rot=rotvel=bouncefactor=Vector3_t(0.0);
 	}
-	
+
 	void Update(T)(T delta_ticks){
 		is_stuck=false;
 		Vector3_t deltapos=Vertices_CheckCollisions(vel*delta_ticks);
@@ -1283,6 +1377,15 @@ struct PhysicalObject_t{
 			rotvel/=1.0+WorldSpeed;
 		}
 		if(!is_stuck){
+			if(Collision[0] || Collision[1] || Collision[2]){
+				if(Collision[0])
+					vel.x*=-1.0;
+				if(Collision[1])
+					vel.y*=-1.0;
+				if(Collision[2])
+					vel.z*=-1.0;
+				vel*=bouncefactor;
+			}
 			pos+=deltapos;
 		}
 		else{
@@ -1290,7 +1393,7 @@ struct PhysicalObject_t{
 			pos.y-=delta_ticks;
 		}
 	}
-	
+
 	Vector3_t Vertices_CheckCollisions(Vector3_t delta_pos){
 		Collision[]=false;
 		foreach(uint i, ref vertex; Vertices){
@@ -1309,14 +1412,6 @@ struct PhysicalObject_t{
 			delta_pos.y=0.0;
 		if(fabs(delta_pos.z)<.00001)
 			delta_pos.z=0.0;
-		/*if(Collision[0])
-			vel.x*=-bouncefactor.x;
-		if(Collision[1])
-			vel.y*=-bouncefactor.y;
-		if(Collision[2])
-			vel.z*=-bouncefactor.z;*/
-		if(Collision[0] || Collision[1] || Collision[2])
-			vel*=bouncefactor;
 		return delta_pos;
 	}
 	
@@ -1335,7 +1430,7 @@ struct PhysicalObject_t{
 		}
 		bool[3] coll=[Coord_Collides(newpos.x, vpos.y, vpos.z),
 		Coord_Collides(vpos.x, newpos.y, vpos.z), Coord_Collides(vpos.x, vpos.y, newpos.z)];
-		min_collision_delta=delta_pos*Line_NonCollPos!(true)(vpos, vpos+delta_pos.filter(coll));
+		min_collision_delta=Line_NonCollPos!(true)(vpos, vpos+delta_pos.filter(coll))-vpos;
 		if(Coord_Collides(vpos+min_collision_delta))
 			min_collision_delta=Vector3_t(0.0);
 		/*Vector3_t advance_pos=pos+delta_pos;

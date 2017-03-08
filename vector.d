@@ -2,6 +2,7 @@ import std.math;
 import std.random;
 import std.algorithm;
 import std.traits;
+import std.format;
 import misc;
 version(LDC){
 	import ldc_stdlib;
@@ -31,13 +32,66 @@ bool isFloat(T)(){
 	return is(T==float) || is(T==double);
 }
 
-version(DigitalMars){ pragma(inline, true);}
-struct Vector_t(alias dim=3, element_t=float){
+template VectorTypeOf(VectorType){
+	static if(!isVector3Like!VectorType()){
+		alias VectorTypeOf=void;
+	}
+	else{
+		alias VectorTypeOf=VectorType.__element_t;
+	}
+}
+
+bool isVector3Like(T)(){return __traits(hasMember, T, "x") && __traits(hasMember, T, "y") && __traits(hasMember, T, "z");}
+
+alias isVector_t=isVector3Like;
+
+private string __mixin_VectorCTFilter(alias dim)(){
+	string func_code="const __this_type filter(";
+	foreach(i; 0..dim){
+		func_code~="alias filterarg_"~to!string(i);
+		if(i!=dim-1)
+			func_code~=",";
+	}
+	func_code~=")(){return __this_type(";
+	foreach(i; 0..dim){
+		func_code~="filterarg_"~to!string(i)~" ? elements["~to!string(i)~"] : cast(element_t)0";
+		if(i!=dim-1)
+			func_code~=",";
+	}
+	func_code~=");}";
+	return func_code;
+}
+
+private string __mixin_VectorRTFilter(alias dim)(){
+	string func_code="const __this_type filter(";
+	foreach(i; 0..dim){
+		func_code~="filterarg_"~to!string(i)~"_type";
+		if(i!=dim-1)
+			func_code~=",";
+	}
+	func_code~=")(";
+	foreach(i; 0..dim){
+		func_code~="filterarg_"~to!string(i)~"_type filterarg_"~to!string(i);
+		if(i!=dim-1)
+			func_code~=",";
+	}
+	func_code~="){return __this_type(";
+	foreach(i; 0..dim){
+		func_code~="filterarg_"~to!string(i)~" ? elements["~to!string(i)~"] : cast(element_t)0";
+		if(i!=dim-1)
+			func_code~=",";
+	}
+	func_code~=");}";
+	return func_code;
+}
+
+version(DigitalMars){pragma(inline, true):}
+nothrow pure struct Vector_t(alias dim=3, element_t=float){
 	union{
 		element_t[dim] elements;
 		static if(dim==3){
 			struct{
-				element_t x, y, z;
+				element_t x, y, z, w;
 			}
 		}
 		static if(dim==4){
@@ -46,13 +100,18 @@ struct Vector_t(alias dim=3, element_t=float){
 			}
 		}
 	}
+	alias __dim=dim;
+	alias __element_t=element_t;
 	alias __this_type=Vector_t!(dim, element_t);
 	mixin("alias __float_type="~__mixin_NearestFloatType!element_t()~";");
-	@property typeof(x) length(){
+	const @property typeof(x) length(){
 		return vector_length();
 	}
 	@property void length(element_t newlength){
 		this=this*newlength/vector_length();
+	}
+	const @property typeof(x) sqlength(){
+		return vector_sqlength();
 	}
     alias opDollar=length;
 	this(Vector_t vec){
@@ -73,42 +132,63 @@ struct Vector_t(alias dim=3, element_t=float){
 	this(T1, T2, T3)(T1 ix, T2 iy, T3 iz){
 		x=cast(typeof(x))ix; y=cast(typeof(y))iy; z=cast(typeof(z))iz;
 	}
-	this(T)(T val) if(__traits(hasMember, T, "x") && __traits(hasMember, T, "y") && __traits(hasMember, T, "z")){
+	version(DigitalMars){ pragma(inline, true):}
+	this(T)(T val) if(isVector3Like!T()){
 		x=cast(typeof(x))val.x; y=cast(typeof(y))val.y; z=cast(typeof(z))val.z;
 	}
 	void opIndexAssign(T)(element_t val, T ind){
 		elements[ind]=val;
 	}
-	__this_type opUnary(string op)(){
+	__this_type opAssign(T)(T val) if(isVector3Like!T()){
+		x=cast(typeof(x))val.x; y=cast(typeof(y))val.y; z=cast(typeof(z))val.z;
+		return this;
+	}
+	const __this_type opUnary(string op)(){
 		return __this_type(mixin(op~"x"), mixin(op~"y"), mixin(op~"z"));
 	}
-	__this_type opBinary(string op)(__this_type arg){
-		return opBinary!(op)(arg.elements);
-	}
-	__this_type opBinary(string op, T)(T[] arg){
+	const __this_type opBinary(string op, T)(T[] arg){
 		__this_type ret;
 		ret.elements=elements;
 		mixin("ret.elements[]"~op~"=arg[];");
 		return ret;
 	}
-	__this_type opBinary(string op, T)(T arg) if(!isArray!T){
-		static if(dim==3){
-			static if(!__traits(isScalar, T))
-				return __this_type(mixin("x"~op~"arg.x"), mixin("y"~op~"arg.y"), mixin("z"~op~"arg.z"));
-			else
-				return __this_type(mixin("x"~op~"arg"), mixin("y"~op~"arg"), mixin("z"~op~"arg"));
-		}
-		else{
-			__this_type ret;
-			static if(!__traits(isScalar, T)){
-				static assert(ret.elements.length==elements.length && arg.elements.length==elements.length);
-				mixin("ret.elements=elements[]"~op~"arg.elements[];");
-			}
-			else{
-				mixin("ret.elements=elements[]"~op~"arg;");
+	const __this_type opBinary(string op, T)(T arg) if(isVector_t!T()){
+		static assert(arg.__dim==dim);
+		//Apparently I have to pass some CT arguments, or else this function will get evaluated in runtime or sth
+		//(in any case not passing any CT arguments, will make this lag)
+		string __mixin_code(alias _dim, alias _op)(){
+			string ret;
+			foreach(i; 0.._dim){
+				ret~="elements["~to!string(i)~"]"~_op~"arg.elements["~to!string(i)~"]";
+				if(i!=dim-1)
+				ret~=",";
 			}
 			return ret;
 		}
+		return mixin("__this_type("~__mixin_code!(dim, op)()~")");
+	}
+	const __this_type opBinary(string op, T)(T arg) if(!isArray!T && !isVector_t!T()){
+		static if(dim==3){
+			return __this_type(mixin("x"~op~"arg"), mixin("y"~op~"arg"), mixin("z"~op~"arg"));
+		}
+		else{
+			__this_type ret;
+			mixin("ret.elements=elements[]"~op~"arg;");
+			return ret;
+		}
+	}
+	static if(dim==3){
+		bool opEquals(T)(T arg) if(isVector3Like!T()){
+			return x==arg.x && y==arg.y && z==arg.z;
+		}
+	}
+	int opCmp(T)(T arg){
+		auto vec=this-arg;
+		element_t[] el=vec.elements;
+		auto avg=sum(el, 0.0)/vec.elements.length;
+		if(std.math.abs(avg)<1.0)
+			avg/=avg*std.math.sgn(avg);
+		return cast(int)avg;
 	}
 	__this_type opOpAssign(string op)(__this_type arg){
 		this=this.opBinary!(op)(arg);
@@ -123,7 +203,7 @@ struct Vector_t(alias dim=3, element_t=float){
 		assert(1);
 	}
 	
-	element_t vector_length(){
+	const element_t vector_length(){
 		static if(dim==3){
 			return cast(element_t)std.math.sqrt(cast(__float_type)(x*x+y*y+z*z));
 		}
@@ -139,20 +219,36 @@ struct Vector_t(alias dim=3, element_t=float){
 		}
 	}
 	
-	__this_type cossin(){return __this_type(degcos(x), degsin(y), degsin(z));}
-	__this_type sincos(){return __this_type(degsin(x), degcos(y), degcos(z));}
+	const element_t vector_sqlength(){
+		static if(dim==3){
+			return x*x+y*y+z*z;
+		}
+		else
+		static if(dim==4){
+			return x*x+y*y+z*z+w*w;
+		}
+		else{
+			element_t ret=0.0;
+			foreach(el; elements)
+				ret+=el*el;
+			return ret;
+		}
+	}
 	
-	__this_type sincossin(){return __this_type(degsin(x), degcos(y), degsin(z));}
+	const __this_type cossin(){return __this_type(degcos(x), degsin(y), degsin(z));}
+	const __this_type sincos(){return __this_type(degsin(x), degcos(y), degcos(z));}
 	
-	__this_type sin(){return __this_type(degsin(x), degsin(y), degsin(z));}
-	__this_type cos(){return __this_type(degcos(x), degcos(y), degcos(z));}
+	const __this_type sincossin(){return __this_type(degsin(x), degcos(y), degsin(z));}
+	
+	const __this_type sin(){return __this_type(degsin(x), degsin(y), degsin(z));}
+	const __this_type cos(){return __this_type(degcos(x), degcos(y), degcos(z));}
 	
 	__this_type rotdir(){return __this_type(degcos(x), degsin(x), degcos(y));}
 	
 	__this_type normal(){if(this.length)return (this/this.length); return __this_type(0.0, 0.0, 0.0);}
 	//DEPRECATED
 	__this_type abs(){return this.normal();}
-	__this_type vecabs(){
+	const __this_type vecabs(){
 		static if(isFloat!element_t())
 			return __this_type(fabs(x), fabs(y), fabs(z));
 		else
@@ -170,7 +266,7 @@ struct Vector_t(alias dim=3, element_t=float){
 		return rotate_raw(rrot);
 	}
 
-	__this_type rotate_raw(__this_type rot){
+	__this_type rotate_raw(T)(T rot) if(isVector_t!T()){
 		__this_type ret=this, tmp=this;
 		__this_type vsin=rot.sin(), vcos=rot.cos();
 		ret.y=tmp.y*vcos.x-tmp.z*vsin.x; ret.z=tmp.y*vsin.x+tmp.z*vcos.x;
@@ -211,33 +307,32 @@ struct Vector_t(alias dim=3, element_t=float){
 		return RotateAroundX(rot.x).RotateAroundY(rot.y).RotateAroundZ(rot.z);
 	}
 	
-	__this_type RotateAroundX(float rot){
+	__this_type RotateAroundX(element_t rot){
 		__this_type ret;
-		immutable float old_y=y;
+		immutable element_t old_y=y;
 		ret.x=x;
 		ret.y=cast(typeof(ret.y))(y*degcos(rot)-z*degsin(rot));
 		ret.z=cast(typeof(ret.z))(z*degcos(rot)+old_y*degsin(rot));
 		return ret;
 	}
 	
-	__this_type RotateAroundY(float rot){
+	__this_type RotateAroundY(element_t rot){
 		__this_type ret;
-		immutable float old_x=x;
+		immutable element_t old_x=x;
 		ret.x=cast(typeof(ret.x))(x*degcos(rot)-z*degsin(rot));
 		ret.y=y;
 		ret.z=cast(typeof(ret.z))(z*degcos(rot)+old_x*degsin(rot));
 		return ret;
 	}
 	
-	__this_type RotateAroundZ(float rot){
+	__this_type RotateAroundZ(element_t rot){
 		__this_type ret;
-		immutable float old_x=x;
+		immutable element_t old_x=x;
 		ret.x=cast(typeof(ret.x))(x*degcos(rot)-y*degsin(rot));
 		ret.y=cast(typeof(ret.y))(y*degcos(rot)+old_x*degsin(rot));
 		ret.z=z;
 		return ret;
 	}
-	
 	typeof(x) dot(T)(T arg){
 		__this_type vec=__this_type(arg);
 		return x*vec.x+y*vec.y+z*vec.z;
@@ -246,27 +341,21 @@ struct Vector_t(alias dim=3, element_t=float){
 		return x*vec.x+y*vec.y+z*vec.z;
 	}
 	
-	T opCast(T)(){
-		static if(isArray!T)
-			return elements;
-		static if(is(T==bool))
-			return x && y && z;
-	}
+	const T opCast(T)() if(is(T==__this_type)){return this;}
+	const T opCast(T)() if(isArray!T){return elements;}
+	const T opCast(T)() if(is(T==bool)){return x && y && z;}
 	
-	__this_type filter(T)(T[] filterarr){
-		return filter(filterarr[0], filterarr[1], filterarr[2]);
+	const __this_type filter(T)(T filterarr) if(isArray!T){
+		__this_type ret;
+		foreach(i; 0..dim){
+			ret.elements[i]=filterarr[i] ? elements[i] : cast(element_t)0;
+		}
+		return ret;
 	}
-	__this_type filter(TFX, TFY, TFZ)(TFX filterx, TFY filtery, TFZ filterz){
-		return __this_type(filterx ? x : 0.0, filtery ? y : 0.0, filterz ? z : 0.0);
-	}
-	__this_type filter(alias filterx, alias filtery, alias filterz)(){
-		mixin("return __this_type("~(filterx ? "x," : "0,")~(filtery ? "y," : "0,")~(filterz ? "z," : "0,")~");");
-	}
+	mixin(__mixin_VectorCTFilter!(dim)());
+	mixin(__mixin_VectorRTFilter!(dim)());
 	__this_type sgn(){
-		return __this_type(SGN(x), SGN(y), SGN(z));
-	}
-	Vector_t!(3) cross(Vector_t!(3) vec){
-		return Vector_t!(3)(y*vec.z-z*vec.y, z*vec.x-x*vec.z, x*vec.y-y*vec.x);
+		return __this_type(std.math.sgn(x), std.math.sgn(y), std.math.sgn(z));
 	}
 	__this_type min(__this_type vec){
 		__this_type ret;
@@ -275,10 +364,14 @@ struct Vector_t(alias dim=3, element_t=float){
 		}
 		return ret;
 	}
-	string toString(){
+	Vector_t!(3, T) cross(T)(Vector_t!(3, T) vec){
+		return Vector_t!(3, T)(y*vec.z-z*vec.y, z*vec.x-x*vec.z, x*vec.y-y*vec.x);
+	}
+
+	const string toString(){
 		string ret="{";
 		for(uint i=0; i<dim; i++){
-			ret~=to!string(elements[i]);
+			ret~=format("%10.10f", elements[i]);
 			if(i!=dim-1)
 				ret~=";";
 		}

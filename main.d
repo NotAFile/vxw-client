@@ -101,9 +101,7 @@ void Init_Game(){
 	Init_Gfx();
 	Init_UI();
 	Init_Script();
-	version(DMD){
-		signal(SIGSEGV, &SignalHandler);
-	}
+	signal(SIGSEGV, &SignalHandler);
 }
 
 void UnInit_Game(){
@@ -112,7 +110,7 @@ void UnInit_Game(){
 	UnInit_Netcode();
 }
 
-version(DMD){
+version(DigitalMars){
 	extern(C) @nogc @system nothrow void SignalHandler(int signum){
 		if(signum==SIGSEGV){
 			SDL_SetRelativeMouseMode(SDL_FALSE);

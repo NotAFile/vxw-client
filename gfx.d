@@ -48,8 +48,8 @@ float ScreenSizeRatio=1.0;
 //Ignore this
 uint WindowXSize, WindowYSize;
 
-Vector3_t CameraRot=Vector3_t(0.0, 0.0, 0.0), CameraPos=Vector3_t(0.0, 0.0, 0.0);
-Vector3_t MouseRot=Vector3_t(0.0, -90.0, 0.0);
+auto CameraRot=Vector_t!(3, real)(0.0, 0.0, 0.0), CameraPos=Vector3_t(0.0, 0.0, 0.0);
+auto MouseRot=Vector_t!(3, real)(0.0, -90.0, 0.0);
 float X_FOV=90.0, Y_FOV=90.0;
 
 float[3][ParticleSizeTypes] ParticleSizeRatios;
@@ -122,7 +122,7 @@ void Change_Resolution(uint newxsize, uint newysize){
 	ScreenXSize=WindowXSize=newxsize; ScreenYSize=WindowYSize=newysize;
 	newxsize=cast(uint)(WindowXSize*ScreenSizeRatio); newysize=cast(uint)(WindowYSize*ScreenSizeRatio);
 	Renderer_SetUp(newxsize, newysize);
-	Renderer_SetQuality(Config_Read!float("renderquality"));
+	Renderer_SetQuality(Config_Read!float("render_lod"));
 	foreach(ref elem; MenuElements){elem.AdjustToScreen();}
 	foreach (ref tbox; TextBoxes){tbox.AdjustToScreen();}
 	if(ProtocolBuiltin_AmmoCounterBG)
@@ -359,7 +359,11 @@ void Render_Text_Line(TC, TL, TS)(uint xpos, uint ypos, TC coloring, TL text, Re
 	}
 	uint[2] texsize=[font_surface.w, font_surface.h];
 	foreach(immutable ind, immutable line; lines){
-		immutable auto col=cols[ind];
+		uint col;
+		static if(is(TC==uint[]))
+			col=cols[ind];
+		else
+			col=coloring;
 		ubyte[3] cmod;
 		immutable auto bgcol=0xff0000a0;
 		if(col==Font_SpecialColor){
@@ -380,7 +384,7 @@ void Render_Text_Line(TC, TL, TS)(uint xpos, uint ypos, TC coloring, TL text, Re
 			fontsrcrect.x=(letter%16)*fontsrcrect.w;
 			fontsrcrect.y=(letter/16)*fontsrcrect.h;
 			if(col==Font_SpecialColor)
-				Renderer_FillRect(&lrect, bgcol);
+				Renderer_FillRect2D(&lrect, bgcol);
 			Renderer_Blit2D(font, &texsize, &lrect, col>>24, &cmod, &fontsrcrect);
 			lrect.x+=lrect.w-padding*xsizeratio;
 		}
@@ -397,8 +401,6 @@ struct ParticleSize_t{
 }
 
 ParticleSize_t[ParticleSizeTypes] ParticleSizes;
-
-uint[][] Player_List_Table;
 
 void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 	Renderer_DrawVoxels();
@@ -597,8 +599,10 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 			float xpos, ypos, zpos;
 		}
 		DrawSmokeCircleParams[] params;
-		float SmokeParticleSizeIncrease=1.0f+WorldSpeed*.03f/SmokeAmount, SmokeParticleAlphaDecay=(1.0f*.99f)/SmokeParticleSizeIncrease;
-		float DenseSmokeParticleSizeIncrease=1.0f+WorldSpeed*.01f/SmokeAmount, DenseSmokeParticleAlphaDecay=(1.0f*.99f)/DenseSmokeParticleSizeIncrease;
+		immutable SmokeParticleSizeIncrease=1.0f+WorldSpeed*.03f/SmokeAmount*Renderer_SmokeRenderSpeed*3.7;
+		immutable SmokeParticleAlphaDecay=(1.0f*.99f)/SmokeParticleSizeIncrease;
+		immutable DenseSmokeParticleSizeIncrease=1.0f+WorldSpeed*.01f/SmokeAmount*Renderer_SmokeRenderSpeed*3.7;
+		immutable DenseSmokeParticleAlphaDecay=(1.0f*.99f)/DenseSmokeParticleSizeIncrease;
 		foreach(ref p; SmokeParticles){
 			if(!p.alpha)
 				continue;
@@ -643,7 +647,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 				break;
 		}
 	}
-	if(Config_Read!bool("flashes"))
+	if(Config_Read!bool("explosion_flashes") || Config_Read!bool("gun_flashes"))
 		Renderer_UpdateFlashes!UpdateGfx(WorldSpeed);
 }
 
@@ -705,14 +709,20 @@ void Render_Screen(){
 		}
 		
 		if(Render_Local_Player){
-			float mousexvel=MouseMovedX*Config_Read!float("mouse_accuracy")*X_FOV/90.0, mouseyvel=MouseMovedY*Config_Read!float("mouse_accuracy")*Y_FOV/90.0;
+			real mousexvel=MouseMovedX*Config_Read!real("mouse_accuracy")*X_FOV/90.0, mouseyvel=MouseMovedY*Config_Read!real("mouse_accuracy")*Y_FOV/90.0;
+			MouseMovedX = 0;
+			MouseMovedY = 0;
 			if(!Menu_Mode){
 				if(LocalPlayerScoping()){
-					MouseRot.x+=mouseyvel*(uniform01()*2.0-1.0)*.75; MouseRot.y+=mousexvel*(uniform01()*2.0-1.0)*.75;
+					MouseRot.x+=mouseyvel*(uniform01()*2.0-1.0); MouseRot.y+=mousexvel*(uniform01()*2.0-1.0);
 					mousexvel*=.6; mouseyvel*=.6;
 				}
 				MouseRot.x+=mousexvel; MouseRot.y+=mouseyvel;
 			}
+			if(MouseRot.y<-89.0)
+				MouseRot.y=-89.0;
+			if(MouseRot.y>89.0)
+				MouseRot.y=89.0;
 			MouseRot.z=0.0;
 			Vector3_t rt;
 			rt.x=MouseRot.y;
@@ -720,14 +730,8 @@ void Render_Screen(){
 			rt.z=MouseRot.z;
 			if(Render_Local_Player)
 				Players[LocalPlayerID].dir=rt.RotationAsDirection;
-			if(MouseRot.y<-89.0)
-				MouseRot.y=-89.0;
-			if(MouseRot.y>89.0)
-				MouseRot.y=89.0;
 			CameraPos = Players[LocalPlayerID].CameraPos();
 			CameraRot=MouseRot;
-			MouseMovedX = 0;
-			MouseMovedY = 0;
 			Renderer_SetBlur(Current_Blur_Amount);
 		}
 		else{
@@ -737,8 +741,7 @@ void Render_Screen(){
 			TerrainOverview.y=TerrainOverview.y*.99+(Voxel_GetHighestY(TerrainOverview.x, 0.0, TerrainOverview.z)-48.0)*.01;
 			TerrainOverviewRotation=TerrainOverviewRotation*.8+(TerrainOverviewRotation+uniform01()*.1+.9)*.2;
 			CameraPos=TerrainOverview;
-			Vector3_t crot=MouseRot*Vector3_t(.05, .15, 0.0)+Vector3_t(0.0, 45.0, 0.0);
-			CameraRot=crot;
+			CameraRot=MouseRot*Vector_t!(3, real)(.05, .15, 0.0)+Vector_t!(3, real)(0.0, 45.0, 0.0);
 			MouseMovedX = 0;
 			MouseMovedY = 0;
 			Renderer_SetBlur(0.0);
@@ -769,7 +772,7 @@ void Render_Screen(){
 					if(LocalPlayerScoping()){
 						if(ProtocolBuiltin_ScopePicture){
 							auto res=Get_Player_Scope(LocalPlayerID);
-							auto scope_pic=Renderer_DrawRoundZoomedIn(&res.pos, &res.rot, ProtocolBuiltin_ScopePicture, 1.8, 1.8);
+							auto scope_pic=Renderer_DrawRoundZoomedIn(&res.pos, &res.rot, ProtocolBuiltin_ScopePicture, 1.5, 1.5);
 							MenuElement_t *e=ProtocolBuiltin_ScopePicture;
 							uint[2] size=[scope_pic.scope_texture_width, scope_pic.scope_texture_height];
 							Renderer_Blit2D(scope_pic.scope_texture, &size, &scope_pic.dstrect, 255, null, &scope_pic.srcrect);
@@ -805,31 +808,6 @@ void Render_Screen(){
 			colormod=[sun_brightness, sun_brightness, sun_brightness];
 		}
 		Renderer_Blit2D(minimap_texture, &minimap_size, &minimap_rect, 255, &colormod);
-		if(Players[LocalPlayerID].Spawned){
-			Team_t *team=&Teams[Players[LocalPlayerID].team];
-			ubyte[4] col=[team.color[2], team.color[1], team.color[0], 255];
-			ubyte[4] plrcol=0xff^col[]; plrcol[3]=255;
-			foreach(ref plr; Players){
-				if(!plr.Spawned || !plr.InGame || plr.team!=Players[LocalPlayerID].team)
-					continue;
-				int xpos=cast(int)(plr.pos.x*cast(float)(minimap_rect.w)/cast(float)(MapXSize))+minimap_rect.x;
-				int zpos=cast(int)(plr.pos.z*cast(float)(minimap_rect.h)/cast(float)(MapZSize))+minimap_rect.y;
-				SDL_Rect prct;
-				prct.w=4; prct.h=4;
-				prct.x=xpos-prct.w/2; prct.y=zpos-prct.h/2;
-				if(plr.player_id!=LocalPlayerID){
-					Renderer_FillRect(&prct, &col);
-				}
-				else{
-					prct.w+=2; prct.h+=2;
-					prct.x--; prct.y--;
-					Renderer_FillRect(&prct, &col);
-					prct.w-=2; prct.h-=2;
-					prct.x++; prct.y++;
-					Renderer_FillRect(&prct, &plrcol);
-				}
-			}
-		}
 		foreach(ref obj; Objects){
 			if(!obj.visible || obj.minimap_img==255)
 				continue;
@@ -861,6 +839,39 @@ void Render_Screen(){
 			orct.x=xpos-orct.w/2; orct.y=zpos-orct.h/2;
 			Renderer_Blit2D(Mod_Pictures[obj.minimap_img], &Mod_Picture_Sizes[obj.minimap_img], &orct, 255, &colormod);
 		}
+		if(Players[LocalPlayerID].Spawned){
+			Team_t *team=&Teams[Players[LocalPlayerID].team];
+			ubyte[4] col=[team.color[2], team.color[1], team.color[0], 255];
+			ubyte[4] plrcol=0xff^col[]; plrcol[3]=255;
+			ubyte[4] plrfcol=[255, 192, 0, 255]; 
+			foreach(ref plr; Players){
+				if(!plr.Spawned || !plr.InGame || plr.team!=Players[LocalPlayerID].team)
+					continue;
+				int xpos=cast(int)(plr.pos.x*cast(float)(minimap_rect.w)/cast(float)(MapXSize))+minimap_rect.x;
+				int zpos=cast(int)(plr.pos.z*cast(float)(minimap_rect.h)/cast(float)(MapZSize))+minimap_rect.y;
+				SDL_Rect prct;
+				prct.w=5; prct.h=5;
+				prct.x=xpos-prct.w/2; prct.y=zpos-prct.h/2;
+				Vector3_t _dir=plr.dir.filter(true, false, true);
+				_dir=_dir.normal();
+				int midx=prct.x+prct.w/2, midy=prct.y+prct.h/2;
+				Renderer_DrawLine2D(midx, midy, midx+to!int(_dir.x*10.0), midy+to!int(_dir.z*10.0), &col);
+				if(plr.player_id!=LocalPlayerID){
+					if(!(plr.left_click && ItemTypes[plr.Equipped_Item().type].is_weapon))
+						Renderer_FillRect2D(&prct, &col);
+					else
+						Renderer_FillRect2D(&prct, &plrfcol);
+				}
+				else{
+					prct.w+=2; prct.h+=2;
+					prct.x--; prct.y--;
+					Renderer_FillRect2D(&prct, &col);
+					prct.w-=2; prct.h-=2;
+					prct.x++; prct.y++;
+					Renderer_FillRect2D(&prct, &plrcol);
+				}
+			}
+		}
 		Script_OnMiniMapRender();
 	}
 	foreach(ref elements; Z_MenuElements[MiniMapZPos..$]) {
@@ -869,10 +880,12 @@ void Render_Screen(){
 		}
 	}
 	if(List_Players){
-		Renderer_FillRect(null, 0xf0008080);
+		Renderer_FillRect2D(null, 0xf0008080);
 		//Some random optimization cause I don't want to have to allocate the same stuff on each frame
-		uint[] list_player_amount;
+		static uint[] list_player_amount;
+		static uint[][] Player_List_Table;
 		list_player_amount.length=Teams.length;
+		list_player_amount[0..$]=0;
 		if(Player_List_Table.length!=Teams.length)
 			Player_List_Table.length=Teams.length;
 		foreach(ref arr; Player_List_Table){
@@ -883,11 +896,16 @@ void Render_Screen(){
 			if(p.team==255 || !p.InGame)
 				continue;
 			list_player_amount[p.team]++;
-			Player_List_Table[p.team][list_player_amount[p.team]-1]=p.player_id;
+			Player_List_Table[p.team]
+			[
+			
+			list_player_amount[p.team]-1
+			
+			]=p.player_id;
 		}
 		immutable uint teamlist_w=cast(uint)(ScreenXSize/Teams.length); //cast for 64 bit systems
 		//.6 looks ok-ish
-		immutable float letter_xsize=.675;
+		immutable float letter_xsize=.675*ScreenXSize/800.0;
 		float team_xpos=0.0;
 		for(uint t=0; t<Teams.length; t++){
 			for(uint plist_index=0; plist_index<list_player_amount[t]; plist_index++){
@@ -898,7 +916,7 @@ void Render_Screen(){
 				else
 					plrentry=format("%-32s [#%3d]", plr.name, plr.player_id);
 				Render_Text_Line(cast(uint)team_xpos, (plist_index*2+1)*FontHeight/16,
-				Color_ActionPerComponent!("min(a<<1, 255)")(Teams[t].icolor), plrentry, font_texture, FontWidth, FontHeight, LetterPadding, [letter_xsize, 1.0]);
+				Color_ActionPerComponent!("min(a<<1, 255)")(Teams[t].icolor)|0xff000000, plrentry, font_texture, FontWidth, FontHeight, LetterPadding, [letter_xsize, 1.0]);
 			}
 			if(Teams[t].playing)
 				team_xpos+=(32+1+2+3+2+9+2+9+1)*letter_xsize*FontWidth/16;
@@ -983,8 +1001,11 @@ Sprite_t[] Get_Player_Sprites(uint player_id){
 		mpos-=offset;
 		if(model.Rotate && model.FirstPersonModel){
 			Vector3_t hand_offset=(hands_pos-mpos).abs();
-			if(player_id==LocalPlayerID)
-				mpos-=hand_offset*.5;
+			if(player_id==LocalPlayerID){
+				mpos-=hand_offset*.6;
+				if(LocalPlayerScoping)
+					mpos-=hand_offset*.1;
+			}
 			Vector3_t hand_rot=hand_offset.DirectionAsRotation;
 			spr.rst=hand_rot.z; spr.rti=hand_rot.y; spr.rhe=hand_rot.x;
 		}
@@ -1001,11 +1022,10 @@ auto Get_Player_Scope(uint player_id){
 	}
 	Result_t result;
 	Sprite_t spr=Get_Player_Attached_Sprites(player_id)[0];
-	result.rot=Vector3_t(spr.rhe-3.0, spr.rti, spr.rst);
-	float xoffset=spr.model.xsize/2.0-.5;
+	result.rot=Vector3_t(spr.rhe, spr.rti, spr.rst);
 	Item_t *item=Players[player_id].Equipped_Item();
 	auto current_tick=PreciseClock_ToMSecs(PreciseClock());
-	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, Vector3_t(xoffset, -.3, spr.model.zpivot)));
+	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, Vector3_t(-.45, -.5, -.5)+spr.model.pivot));
 	if(Voxel_IsSolid(result.pos.x, result.pos.y, result.pos.z)){
 		if(result.pos.y>=63.0)
 			result.pos.y=62.99;
@@ -1034,7 +1054,7 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	Vector3_t target_item_offset;
 	if(player_id==LocalPlayerID){
 		if(LocalPlayerScoping()){
-			target_item_offset=Vector3_t(.5, 0.0, .1);
+			target_item_offset=Vector3_t(.5, 0.0, 0.0);
 		}
 		else
 		if(plr.left_click && !item_is_weapon){
@@ -1057,7 +1077,7 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	}
 	if(player_id==LocalPlayerID && item_is_weapon){
 		if(current_tick-item.use_timer<ItemTypes[item.type].use_delay){
-			item_offset.x-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), .7)*.1;
+			item_offset.x-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), 2.0)*(item.last_recoil!=0.0)*.1;
 		}
 	}
 	//I have no idea what I'm rotating around which axis or idk, actually I am only supposed to need one single rotation
@@ -1070,13 +1090,13 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	if(item_is_weapon){
 		if(!item.Reloading){
 			if(current_tick-item.use_timer<ItemTypes[item.type].use_delay)
-				spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), .7)*sgn(item.last_recoil)*.025;
+				spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), 2.0)*sgn(item.last_recoil)*1.0;
 		}
 	}
 	else
 	if(!item.Reloading){
 		if(current_tick-item.use_timer<ItemTypes[item.type].use_delay){
-			spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), .7)*sgn(item.last_recoil)*.025;
+			spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), 1.0)*sgn(item.last_recoil)*20.0;
 		}
 	}
 	if(ItemTypes[item.type].color_mod==true)
@@ -1088,45 +1108,34 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	return sprarr;
 }
 
-bool SpriteHitScan(in Sprite_t spr, Vector3_t pos, Vector3_t dir, out Vector3_t voxpos, out ModelVoxel_t *outvoxptr, float vox_size=1.0){
-	uint x, z;
-	const(ModelVoxel_t)* sblk, blk, eblk, voxptr=null;
-	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
-	rot_sx=sin((spr.rhe)*PI/180.0); rot_cx=cos((spr.rhe)*PI/180.0);
-	rot_sy=sin(-(spr.rti+90.0)*PI/180.0); rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
-	rot_sz=sin(spr.rst*PI/180.0); rot_cz=cos(-spr.rst*PI/180.0);
+bool SpriteHitScan(in Sprite_t spr, in Vector3_t pos, in Vector3_t dir, out Vector3_t voxpos, out ModelVoxel_t *outvoxptr){
+	const(ModelVoxel_t)* voxptr=null;
 	if(!Sprite_BoundHitCheck(spr, pos, dir))
 		return false;
 	voxpos=Vector3_t(spr.xpos, spr.ypos, spr.zpos);
-	float voxxsize=fabs(spr.xdensity)*vox_size, voxysize=fabs(spr.ydensity)*vox_size, voxzsize=fabs(spr.zdensity)*vox_size;
+	immutable renderrot=Vector_t!(3, real)(spr.rhe, -(spr.rti+90.0), -spr.rst);
+	immutable voxsize=spr.density.vecabs();
 	float minvxdist=10e99;
-	for(x=0; x<spr.model.xsize; ++x){
-		for(z=0; z<spr.model.zsize; ++z){
-			uint index=spr.model.offsets[x+z*spr.model.xsize];
-			if(index>=spr.model.voxels.length)
-				continue;
-			sblk=&spr.model.voxels[index];
-			eblk=&sblk[cast(uint)spr.model.column_lengths[x+z*spr.model.xsize]];
-			for(blk=sblk; blk<eblk; ++blk){
-				float fnx=(x-spr.model.xpivot+.5)*spr.xdensity;
-				float fny=(blk.ypos-spr.model.ypivot+.5)*spr.ydensity;
-				float fnz=(z-spr.model.zpivot-.5)*spr.zdensity;
-				float rot_y=fny, rot_z=fnz, rot_x;
-				fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
-				rot_x=fnx; rot_z=fnz;
-				fnz=rot_z*rot_cy - rot_x*rot_sy; fnx=rot_z*rot_sy + rot_x*rot_cy;
-				rot_x=fnx; rot_y=fny;
-				fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
-				fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
-				Vector3_t vpos=Vector3_t(fnx, fny, fnz);
-				float dist=(vpos-pos).length;
-				Vector3_t lookpos=pos+dir*dist;
-				Vector3_t cdist=(lookpos-vpos).vecabs;
-				if(cdist.x<voxxsize && cdist.y<voxxsize && cdist.z<voxzsize){
-					if(dist<minvxdist){
-						minvxdist=dist;
-						voxpos=vpos;
-						voxptr=blk;
+	immutable minpos=((-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos;
+	immutable xdiff=(((spr.model.size.filter!(1, 0, 0)()-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.xsize;
+	immutable ydiff=(((spr.model.size.filter!(0, 1, 0)()-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.ysize;
+	immutable zdiff=(((spr.model.size.filter!(0, 0, 1)()-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.zsize;
+	immutable vvoxsize=Vector_t!(3, real)(xdiff)*.5+Vector_t!(3, real)(ydiff)*.5+Vector_t!(3, real)(zdiff)*.5;
+	auto vxpos=minpos+vvoxsize;
+	for(uint blkx=0; blkx<spr.model.xsize; ++blkx, vxpos+=xdiff){
+		Vector_t!(3, real) vzpos=0.0;
+		for(uint blkz=0; blkz<spr.model.zsize; ++blkz, vzpos+=zdiff){
+			foreach(immutable blk; spr.model.voxels[spr.model.offsets[blkx+blkz*spr.model.xsize]..spr.model.offsets[blkx+blkz*spr.model.xsize]
+			+cast(uint)spr.model.column_lengths[blkx+blkz*spr.model.xsize]]){	
+				if(!blk.visiblefaces)
+					continue;
+				immutable vmpos=vxpos+ydiff*blk.ypos+vzpos;
+				immutable intersect_dist=AABB_t(vmpos-vvoxsize, vmpos+vvoxsize).Intersect(pos, dir);
+				if(intersect_dist!=typeof(intersect_dist).nan){
+					if(intersect_dist<minvxdist){
+						minvxdist=intersect_dist;
+						voxpos=Vector3_t(vmpos);
+						voxptr=&blk;
 					}
 				}
 			}
@@ -1452,7 +1461,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount/4, 0xff808080, radius);
 	Create_Particles(pos, vel, radius, spread, amount*7, [], 1.0/(1.0+amount*.001));
 	Create_Particles(pos, vel, 0, spread*3.0, amount*10, [0x00ffff00, 0x00ffa000], .05);
-	if(Config_Read!bool("flashes"))
+	if(Config_Read!bool("explosion_flashes"))
 		Renderer_AddFlash(pos, radius*1.5, 1.0);
 	//WIP (go cham!)
 	/*ExplosionSprite_t effect;
@@ -1505,12 +1514,8 @@ EnvEffectSlot_t[] EnvironmentEffectSlots;
 void Set_Sun(Vector3_t newpos, float strength){
 	Sun_Position=newpos;
 	Sun_Vector=(newpos-Vector3_t(MapXSize, MapYSize, MapZSize)/2.0).abs()*strength;
-	try{
-		Renderer_SetBrightness(strength);
-		Renderer_SetBlockFaceShading(Sun_Vector);
-	}catch(Throwable o){
-		writeflnlog("ERROR CATCHED %s %s %s (REPORT TO DEVS)", newpos, strength, o);
-	}
+	Renderer_SetBrightness(strength);
+	Renderer_SetBlockFaceShading(Sun_Vector);
 }
 
 //Be careful: this is evil
@@ -1520,7 +1525,7 @@ Vector3_t Get_Absolute_Sprite_Coord(Sprite_t *spr, Vector3_t coord){
 	float rot_sz=sin(-spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
 	float fnx=(coord.x-spr.model.xpivot+.5)*spr.xdensity;
 	float fny=(coord.y-spr.model.ypivot+.5)*spr.ydensity;
-	float fnz=(coord.z-spr.model.zpivot-.5)*spr.zdensity;
+	float fnz=(coord.z-spr.model.zpivot+.5)*spr.zdensity;
 	float rot_y=fny, rot_z=fnz, rot_x=fnx;
 	fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
 	rot_x=fnx; rot_z=fnz;
@@ -1573,35 +1578,24 @@ bool Sprite_Visible(in Sprite_t spr){
 	return true;
 }
 
-pure @safe bool Sprite_BoundHitCheck(in Sprite_t spr, Vector3_t pos, Vector3_t dir, immutable real tolerance=3.0){
-	real rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
-	real rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
-	real rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
-	real minx=10e99, maxx=-10e99, miny=10e99, maxy=-10e99, minz=10e99, maxz=-10e99;
-	for(uint edgeindex=0; edgeindex<8; edgeindex++){
-		real fnx=cast(real)(toint(edgeindex%2)*spr.model.xsize);
-		real fny=cast(real)(toint((edgeindex%4)>1)*spr.model.ysize);
-		real fnz=cast(real)(toint(edgeindex>3)*spr.model.zsize);
-		fnx=(fnx-spr.model.xpivot+.5)*spr.xdensity;
-		fny=(fny-spr.model.ypivot+.5)*spr.ydensity;
-		fnz=(fnz-spr.model.zpivot-.5)*spr.zdensity;
-		real rot_y=fny, rot_z=fnz, rot_x=fnx;
-		fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
-		rot_x=fnx; rot_z=fnz;
-		fnz=rot_z*rot_cy - rot_x*rot_sy; fnx=rot_z*rot_sy + rot_x*rot_cy;
-		rot_x=fnx; rot_y=fny;
-		fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
-		fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
-		minx=min(fnx, minx); maxx=max(fnx, maxx); miny=min(fny, miny); maxy=max(fny, maxy); minz=min(fnz, minz); maxz=max(fnz, maxz);
+bool Sprite_BoundHitCheck(in Sprite_t spr, in Vector3_t pos, in Vector3_t dir){
+	if(!Config_Read!bool("bound_hit_checks"))
+		return true;
+	immutable renderrot=Vector_t!(3, real)(spr.rhe, -(spr.rti+90.0), -spr.rst);
+	immutable minpos=(-spr.model.pivot*spr.density).rotate_raw(renderrot)+spr.pos;
+	immutable xdiff=(((Vector_t!(3, real)(spr.model.size.filter!(1, 0, 0)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.x;
+	immutable ydiff=(((Vector_t!(3, real)(spr.model.size.filter!(0, 1, 0)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.y;
+	immutable zdiff=(((Vector_t!(3, real)(spr.model.size.filter!(0, 0, 1)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.z;
+	auto vxpos=minpos+xdiff*.5+ydiff*.5+zdiff*.5;
+	real minx=real.max, maxx=-real.max, miny=real.max, maxy=-real.max, minz=real.max, maxz=-real.max;
+	foreach(edgeindex; 0..8){
+		immutable voxpos=vxpos+xdiff*to!real(edgeindex%2)*spr.model.xsize+ydiff*to!real((edgeindex%4)>1)*spr.model.ysize*
+		zdiff*to!real(edgeindex>3)*spr.model.zsize;
+		minx=min(voxpos.x, minx); maxx=max(voxpos.x, maxx); miny=min(voxpos.y, miny);
+		maxy=max(voxpos.y, maxy); minz=min(voxpos.z, minz); maxz=max(voxpos.z, maxz);
 	}
-	auto start=Vector_t!(3, real)(minx, miny, minz), end=Vector_t!(3, real)(maxx, maxy, maxz);
-	auto size=end-start;
-	auto mpos=start+size/2.0;
-	auto plane=Vector_t!(4, real)(dir.x, dir.y, dir.z, dir.dot(-mpos));
-	real slength=-(plane.x*pos.x+plane.y*pos.y+plane.z*pos.z+plane.w);
-	real slength_div=(plane.x*dir.x+plane.y*dir.y+plane.z*dir.z);
-	auto plane_point=((Vector_t!(3, real)(pos)+Vector_t!(3, real)(dir)*slength/slength_div)-mpos).vecabs-Vector_t!(3, real)(spr.density)*tolerance;
-	return (plane_point.x<=size.x && plane_point.y<=size.y && plane_point.z<=size.z);
+	auto ret=AABB_t(minx, miny, minz, maxx, maxy, maxz).Intersect(pos, dir);
+	return ret!=typeof(ret).nan;
 }
 
 uint Calculate_Alpha(uint c1, uint c2, ushort alpha){
@@ -1616,6 +1610,15 @@ uint Color_ActionPerComponent(string action, Args ...)(uint col, Args args){
 	a=(col>>16)&255; a=mixin(action); ret|=a<<16;
 	a=(col>>8)&255; a=mixin(action); ret|=a<<8;
 	a=(col>>0)&255; a=mixin(action); ret|=a<<0;
+	return ret;
+}
+
+T[4] Color_ActionPerComponent(string action, T, Args ...)(T[4] col, Args args){
+	T[4] ret;
+	ushort a;
+	for(uint i=0; i<4; i++){
+		a=col[i]; a=cast(typeof(a))mixin(action); ret[i]=cast(T)a;
+	}
 	return ret;
 }
 
