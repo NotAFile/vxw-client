@@ -7,6 +7,19 @@ rm -r ./DerelictSDL2 --interactive=never
 git clone https://github.com/DerelictOrg/DerelictENet
 mv ./DerelictENet/source/derelict/enet ./derelict
 rm -r ./DerelictENet --interactive=never
+git clone https://github.com/DerelictOrg/DerelictAL
+mv ./DerelictAL/source/derelict/openal ./derelict
+rm -r ./DerelictAL --interactive=never
 git clone https://github.com/DerelictOrg/DerelictUtil
 mv ./DerelictUtil/source/derelict/util ./derelict
 rm -r ./DerelictUtil --interactive=never
+git clone https://github.com/DerelictOrg/Derelictvorbis
+mv ./Derelictvorbis/source/derelict/vorbis ./derelict
+rm -r ./Derelictvorbis --interactive=never
+git clone https://github.com/DerelictOrg/DerelictOgg
+cd DerelictOgg
+#Using slightly older version of DerelictOgg, since LDC and GDC have some troubles with wrong @nogc placement
+git checkout 09de27b4718c8887d0864099996dd69083caca4f
+cd ..
+mv ./DerelictOgg/source/derelict/ogg ./derelict
+rm -r ./DerelictOgg --interactive=never

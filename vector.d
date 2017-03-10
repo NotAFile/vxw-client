@@ -41,9 +41,15 @@ template VectorTypeOf(VectorType){
 	}
 }
 
-bool isVector3Like(T)(){return __traits(hasMember, T, "x") && __traits(hasMember, T, "y") && __traits(hasMember, T, "z");}
+template isVector_t(T){
+	immutable bool is_vec=__traits(hasMember, T, "x") && __traits(hasMember, T, "y") && __traits(hasMember, T, "z");
+	alias isVector_t=is_vec;
+}
 
-alias isVector_t=isVector3Like;
+template isVectorLike(T){
+	immutable bool is_vec=__traits(hasMember, T, "x") && __traits(hasMember, T, "y") && __traits(hasMember, T, "z");
+	alias isVectorLike=is_vec;
+}
 
 private string __mixin_VectorCTFilter(alias dim)(){
 	string func_code="const __this_type filter(";
@@ -133,13 +139,13 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		x=cast(typeof(x))ix; y=cast(typeof(y))iy; z=cast(typeof(z))iz;
 	}
 	version(DigitalMars){ pragma(inline, true):}
-	this(T)(T val) if(isVector3Like!T()){
+	this(T)(T val) if(isVectorLike!T){
 		x=cast(typeof(x))val.x; y=cast(typeof(y))val.y; z=cast(typeof(z))val.z;
 	}
 	void opIndexAssign(T)(element_t val, T ind){
 		elements[ind]=val;
 	}
-	__this_type opAssign(T)(T val) if(isVector3Like!T()){
+	__this_type opAssign(T)(T val) if(isVectorLike!T){
 		x=cast(typeof(x))val.x; y=cast(typeof(y))val.y; z=cast(typeof(z))val.z;
 		return this;
 	}
@@ -152,7 +158,7 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		mixin("ret.elements[]"~op~"=arg[];");
 		return ret;
 	}
-	const __this_type opBinary(string op, T)(T arg) if(isVector_t!T()){
+	const __this_type opBinary(string op, T)(T arg) if(isVector_t!T){
 		static assert(arg.__dim==dim);
 		//Apparently I have to pass some CT arguments, or else this function will get evaluated in runtime or sth
 		//(in any case not passing any CT arguments, will make this lag)
@@ -167,7 +173,7 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		}
 		return mixin("__this_type("~__mixin_code!(dim, op)()~")");
 	}
-	const __this_type opBinary(string op, T)(T arg) if(!isArray!T && !isVector_t!T()){
+	const __this_type opBinary(string op, T)(T arg) if(!isArray!T && !isVector_t!T){
 		static if(dim==3){
 			return __this_type(mixin("x"~op~"arg"), mixin("y"~op~"arg"), mixin("z"~op~"arg"));
 		}
@@ -178,7 +184,7 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		}
 	}
 	static if(dim==3){
-		bool opEquals(T)(T arg) if(isVector3Like!T()){
+		bool opEquals(T)(T arg) if(isVectorLike!T){
 			return x==arg.x && y==arg.y && z==arg.z;
 		}
 	}
@@ -266,7 +272,7 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		return rotate_raw(rrot);
 	}
 
-	__this_type rotate_raw(T)(T rot) if(isVector_t!T()){
+	__this_type rotate_raw(T)(T rot) if(isVector_t!T){
 		__this_type ret=this, tmp=this;
 		__this_type vsin=rot.sin(), vcos=rot.cos();
 		ret.y=tmp.y*vcos.x-tmp.z*vsin.x; ret.z=tmp.y*vsin.x+tmp.z*vcos.x;

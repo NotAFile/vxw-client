@@ -36,5 +36,6 @@ aof-opengl
 ./aof-opengl/*
 vxwclient-voxlap*
 *.S
+*.s
 gmon.out
 .goutputstream*

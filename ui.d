@@ -11,6 +11,7 @@ import std.conv;
 import std.stdio;
 import std.file;
 import gfx;
+import snd;
 import main;
 import misc;
 import network;
@@ -60,8 +61,10 @@ struct SettingsMenuEntry_t{
 	float minval, maxval;
 	string description;
 	string default_val;
-	this(string ikey, string ientry, string itype, string idesc, float iminval=-float.infinity, float imaxval=float.infinity, string idefault=""){
+	float step;
+	this(string ikey, string ientry, string itype, string idesc, float iminval=-float.infinity, float imaxval=float.infinity, string idefault="", float istep=float.nan){
 		key=ikey; entry=ientry; type=itype; description=idesc; minval=iminval; maxval=imaxval;
+		step=istep;
 		if(idefault.length){
 			default_val=idefault;
 		}
@@ -88,7 +91,9 @@ immutable SettingsMenu_ConfigEntries=[
 	SettingsMenuEntry_t("l", "gun_flashes", "bool", "toggles flashes from shots (big source of lag if you have lots of fellow players!)", 0.0, 1.0, "false"),
 	SettingsMenuEntry_t("x", "explosion_flashes", "bool", "toggles flashes from explosions", 0.0, 1.0, "true"),
 	SettingsMenuEntry_t("h", "chat_alpha", "ubyte", "sets chat transparency",  0, 255, "255"),
-	SettingsMenuEntry_t("g", "bound_hit_checks", "bool", "toggles bound hit checking (faster, but may not register hits)", 0.0, 1.0, "true")
+	SettingsMenuEntry_t("g", "bound_hit_checks", "bool", "toggles bound hit checking (faster, but may not register some hits)", 0.0, 1.0, "true"),
+	SettingsMenuEntry_t("n", "sound", "bool", "toggles sounds", 0.0, 1.0, "true"),
+	SettingsMenuEntry_t("v", "volume", "float", "sets the volume", 0.0, float.infinity, "100.0", 1.0),
 ];
 
 void SettingsMenu_ChangeEntry(float val){
@@ -100,6 +105,8 @@ void SettingsMenu_ChangeEntry(float val){
 		rangestep=1.0;
 	else
 		rangestep=(entry.maxval-entry.minval)/10.0;
+	if(entry.step!=float.nan)
+		rangestep=entry.step;
 	if(entry.type=="float"){
 		float newval=Config_Read!float(entry.entry)+val*rangestep;
 		newval=min(newval, entry.maxval); newval=max(newval, entry.minval);
@@ -110,6 +117,9 @@ void SettingsMenu_ChangeEntry(float val){
 			Renderer_SetQuality(Config_Read!float("render_lod"));
 		if(entry.entry=="upscale")
 			Change_Resolution(WindowXSize, WindowYSize);
+		if(entry.entry=="volume"){
+			Sound_VolumeSet(Config_Read!float("volume"));
+		}
 	}
 	if(entry.type=="uint"){
 		val*=5.0;
@@ -144,6 +154,8 @@ void SettingsMenu_ChangeEntry(float val){
 	}
 	if(entry.type=="bool"){
 		Config_Write(entry.entry, val>0.0 ? "true" : "false");
+		if(entry.entry=="sound")
+			Sound_Toggle(Config_Read!bool("sound"));
 	}
 }
 
@@ -425,13 +437,13 @@ void Check_Input(){
 					}
 					case SDLK_PLUS:{
 						if(!TypingChat && SettingsMenu_Enable){
-							SettingsMenu_ChangeEntry(KeyState[SDL_SCANCODE_LCTRL] ? 1.0 : .5);
+							SettingsMenu_ChangeEntry(.5*(KeyState[SDL_SCANCODE_LCTRL] ? .5 : 1.0)*(KeyState[SDL_SCANCODE_LSHIFT] ? 2.0 : 1.0));
 						}
 						break;
 					}
 					case SDLK_MINUS:{
 						if(!TypingChat && SettingsMenu_Enable){
-							SettingsMenu_ChangeEntry(KeyState[SDL_SCANCODE_LCTRL] ? -1.0 : -.5);
+							SettingsMenu_ChangeEntry(-.5*(KeyState[SDL_SCANCODE_LCTRL] ? .5 : 1.0)*(KeyState[SDL_SCANCODE_LSHIFT] ? 2.0 : 1.0));
 						}
 						break;
 					}

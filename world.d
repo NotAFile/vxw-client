@@ -18,6 +18,7 @@ import renderer;
 import renderer_templates;
 import misc;
 import gfx;
+import snd;
 import ui;
 import script;
 import protocol;
@@ -48,6 +49,15 @@ Vector3_t Wind_Direction;
 
 immutable uint ticks_ps = 60;
 
+void Init_World(){
+}
+
+void UnInit_World(){
+	foreach(ref p; Players)
+		p.Delete();
+	Players.length=0;
+}
+
 struct PlayerModel_t{
 	ubyte model_id;
 	Vector3_t size, offset, rotation;
@@ -71,7 +81,7 @@ struct AABB_t {
 	}
 	
 	this(T1, T2)(T1 vec1, T2 vec2){
-		static if(isVector3Like!T1() && isVector3Like!T2()){
+		static if(isVectorLike!T1 && isVectorLike!T2){
 			minvec=Vector3_t(min(vec1.x, vec2.x), min(vec1.y, vec2.y), min(vec1.z, vec2.z));
 			maxvec=Vector3_t(max(vec1.x, vec2.x), max(vec1.y, vec2.y), max(vec1.z, vec2.z));
 		}
@@ -244,6 +254,7 @@ struct Player_t{
 	Object_t *standing_on_obj, stood_on_obj;
 	
 	float Walk_Forwards_Timer, Walk_Sidewards_Timer;
+	float prev_fwalk_sign, prev_swalk_sign;
 	
 	bool airborne, airborne_old;
 	float airborne_start = 0.0F;
@@ -252,9 +263,15 @@ struct Player_t{
 	uint last_climb = 0;
 	float crouch_offset = 0.0;
 	
-	void Init(string initname, PlayerID_t initplayer_id){
+	SoundSource_t sndsource;
+	
+	this(PlayerID_t pid){
+		player_id=pid;
+		sndsource=SoundSource_t(0);
+	}
+
+	void Init(string initname){
 		name=initname;
-		player_id=initplayer_id;
 		team=255;
 		Spawned=false;
 		InGame=true;
@@ -308,8 +325,12 @@ struct Player_t{
 		}
 	}
 	
+	void Delete(){
+		sndsource.UnInit();
+	}
+	
 	void Update(){
-		if(Spawned) {
+		if(Spawned){
 			uint ticks_should_have = cast(uint)floor((PreciseClock_ToMSecs(PreciseClock())-physics_start)/1000.0F*ticks_ps);
 			if(ticks<ticks_should_have) {
 				while(ticks<ticks_should_have) {
@@ -328,6 +349,40 @@ struct Player_t{
 					Equipped_Item.last_recoil=0.0;
 				}
 			}
+			if(dir.length){
+				float l=vel.filter(true, false, true).dot(dir.filter(true, false, true))*WorldSpeed;
+				if(fabs(l)>.00001){
+					Walk_Forwards_Timer+=l;
+				}
+				else{
+					Walk_Forwards_Timer=0.0;
+				}
+				l=vel.filter(true, false, true).dot(dir.rotate_raw(Vector3_t(0.0, 90.0, 0.0)).filter(true, false, true))*WorldSpeed;
+				if(fabs(l)>.00001){
+					Walk_Sidewards_Timer+=l;
+				}
+				else{
+					Walk_Sidewards_Timer=0.0;
+				}
+			}
+			else{
+				Walk_Forwards_Timer=0.0; Walk_Sidewards_Timer=0.0;
+			}
+			sndsource.SetPos(pos);
+			sndsource.SetVel(vel);
+			float fwalk_sign=sgn(sin(Walk_Forwards_Timer)), swalk_sign=sgn(sin(Walk_Sidewards_Timer));
+			if(((fwalk_sign!=prev_fwalk_sign && fwalk_sign && prev_fwalk_sign) || (swalk_sign!=prev_swalk_sign && swalk_sign && prev_swalk_sign)) && !airborne){
+				if(ProtocolBuiltin_StepSound!=-1)
+					sndsource.Play_Sound(Mod_Sounds[ProtocolBuiltin_StepSound]);
+			}
+			if(fwalk_sign)
+				prev_fwalk_sign=fwalk_sign;
+			if(swalk_sign)
+				prev_swalk_sign=swalk_sign;
+			if(!Walk_Forwards_Timer)
+				prev_fwalk_sign=0.0;
+			if(!Walk_Sidewards_Timer)
+				prev_swalk_sign=0.0;
 		} else {
 			physics_start = PreciseClock_ToMSecs(PreciseClock());
 		}
@@ -383,6 +438,8 @@ struct Player_t{
 		} else {
 			if(!airborne && airborne_old) { //fall or jump end
 				float d = pos.y-airborne_start;
+				if(ProtocolBuiltin_StepSound!=-1)
+					sndsource.Play_Sound(Mod_Sounds[ProtocolBuiltin_StepSound]);
 				debug{
 					if(d>0.0F) {
 						printf("Fall distance: %f\n",d);
@@ -575,7 +632,7 @@ struct Player_t{
 					continue;
 				if(!plr.Spawned || !plr.InGame)
 					continue;
-				if((pos-plr.pos).length>min(Current_Visibility_Range+5, block_hit_dist+5))
+				if((pos-plr.pos).length>(min(Current_Visibility_Range, block_hit_dist)+5))
 					continue;
 				Sprite_t[] sprites=Get_Player_Sprites(pid);
 				foreach(ubyte spindex, ref spr; sprites){
@@ -682,6 +739,9 @@ struct Player_t{
 		dir.rotate(Vector3_t(0, yrecoil, xrecoil));
 		if(itemtype.is_weapon)
 			current_item.amount1--;
+		if(itemtype.use_sound_id!=VoidSoundID){
+			sndsource.Play_Sound(Mod_Sounds[itemtype.use_sound_id]);
+		}
 	}
 	void Switch_Tool(ubyte tool_id){
 		item=tool_id;
@@ -845,10 +905,14 @@ struct CheckCollisionReturn_t{
 Player_t[] Players;
 
 void Init_Player(string name, PlayerID_t id){
-	if(id>=Players.length)
+	if(id>=Players.length){
+		uint oldlen=Players.length;
 		Players.length=id+1;
+		foreach(i; oldlen..Players.length)
+			Players[i]=Player_t(to!PlayerID_t(i));
+	}
 	Player_t *plr=&Players[id];
-	plr.Init(name, id);
+	plr.Init(name);
 }
 
 struct Team_t{
@@ -892,6 +956,7 @@ struct ItemType_t{
 	float recoil_yc, recoil_ym;
 	float power;
 	ModelID_t model_id;
+	SoundID_t use_sound_id;
 	Sprite_t bullet_sprite;
 	bool Is_Gun(){
 		return is_weapon && maxamount1 && bullet_sprite.model!=null;
@@ -1118,6 +1183,11 @@ void Damage_Block(PlayerID_t player_id, uint xpos, uint ypos, uint zpos, ubyte v
 		}
 	}
 	if(dmg.broken){
+		if(ProtocolBuiltin_BlockBreakSound!=VoidSoundID){
+			auto src=SoundSource_t(Vector3_t(xpos, ypos, zpos));
+			src.Play_Sound(Mod_Sounds[ProtocolBuiltin_BlockBreakSound], [SoundPlayOptions.Volume : 1.0]);
+			EnvironmentSoundSources~=src;
+		}
 		if(player_id==LocalPlayerID){
 			BlockBreakPacketLayout packet;
 			packet.player_id=LocalPlayerID;

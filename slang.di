@@ -1,4 +1,4 @@
-extern(C){
+nothrow extern(C){
 alias SLtype=uint;
 immutable SLtype SLANG_UNDEFINED_TYPE	=0x00;   /* MUST be 0 */
 immutable SLtype SLANG_VOID_TYPE		=0x01;   /* also matches ANY type */

@@ -7,6 +7,7 @@ import std.array;
 import std.string;
 import std.digest.crc;
 import gfx;
+import snd;
 import misc;
 import script;
 import renderer;
@@ -88,7 +89,7 @@ static this(){
 }
 
 enum ModDataTypes{
-	Picture=0, Model=1, Script=2
+	Picture=0, Model=1, Script=2, Sound=3
 }
 
 struct ModFile_t{
@@ -192,6 +193,12 @@ struct ModFile_t{
 				catch(FileException){
 					writeflnerr("Couldn't load %s", fname);
 				}
+				break;
+			}
+			case ModDataTypes.Sound:{
+				if(Mod_Sounds.length<=index)
+					Mod_Sounds.length=index+1;
+				Mod_Sounds[index]=Sound_DecodeOgg(data);
 				break;
 			}
 			default:{writeflnerr("Server sent mod of unknown data type %s", type); break;}

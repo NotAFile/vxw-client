@@ -18,8 +18,10 @@ import main;
 import renderer;
 import renderer_templates;
 import protocol;
+import packettypes;
 import misc;
 import world;
+import snd;
 import ui;
 import vector;
 import script;
@@ -93,7 +95,7 @@ void Init_Gfx(){
 	if(SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO | SDL_INIT_EVENTS))
 		writeflnlog("[WARNING] SDL2 didn't initialize properly: %s", SDL_GetError());
 	if(IMG_Init(IMG_INIT_PNG)!=IMG_INIT_PNG)
-		writeflnlog("[WARNING] IMG for PNG didn't initialize properly: %s", IMG_GetError());
+		writeflnerr("SDL2 IMG doesn't support PNG: %s", IMG_GetError());
 	SDL_SetHintWithPriority(toStringz("SDL_HINT_WINDOWS_NO_CLOSE_ON_ALT_F4"), toStringz("1"), SDL_HINT_OVERRIDE);
 	Renderer_Init();
 	WindowXSize=Config_Read!uint("resolution_x"); WindowYSize=Config_Read!uint("resolution_y");
@@ -730,8 +732,11 @@ void Render_Screen(){
 			rt.z=MouseRot.z;
 			if(Render_Local_Player)
 				Players[LocalPlayerID].dir=rt.RotationAsDirection;
-			CameraPos = Players[LocalPlayerID].CameraPos();
+			CameraPos=Players[LocalPlayerID].CameraPos();
+			Sound_SetListenerPos(CameraPos);
+			Sound_SetListenerVel(Players[LocalPlayerID].vel);
 			CameraRot=MouseRot;
+			Sound_SetListenerOri(CameraRot);
 			Renderer_SetBlur(Current_Blur_Amount);
 		}
 		else{
@@ -741,7 +746,10 @@ void Render_Screen(){
 			TerrainOverview.y=TerrainOverview.y*.99+(Voxel_GetHighestY(TerrainOverview.x, 0.0, TerrainOverview.z)-48.0)*.01;
 			TerrainOverviewRotation=TerrainOverviewRotation*.8+(TerrainOverviewRotation+uniform01()*.1+.9)*.2;
 			CameraPos=TerrainOverview;
+			Sound_SetListenerPos(CameraPos);
+			Sound_SetListenerVel(Vector3_t(0.0));
 			CameraRot=MouseRot*Vector_t!(3, real)(.05, .15, 0.0)+Vector_t!(3, real)(0.0, 45.0, 0.0);
+			Sound_SetListenerOri(CameraRot);
 			MouseMovedX = 0;
 			MouseMovedY = 0;
 			Renderer_SetBlur(0.0);
@@ -1114,14 +1122,13 @@ bool SpriteHitScan(in Sprite_t spr, in Vector3_t pos, in Vector3_t dir, out Vect
 		return false;
 	voxpos=Vector3_t(spr.xpos, spr.ypos, spr.zpos);
 	immutable renderrot=Vector_t!(3, real)(spr.rhe, -(spr.rti+90.0), -spr.rst);
-	immutable voxsize=spr.density.vecabs();
-	float minvxdist=10e99;
-	immutable minpos=((-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos;
-	immutable xdiff=(((spr.model.size.filter!(1, 0, 0)()-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.xsize;
-	immutable ydiff=(((spr.model.size.filter!(0, 1, 0)()-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.ysize;
-	immutable zdiff=(((spr.model.size.filter!(0, 0, 1)()-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.zsize;
-	immutable vvoxsize=Vector_t!(3, real)(xdiff)*.5+Vector_t!(3, real)(ydiff)*.5+Vector_t!(3, real)(zdiff)*.5;
-	auto vxpos=minpos+vvoxsize;
+	auto minvxdist=real.infinity;
+	immutable minpos=(-spr.model.pivot*spr.density).rotate_raw(renderrot)+spr.pos;
+	immutable xdiff=(((Vector_t!(3, real)(spr.model.size.filter!(1, 0, 0)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.x;
+	immutable ydiff=(((Vector_t!(3, real)(spr.model.size.filter!(0, 1, 0)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.y;
+	immutable zdiff=(((Vector_t!(3, real)(spr.model.size.filter!(0, 0, 1)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.z;
+	immutable hvoxsize=xdiff*.5+ydiff*.5+zdiff*.5;
+	auto vxpos=minpos+hvoxsize;
 	for(uint blkx=0; blkx<spr.model.xsize; ++blkx, vxpos+=xdiff){
 		Vector_t!(3, real) vzpos=0.0;
 		for(uint blkz=0; blkz<spr.model.zsize; ++blkz, vzpos+=zdiff){
@@ -1130,8 +1137,8 @@ bool SpriteHitScan(in Sprite_t spr, in Vector3_t pos, in Vector3_t dir, out Vect
 				if(!blk.visiblefaces)
 					continue;
 				immutable vmpos=vxpos+ydiff*blk.ypos+vzpos;
-				immutable intersect_dist=AABB_t(vmpos-vvoxsize, vmpos+vvoxsize).Intersect(pos, dir);
-				if(intersect_dist!=typeof(intersect_dist).nan){
+				immutable intersect_dist=AABB_t(vmpos-hvoxsize, vmpos+hvoxsize).Intersect(pos, dir);
+				if(intersect_dist==intersect_dist){
 					if(intersect_dist<minvxdist){
 						minvxdist=intersect_dist;
 						voxpos=Vector3_t(vmpos);
@@ -1500,6 +1507,11 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	effect.size=0.0;
 	effect.maxsize=radius*8.0;
 	ExplosionEffectSprites~=effect;*/
+	if(ProtocolBuiltin_ExplosionSound!=VoidSoundID){
+		auto src=SoundSource_t(pos);
+		src.Play_Sound(Mod_Sounds[ProtocolBuiltin_ExplosionSound], [SoundPlayOptions.Volume: 1.0-1.0/(pow(radius, 3.0)+1.0)]);
+		EnvironmentSoundSources~=src;
+	}
 }
 
 struct EnvEffectSlot_t{

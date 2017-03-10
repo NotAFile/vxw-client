@@ -19,6 +19,7 @@ import misc;
 import vector;
 import world;
 import gfx;
+import snd;
 import script;
 import modlib;
 version(DMD){
@@ -329,6 +330,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				else{
 					type.bullet_sprite.model=null;
 				}
+				type.use_sound_id=packet.use_sound_id;
 				if(type.index>=ItemTypes.length)
 					ItemTypes.length=type.index+1;
 				ItemTypes[type.index]=type;
@@ -538,6 +540,16 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 						}
 						break;
 					}
+					case AssignBuiltinTypes.Sound:{
+						auto snd=packet.index;
+						switch(packet.target){
+							case AssignBuiltinSoundTypes.Step:ProtocolBuiltin_StepSound=snd;break;
+							case AssignBuiltinSoundTypes.Explosion:ProtocolBuiltin_ExplosionSound=snd;break;
+							case AssignBuiltinSoundTypes.Block_Break:ProtocolBuiltin_BlockBreakSound=snd;break;
+							default:break;
+						}
+						break;
+					}
 					default:{
 						break;
 					}
@@ -660,6 +672,13 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case SetGMScorePacketID:{
 				auto packet=UnpackPacketToStruct!(SetGMScorePacketLayout)(PacketData);
 				Players[packet.player_id].gmscore=packet.score;
+				break;
+			}
+			case PlaySoundPacketID:{
+				auto packet=UnpackPacketToStruct!(PlaySoundPacketLayout)(PacketData);
+				auto src=SoundSource_t(Vector3_t(packet.xpos, packet.ypos, packet.zpos));
+				src.Play_Sound(Mod_Sounds[packet.sound], [SoundPlayOptions.Volume: packet.volume/255.0f]);
+				EnvironmentSoundSources~=src;
 				break;
 			}
 			default:{

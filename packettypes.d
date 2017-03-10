@@ -12,9 +12,8 @@ version(GNU){
 alias PlayerID_t=ubyte;
 alias PacketID_t=ubyte;
 alias TeamID_t=ubyte;
-alias ModelID_t=ubyte;
-
-ModelID_t VoidModelID=255;
+alias ModelID_t=ubyte; immutable ModelID_t VoidModelID=255;
+alias SoundID_t=ubyte; immutable SoundID_t VoidSoundID=255;
 
 struct ClientVersionPacketLayout{
 	uint Protocol_Version;
@@ -225,6 +224,7 @@ struct ItemTypePacketLayout{
 	ubyte typeflags;
 	ModelID_t model_id;
 	ModelID_t bullet_model_id;
+	SoundID_t use_sound_id;
 }
 immutable PacketID_t ItemTypePacketID=21;
 
@@ -344,7 +344,7 @@ struct ChangeFOVPacketLayout{
 immutable PacketID_t ChangeFOVPacketID=36;
 
 enum AssignBuiltinTypes{
-	Model=0, Picture=1, Sent_Image=2
+	Model=0, Picture=1, Sent_Image=2, Sound=3
 }
 
 enum AssignBuiltinModelTypes{
@@ -357,6 +357,10 @@ enum AssignBuiltinPictureTypes{
 
 enum AssignBuiltinSentImageTypes{
 	AmmoCounterBG=0, AmmoCounterBullet=1, Palette_HBorder=2, Palette_HFG=3, Palette_VBorder=4, Palette_VFG=5, ScopeGfx=6
+}
+
+enum AssignBuiltinSoundTypes{
+	Step=0, Explosion=1, Block_Break=2
 }
 
 struct AssignBuiltinPacketLayout{
@@ -471,6 +475,13 @@ struct SetGMScorePacketLayout{
 	int score;
 }
 immutable PacketID_t SetGMScorePacketID=52;
+
+struct PlaySoundPacketLayout{
+	float xpos, ypos, zpos;
+	ubyte volume;
+	SoundID_t sound;
+}
+immutable PacketID_t PlaySoundPacketID=53;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)

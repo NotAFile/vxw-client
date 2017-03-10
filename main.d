@@ -15,6 +15,7 @@ import renderer;
 import vector;
 import world;
 import script;
+import snd;
 version(LDC){
 	import ldc_stdlib;
 }
@@ -99,14 +100,18 @@ void __do_gc_collect(){
 void Init_Game(){
 	Init_Netcode();
 	Init_Gfx();
+	Init_Snd();
 	Init_UI();
 	Init_Script();
+	Init_World();
 	signal(SIGSEGV, &SignalHandler);
 }
 
 void UnInit_Game(){
+	UnInit_World();
 	UnInit_UI();
 	UnInit_Gfx();
+	UnInit_Snd();
 	UnInit_Netcode();
 }
 

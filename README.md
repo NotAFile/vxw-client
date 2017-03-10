@@ -97,14 +97,14 @@ Follow the compile steps for your choosen renderer module and procede here after
 5. Run compile.bat
 
 CREDITS:
-lecom - main programming, the crappy assets
-Chameleon - the awesome assets
-bytebit - his own OpenGL renderer, a small amount of physics code
+lecom - main programming
+Chameleon - actually rather contributed assets to the server IIRC
+bytebit - his own OpenGL renderer, a small amount of physics code (player physics, AABB code)
 
 
 ## Notes
 
-The "derelict/" folder contains D bindings to both ENet and SDL. This is not the usual way of using derelict, but *DUB* is a nightmare to use and We would rather not rely on such kinds of packaging programs.
+The "derelict/" folder contains D bindings to ENet, SDL2, libogg and Vorbis. This is not the usual way of using derelict, but *DUB* is a nightmare to use and We would rather not rely on such kinds of packaging programs.
 
 Licensing:
 Because of the S-Lang library, the entire VoxelWar client has to be licensed under the GNU GPL 3.0. VoxelWar uses the original S-Lang library, as offered at http://jedsoft.org/slang/.
