@@ -8,6 +8,7 @@ version(DMD){
 	import std.meta;
 }
 import derelict.sdl2.sdl;
+import core.stdc.stdlib;
 import slang;
 import misc;
 import ui;
@@ -187,6 +188,21 @@ template _ArrayElementType(T : T[])
   alias T _ArrayElementType;
 }
 
+void *DLangObject_To_SLangObject(T)(T obj, out SLtype sltype){
+	static if(is(type==float)){
+		sltype=SLANG_FLOAT_TYPE;
+		return &obj;
+	}
+	else static if(isArray!T){
+		SLindex_Type ind=obj.length;
+		SLang_Array_Type *arr=SLang_create_array1(DLangType_To_SLangType!(_ArrayElementType!(T))(), 1, obj.ptr, &ind, 1, 1);
+		sltype=SLANG_ARRAY_TYPE;
+		return &obj;
+	}
+	else
+	static assert(0);
+}
+
 void Push_DLang_Object(T)(T obj){
 	alias type=typeof(obj);
 	static if(is(type==string)){SLang_push_string(cast(char*)toStringz(obj));}
@@ -197,10 +213,13 @@ void Push_DLang_Object(T)(T obj){
 	else static if(is(type==float)){SLang_push_float(obj);}
 	else static if(is(type==ubyte[])){SLang_push_bstring(SLbstring_create(obj.ptr, cast(uint)obj.length));}
 	else static if(is(type==bool)){SLang_push_uchar(cast(ubyte)obj);}
+	//NOTE: It's a complicated situation with those vectors and arrays, since 
 	else static if(is(type==Vector_t!())){
 		SLindex_Type ind=obj.elements.length;
-		SLang_Array_Type *arr=SLang_create_array1(DLangType_To_SLangType!(typeof(type.x))(), 1, obj.elements.ptr, &ind, 1, 1);
-		SLang_push_array(arr, 0);
+		type.__element_t *elements=cast(type.__element_t*) malloc(type.__element_t.sizeof*type.__dim);
+		elements[0..type.__dim]=obj.elements;
+		SLang_Array_Type *arr=SLang_create_array1(DLangType_To_SLangType!(typeof(type.x))(), 1, elements, &ind, 1, 1);
+		SLang_push_array(arr, 1);
 	}
 	else static if(isArray!type){
 		SLindex_Type ind=obj.length;
@@ -221,7 +240,15 @@ void Push_DLang_Object(T)(T obj){
 		else
 			return Push_DLang_Object(*obj);
 	}
-	else type;
+	else
+	static assert(0);
+}
+
+void SLangObject_Push(void *obj, SLtype type){
+	final switch(type){
+		case SLANG_FLOAT_TYPE:SLang_push_float(*(cast(float*)obj));break;
+		case SLANG_ARRAY_TYPE:SLang_push_array(cast(SLang_Array_Type*)obj, 0); break;
+	}
 }
 
 struct Script_t{
@@ -311,10 +338,8 @@ struct Script_t{
 				sclibrary.ns.namespace_name=sclibrary.nshashname;
 			}
 		}
-		static if(1){
-			foreach(ref arg; args){
-				Push_DLang_Object(arg);
-			}
+		foreach(ref arg; args){
+			Push_DLang_Object(arg);
 		}
 		const char *nsfuncname=cast(const(char*))toStringz(nsname~"->"~funcname);
 		auto ret=SLang_execute_function(nsfuncname);

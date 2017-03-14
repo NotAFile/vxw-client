@@ -343,8 +343,7 @@ void Render_Text_Line(TC, TL, TS)(uint xpos, uint ypos, TC coloring, TL text, Re
 			xsizeratio=args[0]; ysizeratio=args[1];
 		}
 		else{
-			
-			uint maxlinelength=uint.min;
+			size_t maxlinelength=size_t.min;
 			foreach(l; lines)
 				maxlinelength=max(l.length+count!"a==b"(l, tab_char), maxlinelength);
 			if(!maxlinelength)
@@ -626,7 +625,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 				p.vel*=.96f;
 			}
 			float dst;
-			int scrx, scry;
+			signed_register_t scrx, scry;
 			if(!Project2D(p.pos.x, p.pos.y, p.pos.z, scrx, scry, dst))
 				continue;
 			if(dst<=0.0)
@@ -904,12 +903,7 @@ void Render_Screen(){
 			if(p.team==255 || !p.InGame)
 				continue;
 			list_player_amount[p.team]++;
-			Player_List_Table[p.team]
-			[
-			
-			list_player_amount[p.team]-1
-			
-			]=p.player_id;
+			Player_List_Table[p.team][list_player_amount[p.team]-1]=p.player_id;
 		}
 		immutable uint teamlist_w=cast(uint)(ScreenXSize/Teams.length); //cast for 64 bit systems
 		//.6 looks ok-ish
@@ -1118,10 +1112,11 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 
 bool SpriteHitScan(in Sprite_t spr, in Vector3_t pos, in Vector3_t dir, out Vector3_t voxpos, out ModelVoxel_t *outvoxptr){
 	const(ModelVoxel_t)* voxptr=null;
-	if(!Sprite_BoundHitCheck(spr, pos, dir))
+	auto bound_hitdist=(cast(AABB_t)spr).Intersect(pos, dir);
+	if(bound_hitdist!=bound_hitdist)
 		return false;
 	voxpos=Vector3_t(spr.xpos, spr.ypos, spr.zpos);
-	immutable renderrot=Vector_t!(3, real)(spr.rhe, -(spr.rti+90.0), -spr.rst);
+	immutable renderrot=Vector_t!(3, real)(spr.rot.x, -(spr.rot.y+90.0), -spr.rot.z);
 	auto minvxdist=real.infinity;
 	immutable minpos=(-spr.model.pivot*spr.density).rotate_raw(renderrot)+spr.pos;
 	immutable xdiff=(((Vector_t!(3, real)(spr.model.size.filter!(1, 0, 0)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.x;
@@ -1129,6 +1124,7 @@ bool SpriteHitScan(in Sprite_t spr, in Vector3_t pos, in Vector3_t dir, out Vect
 	immutable zdiff=(((Vector_t!(3, real)(spr.model.size.filter!(0, 0, 1)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.z;
 	immutable hvoxsize=xdiff*.5+ydiff*.5+zdiff*.5;
 	auto vxpos=minpos+hvoxsize;
+	immutable invdir=Vector_t!(3, real)(1.0)/dir;
 	for(uint blkx=0; blkx<spr.model.xsize; ++blkx, vxpos+=xdiff){
 		Vector_t!(3, real) vzpos=0.0;
 		for(uint blkz=0; blkz<spr.model.zsize; ++blkz, vzpos+=zdiff){
@@ -1137,7 +1133,7 @@ bool SpriteHitScan(in Sprite_t spr, in Vector3_t pos, in Vector3_t dir, out Vect
 				if(!blk.visiblefaces)
 					continue;
 				immutable vmpos=vxpos+ydiff*blk.ypos+vzpos;
-				immutable intersect_dist=AABB_t(vmpos-hvoxsize, vmpos+hvoxsize).Intersect(pos, dir);
+				immutable intersect_dist=AABB_t(vmpos-hvoxsize, vmpos+hvoxsize).Intersect_invdir(pos, invdir);
 				if(intersect_dist==intersect_dist){
 					if(intersect_dist<minvxdist){
 						minvxdist=intersect_dist;
@@ -1190,12 +1186,6 @@ struct SmokeParticle_t{
 	}
 }
 SmokeParticle_t[] SmokeParticles;
-
-struct ExplosionSprite_t{
-	Sprite_t spr;
-	float size, maxsize;
-}
-ExplosionSprite_t[] ExplosionEffectSprites;
 
 void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint[] col, float timer_ratio=1.0){
 	amount=to!uint(amount*Config_Read!float("particles"));
@@ -1321,60 +1311,34 @@ Debris_t[] Debris_Parts;
 
 Model_t *Debris_BaseModel;
 
+struct ExplosionSprite_t{
+	Sprite_t spr;
+	float size, maxsize;
+}
+ExplosionSprite_t[] ExplosionEffectSprites;
+
 void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint col, uint timer=0){
-	static if(Enable_Object_Model_Modification){
+	if(Enable_Object_Model_Modification && Config_Read!bool("model_modification")){
 		uint explosion_r=(col&255), explosion_g=(col>>8)&255, explosion_b=(col>>16)&255;
 		foreach(uint obj_id, obj; Objects){
 			if(!obj.modify_model)
 				continue;
+			auto spr=Objects[obj_id].toSprite();
 			//Crappy early out case check; need to fix this and consider pivots
-			Vector3_t size=obj.spr.size;
 			Vector3_t dist=(obj.pos-pos).vecabs();
-			if(dist.x>radius+size.x*2.0 || dist.y>radius+size.y*2.0 || dist.z>radius+size.z*2.0)
+			if(dist.x>radius+spr.model.size.x*2.0 || dist.y>radius+spr.model.size.y*2.0 || dist.z>radius+spr.model.size.z*2.0)
 				continue;
-			Sprite_t spr=Objects[obj_id].toSprite();
-			{
-				float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
-				float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
-				float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
-				for(uint blkx=0; blkx<spr.model.xsize; ++blkx){
-					for(uint blkz=0; blkz<spr.model.zsize; ++blkz){
-						uint index=spr.model.offsets[blkx+blkz*spr.model.xsize];
-						if(index>=spr.model.voxels.length)
-							continue;
-						ModelVoxel_t *sblk=&spr.model.voxels[index];
-						ModelVoxel_t *eblk=&sblk[cast(uint)spr.model.column_lengths[blkx+blkz*spr.model.xsize]];
-						for(ModelVoxel_t *blk=sblk; blk<eblk; ++blk){
-							if(!blk.visiblefaces)
-								continue;
-							float fnx=(blkx-spr.model.xpivot+.5)*spr.xdensity;
-							float fny=(blk.ypos-spr.model.ypivot+.5)*spr.ydensity;
-							float fnz=(blkz-spr.model.zpivot-.5)*spr.zdensity;
-							float rot_y=fny, rot_z=fnz, rot_x=fnx;
-							fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
-							rot_x=fnx; rot_z=fnz;
-							fnz=rot_z*rot_cy - rot_x*rot_sy; fnx=rot_z*rot_sy + rot_x*rot_cy;
-							rot_x=fnx; rot_y=fny;
-							fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
-							fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
-							Vector3_t vxpos=Vector3_t(fnx, fny, fnz);
-							float vxdist=(vxpos-pos).length*(.8+uniform01()*.2);
-							if(vxdist>radius)
-								continue;
-							uint alpha=touint((vxdist/radius)*255.0), inv_alpha=255-alpha;
-							uint r=(blk.color)&255, g=(blk.color>>8)&255, b=(blk.color>>16)&255;
-							/*r=(explosion_r*inv_alpha+r*alpha)>>8;
-							g=(explosion_g*inv_alpha+g*alpha)>>8;
-							b=(explosion_b*inv_alpha+b*alpha)>>8;*/
-							r=(r*alpha)>>8; g=(g*alpha)>>8; b=(b*alpha)>>8;
-							blk.color=(r) | (g<<8) | (b<<16);
-						}
-					}
-				}
+			foreach(ref vox, vxpos; spr){
+				float vxdist=(vxpos-pos).length*(.8+uniform01()*.2);
+				if(vxdist>radius)
+					continue;
+				uint alpha=touint((vxdist/radius)*255.0), inv_alpha=255-alpha;
+				uint r=(vox.color)&255, g=(vox.color>>8)&255, b=(vox.color>>16)&255;
+				vox.color=((r*alpha)>>8) | (((g*alpha)>>8)<<8) | (((g*alpha)>>8)<<16);
 			}
 		}
 	}
-	//Honestly, that's such a piece of crap that we don't even want to OPTIONALLY expose players to it xd
+	//Honestly, that's such a piece of crap that we don't even want to OPTIONALLY expose it to players xd
 	if(Config_Read!bool("effects") && 0){
 		float powrad=radius*radius;
 		int miny=cast(int)max(0, -radius+pos.y), maxy=cast(int)min(MapYSize, radius+pos.y);
@@ -1549,65 +1513,24 @@ Vector3_t Get_Absolute_Sprite_Coord(Sprite_t *spr, Vector3_t coord){
 }
 
 bool Sprite_Visible(in Sprite_t spr){
-	/*if(!Do_Sprite_Visibility_Checks)
+	if(!Config_Read!bool("sprite_visibility_checks"))
 		return true;
-	float rot_sx=sin((spr.rhe)*PI/180.0), rot_cx=cos((spr.rhe)*PI/180.0);
-	float rot_sy=sin(-(spr.rti+90.0)*PI/180.0), rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
-	float rot_sz=sin(spr.rst*PI/180.0), rot_cz=cos(-spr.rst*PI/180.0);
-	for(uint edgeindex=0; edgeindex<8; edgeindex++){
-		float fnx=tofloat(toint(edgeindex%2)*spr.model.xsize);
-		float fny=tofloat(toint((edgeindex%4)>1)*spr.model.ysize);
-		float fnz=tofloat(toint(edgeindex>3)*spr.model.zsize);
-		fnx=(fnx-spr.model.xpivot+.5)*spr.xdensity;
-		fny=(fny-spr.model.ypivot+.5)*spr.ydensity;
-		fnz=(fnz-spr.model.zpivot-.5)*spr.zdensity;
-		float rot_y=fny, rot_z=fnz, rot_x=fnx;
-		fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
-		rot_x=fnx; rot_z=fnz;
-		fnz=rot_z*rot_cy - rot_x*rot_sy; fnx=rot_z*rot_sy + rot_x*rot_cy;
-		rot_x=fnx; rot_y=fny;
-		fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
-		fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
-		int screenx, screeny;
-		float renddist;
-		if(!Project2D(fnx, fnz, fny, &renddist, screenx, screeny) && 0)
-			continue;
-		/*if(renddist<0.0 || renddist>Visibility_Range)
-			continue;
-		if(screenx<0 || screeny<0 || screenx>=ScreenXSize || ScreenYSize)
-			continue;*/
-		//Only after I fixed raycasting code
-		/*Vector3_t vpos=Vector3_t(fnx, fny, fnz);
-		Vector3_t vdist=vpos-CameraPos;
-		if(vdist.length>Current_Visibility_Range)
-			continue;
-		auto result=RayCast(Vector3_t(fnx, fny, fnz), vdist.abs, vdist.length);
-		if(!result.collside)
+	auto edges=(cast(AABB_t)spr).Edges;
+	int[8] x_offsets, y_offsets;
+	foreach(ind, edge; edges){
+		auto coords=Project2D(edge.x, edge.y, edge.z);
+		x_offsets[ind]=(coords[0]<0 ? -1 : (coords[0]>ScreenXSize ? 1 : 0));
+		y_offsets[ind]=(coords[1]<0 ? -1 : (coords[1]>ScreenYSize ? 1 : 0));
+		if(!x_offsets[ind] && !y_offsets[ind])
 			return true;
-		return true;
 	}
-	return false;*/
+	int[] dx_offsets=x_offsets, dy_offsets=y_offsets;
+	if(all!"a==1"(dx_offsets) || all!"a==-1"(dx_offsets) || all!"a==1"(dy_offsets) || all!"a==-1"(dy_offsets))
+		return false;
+	//Quick hack to prevent the worst for those large ass bombers etc.
+	if(spr.model.voxels.length>10000)
+		return false;
 	return true;
-}
-
-bool Sprite_BoundHitCheck(in Sprite_t spr, in Vector3_t pos, in Vector3_t dir){
-	if(!Config_Read!bool("bound_hit_checks"))
-		return true;
-	immutable renderrot=Vector_t!(3, real)(spr.rhe, -(spr.rti+90.0), -spr.rst);
-	immutable minpos=(-spr.model.pivot*spr.density).rotate_raw(renderrot)+spr.pos;
-	immutable xdiff=(((Vector_t!(3, real)(spr.model.size.filter!(1, 0, 0)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.x;
-	immutable ydiff=(((Vector_t!(3, real)(spr.model.size.filter!(0, 1, 0)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.y;
-	immutable zdiff=(((Vector_t!(3, real)(spr.model.size.filter!(0, 0, 1)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.z;
-	auto vxpos=minpos+xdiff*.5+ydiff*.5+zdiff*.5;
-	real minx=real.max, maxx=-real.max, miny=real.max, maxy=-real.max, minz=real.max, maxz=-real.max;
-	foreach(edgeindex; 0..8){
-		immutable voxpos=vxpos+xdiff*to!real(edgeindex%2)*spr.model.xsize+ydiff*to!real((edgeindex%4)>1)*spr.model.ysize*
-		zdiff*to!real(edgeindex>3)*spr.model.zsize;
-		minx=min(voxpos.x, minx); maxx=max(voxpos.x, maxx); miny=min(voxpos.y, miny);
-		maxy=max(voxpos.y, maxy); minz=min(voxpos.z, minz); maxz=max(voxpos.z, maxz);
-	}
-	auto ret=AABB_t(minx, miny, minz, maxx, maxy, maxz).Intersect(pos, dir);
-	return ret!=typeof(ret).nan;
 }
 
 uint Calculate_Alpha(uint c1, uint c2, ushort alpha){
@@ -1919,5 +1842,40 @@ struct Sprite_t{
 		color_mod=0; replace_black=0; check_visibility=0;
 		model=imodel;
 		motion_blur=0;
+	}
+	const auto opCast(AABB_t)(){
+		immutable renderrot=Vector_t!(3, real)(rot.x, -(rot.y+90.0), -rot.z);
+		immutable minpos=(-model.pivot*density).rotate_raw(renderrot)+pos;
+		immutable xdiff=(((Vector_t!(3, real)(model.size.filter!(1, 0, 0)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos);
+		immutable ydiff=(((Vector_t!(3, real)(model.size.filter!(0, 1, 0)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos);
+		immutable zdiff=(((Vector_t!(3, real)(model.size.filter!(0, 0, 1)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos);
+		auto vxpos=minpos+xdiff*.5/(cast(real)model.size.x)+ydiff*.5/(cast(real)model.size.y)+zdiff*.5/(cast(real)model.size.z);
+		real minx=real.max, maxx=-real.max, miny=real.max, maxy=-real.max, minz=real.max, maxz=-real.max;
+		foreach(edgeindex; 0..8){
+			immutable voxpos=vxpos+xdiff*to!real(edgeindex%2)+ydiff*to!real((edgeindex%4)>1)+zdiff*to!real(edgeindex>3);
+			minx=min(voxpos.x, minx); maxx=max(voxpos.x, maxx); miny=min(voxpos.y, miny);
+			maxy=max(voxpos.y, maxy); minz=min(voxpos.z, minz); maxz=max(voxpos.z, maxz);
+		}
+		return AABB_t(minx, miny, minz, maxx, maxy, maxz);
+	}
+	int opApply(scope int delegate(ref ModelVoxel_t vox, immutable in Vector_t!(3, real) pos) dg){
+		immutable renderrot=Vector_t!(3, real)(rot.x, -(rot.y+90.0), -rot.z);
+		immutable minpos=(-model.pivot*density).rotate_raw(renderrot)+pos;
+		immutable xdiff=(((Vector_t!(3, real)(model.size.filter!(1, 0, 0)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos)/cast(real)model.size.x;
+		immutable ydiff=(((Vector_t!(3, real)(model.size.filter!(0, 1, 0)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos)/cast(real)model.size.y;
+		immutable zdiff=(((Vector_t!(3, real)(model.size.filter!(0, 0, 1)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos)/cast(real)model.size.z;
+		Vector_t!(3, real) basepos=minpos+xdiff*.5+ydiff*.5+zdiff*.5;
+		for(uint blkx=0; blkx<model.size.x; blkx++){
+			for(uint blkz=0; blkz<model.size.z; blkz++){
+				for(uint blkind=model.offsets[blkx+blkz*model.xsize];
+			blkind<model.offsets[blkx+blkz*model.xsize]+cast(uint)model.column_lengths[blkx+blkz*model.xsize]; blkind++){	
+					immutable voxpos=basepos+xdiff*blkx+ydiff*model.voxels[blkind].ypos+zdiff*blkz;
+					int result=dg(model.voxels[blkind], voxpos);
+					if(result)
+						return result;
+				}
+			}
+		}
+		return 0;
 	}
 }

@@ -427,10 +427,9 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 						Hittable_Objects.remove(packet.obj_id);
 				}
 				obj.modify_model=cast(bool)(packet.flags&SetObjectFlags.ModelModification);
-				if(packet.model_id==255)
-					obj.visible=false;
-				else
-					obj.visible=true;
+				if(packet.model_id==255){
+					obj.UnInit();
+				}
 				if(obj.visible){
 					if(Enable_Object_Model_Modification && obj.modify_model){
 						obj.model=Mod_Models[packet.model_id].copy();

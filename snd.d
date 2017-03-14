@@ -50,7 +50,7 @@ struct SoundSource_t{
 			if(state!=AL_PLAYING){
 				found_src=src;
 				if(al_src_buffers[ind].length){
-					alSourceUnqueueBuffers(found_src, al_src_buffers[ind].length, al_src_buffers[ind].ptr);
+					alSourceUnqueueBuffers(found_src, cast(uint)al_src_buffers[ind].length, al_src_buffers[ind].ptr);
 					__AlError("alSourceUnqueueBuffers()");
 					al_src_buffers[ind].length=0;
 				}
@@ -91,7 +91,7 @@ struct SoundSource_t{
 				}
 			}
 			if(al_src_buffers[ind].length){
-				alSourceUnqueueBuffers(src, al_src_buffers[ind].length, al_src_buffers[ind].ptr);
+				alSourceUnqueueBuffers(src, to!uint(al_src_buffers[ind].length), al_src_buffers[ind].ptr);
 				__AlError("alSourceUnqueueBuffers()");
 			}
 			alDeleteSources(1, &src);
@@ -133,7 +133,7 @@ struct SoundSource_t{
 				__AlError("alSource() for pitch");
 			}
 		}
-		alSourceQueueBuffers(al_sources[src_ind], snd.buffers.length, snd.buffers.ptr);
+		alSourceQueueBuffers(al_sources[src_ind], to!uint(snd.buffers.length), snd.buffers.ptr);
 		if(__AlError("alSourceQueueBuffers()"))
 			return;
 		al_src_buffers[src_ind]~=snd.buffers;
@@ -188,7 +188,7 @@ extern(C) nothrow size_t __vorbisfile_read_func(void *ptr, size_t size, size_t n
 	size*=nmemb;
 	if(rfile.data_pos+size>=rfile.encoded_data.length){
 		(cast(ubyte*)ptr)[0..rfile.encoded_data.length-rfile.data_pos]=rfile.encoded_data[rfile.data_pos..$];
-		uint written_size=rfile.encoded_data.length-rfile.data_pos;
+		auto written_size=rfile.encoded_data.length-rfile.data_pos;
 		rfile.data_pos=rfile.encoded_data.length-1;
 		return written_size;
 	}
@@ -199,10 +199,12 @@ extern(C) nothrow size_t __vorbisfile_read_func(void *ptr, size_t size, size_t n
 
 struct __vorbisfile_readfunc_file{
 	ubyte[] encoded_data;
-	uint data_pos;
+	size_t data_pos;
 }
 
 Sound_t Sound_DecodeOgg(ubyte[] encoded_data){
+	if(!OpenAL_Initialized)
+		return Sound_t();
 	OggVorbis_File vfile;
 	ov_callbacks callbacks;
 	callbacks.seek_func=null; callbacks.tell_func=null; callbacks.close_func=null;
@@ -249,23 +251,30 @@ Sound_t Sound_DecodeOgg(ubyte[] encoded_data){
 	Sound_t snd;
 	snd.buffers.length=data_chunks.length;
 	alGetError();
-	alGenBuffers(snd.buffers.length, snd.buffers.ptr);
+	alGenBuffers(to!uint(snd.buffers.length), snd.buffers.ptr);
 	if(__AlError("alGenbuffers()"))
 		return Sound_t();
 	foreach(ind, chunk; data_chunks){
 		if(!chunk.data.length)
 			continue;
-		alBufferData(snd.buffers[ind], chunk.format, cast(void*)chunk.data.ptr, chunk.data.length, chunk.frequency);
+		alBufferData(snd.buffers[ind], chunk.format, cast(void*)chunk.data.ptr, to!uint(chunk.data.length), chunk.frequency);
 		if(__AlError("alBufferData()")){}
 	}
 	return snd;
 }
 
+/* For sound, it's very important to not only be able to completely
+ * disable execution of any related code to reduce CPU usage, but also
+ * to not even load the corresponding libraries at all, so the game
+ * can run on systems without OpenAL/Vorbis installed or where they cause trouble*/
 void Init_Snd(){
-	DerelictAL.load();
+	Sound_Enabled=Config_Read!bool("sound");
+	if(!Sound_Enabled)
+		return;
 	DerelictVorbis.load();
     DerelictVorbisEnc.load();
     DerelictVorbisFile.load();
+	DerelictAL.load();
 	alGetError();
 	Sound_Device=alcOpenDevice(null);
 	if(!Sound_Device)

@@ -115,9 +115,11 @@ void UnInit_Game(){
 	UnInit_Netcode();
 }
 
+bool got_sigsegv=false;
 version(DigitalMars){
 	extern(C) @nogc @system nothrow void SignalHandler(int signum){
-		if(signum==SIGSEGV){
+		if(signum==SIGSEGV && !got_sigsegv){
+			got_sigsegv=true;
 			SDL_SetRelativeMouseMode(SDL_FALSE);
 			signal(SIGSEGV, SIG_DFL);
 		}
@@ -125,7 +127,8 @@ version(DigitalMars){
 }
 else{
 	extern(C) @system nothrow void SignalHandler(int signum){
-		if(signum==SIGSEGV){
+		if(signum==SIGSEGV && !got_sigsegv){
+			got_sigsegv=true;
 			SDL_SetRelativeMouseMode(SDL_FALSE);
 			signal(SIGSEGV, SIG_DFL);
 		}

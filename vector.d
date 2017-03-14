@@ -339,11 +339,11 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		ret.z=z;
 		return ret;
 	}
-	typeof(x) dot(T)(T arg){
+	const typeof(x) dot(T)(T arg){
 		__this_type vec=__this_type(arg);
 		return x*vec.x+y*vec.y+z*vec.z;
 	}
-	typeof(x) dot(__this_type vec){
+	const typeof(x) dot(__this_type vec){
 		return x*vec.x+y*vec.y+z*vec.z;
 	}
 	

@@ -156,6 +156,65 @@ struct AABB_t {
 		return tnear;
 	}
 	
+	TR Intersect_invdir(TP, TD, TR=real)(TP pos, TD dir){
+		TR tnear=-TR.max, tfar=TR.max;
+		if(!dir.x){
+			if((pos.x<minvec.x) || (pos.x>maxvec.x))
+				return TR.nan;
+		}
+		else{
+			TR t1=(minvec.x-pos.x)*dir.x;
+			TR t2=(maxvec.x-pos.x)*dir.x;
+			if(t1>t2)
+				swap(t1, t2);
+			if(t1>tnear)
+				tnear=t1;
+			if(t2<tfar)
+				tfar=t2;
+			if(tnear>tfar)
+				return TR.nan;
+			if(tfar<0.0)
+				return TR.nan;
+		}
+		if(!dir.y){
+			if((pos.y<minvec.y) || (pos.y>maxvec.y))
+				return TR.nan;
+		}
+		else{
+			TR t1=(minvec.y-pos.y)*dir.y;
+			TR t2=(maxvec.y-pos.y)*dir.y;
+			if(t1>t2)
+				swap(t1, t2);
+			if(t1>tnear)
+				tnear=t1;
+			if(t2<tfar)
+				tfar=t2;
+			if(tnear>tfar)
+				return TR.nan;
+			if(tfar<0.0)
+				return TR.nan;
+		}
+		if(!dir.z){
+			if((pos.z<minvec.z) || (pos.z>maxvec.z))
+				return TR.nan;
+		}
+		else{
+			TR t1=(minvec.z-pos.z)*dir.z;
+			TR t2=(maxvec.z-pos.z)*dir.z;
+			if(t1>t2)
+				swap(t1, t2);
+			if(t1>tnear)
+				tnear=t1;
+			if(t2<tfar)
+				tfar=t2;
+			if(tnear>tfar)
+				return TR.nan;
+			if(tfar<0.0)
+				return TR.nan;
+		}
+		return tnear;
+	}
+	
 	void set_center(float x, float y, float z) {
 		float size_x = max_x-min_x;
 		float size_y = max_y-min_y;
@@ -220,8 +279,22 @@ struct AABB_t {
 		}
 		return false;
 	}
+	bool Contains(T)(T vec) if(isVector_t!T){
+		return vec.x>=minvec.x && vec.y>=minvec.y && vec.z>=minvec.z && vec.x<maxvec.x && vec.y<maxvec.y && vec.z<maxvec.z;
+	}
+
+	const R[8] Edges(R=Vector3_t)(){
+		return[
+			R(minvec.x, minvec.y, minvec.z), R(maxvec.x, minvec.y, minvec.z), R(minvec.x, maxvec.y, minvec.z), R(maxvec.x, maxvec.y, minvec.z),
+			R(minvec.x, minvec.y, maxvec.z), R(maxvec.x, minvec.y, maxvec.z), R(minvec.x, maxvec.y, maxvec.z), R(maxvec.x, maxvec.y, maxvec.z)
+		];
+	}
 }
 
+template ArrayBaseType(T : T[])
+{
+  alias T ArrayBaseType;
+}
 
 struct Player_t{
 	PlayerID_t player_id;
@@ -906,7 +979,7 @@ Player_t[] Players;
 
 void Init_Player(string name, PlayerID_t id){
 	if(id>=Players.length){
-		uint oldlen=Players.length;
+		size_t oldlen=Players.length;
 		Players.length=id+1;
 		foreach(i; oldlen..Players.length)
 			Players[i]=Player_t(to!PlayerID_t(i));
@@ -1048,7 +1121,12 @@ uint Hash_Coordinates(uint x, uint y, uint z){
 immutable uint MaxDamageParticlesPerBlock=256;
 
 struct DamageParticle_t{
-	float x, y, z;
+	union{
+		struct{
+			float x, y, z;
+		}
+		Vector3_t pos;
+	}
 	uint col;
 	void Init(uint ix, uint iy, uint iz, uint icol, uint[] free_sides){
 		float vx=tofloat(ix)+.5, vy=tofloat(iy)+.5, vz=tofloat(iz)+.5;
@@ -1300,6 +1378,8 @@ RayCastResult_t RayCast(Vector3_t pos, Vector3_t dir, float length){
 	auto ray=RCRay_t(pos, dir, length);
 	ray.Advance!true();
 	ray.lastside*=ray.hit;
+	if(ray.lastdist>length)
+		ray.lastside=0;
 	return RayCastResult_t(ray.rayx, ray.rayy, ray.rayz, ray.lastdist, ray.lastside);
 }
 
@@ -1316,7 +1396,7 @@ string __StructDefToString(T)(){
 struct Object_t{
 	uint index;
 	ubyte minimap_img;
-	bool modify_model, enable_bullet_holes, send_hits;
+	bool modify_model, enable_bullet_holes, send_hits, no_map_bound_checks;
 	bool visible;
 	bool Is_Solid;
 	float weightfactor, frictionfactor;
@@ -1334,19 +1414,31 @@ struct Object_t{
 	@property uint color(){return obj.spr.color_mod;} @property void color(uint c){obj.spr.color_mod=c;}
 
 	void Init(uint initindex){
+		if(DamagedObjects.canFind(index))
+			DamagedObjects.remove(DamagedObjects.countUntil(index));
+		if(Solid_Objects.canFind(index))
+			Solid_Objects.remove(Solid_Objects.countUntil(index));
+		if(Hittable_Objects.canFind(index))
+			Hittable_Objects.remove(Hittable_Objects.countUntil(index));
 		index=initindex;
 		physics_mode=ObjectPhysicsMode.Standard;
-		if(DamagedObjects.canFind(index))
-			DamagedObjects.remove(index);
-		if(Solid_Objects.canFind(index))
-			Solid_Objects.remove(index);
-		if(Hittable_Objects.canFind(index))
-			Hittable_Objects.remove(index);
 		acl=Vector3_t(0.0);
 		obj=PhysicalObject_t([Vector3_t(0.0, 0.0, 0.0)]);
+		visible=true;
+	}
+	
+	void UnInit(){
+		if(DamagedObjects.canFind(index))
+			DamagedObjects.remove(DamagedObjects.countUntil(index));
+		if(Solid_Objects.canFind(index))
+			Solid_Objects.remove(Solid_Objects.countUntil(index));
+		if(Hittable_Objects.canFind(index))
+			Hittable_Objects.remove(Hittable_Objects.countUntil(index));
+		visible=false;
 	}
 	
 	void Update(float dt=WorldSpeed){
+		immutable oldpos=pos;
 		if(physics_mode==ObjectPhysicsMode.Standard || physics_mode==ObjectPhysicsMode.Scripted){
 			if(physics_mode==ObjectPhysicsMode.Scripted){
 				Vector3_t deltapos=obj.Vertices_CheckCollisions(vel*dt);
@@ -1371,7 +1463,12 @@ struct Object_t{
 				return;
 			if(physics_mode==ObjectPhysicsMode.Full_Scripted){
 				pos+=fdeltapos;
-				return;
+			}
+		}
+		immutable deltapos=pos-oldpos;
+		if(deltapos){
+			foreach(ref particle; particles){
+				particle.pos+=deltapos;
 			}
 		}
 	}

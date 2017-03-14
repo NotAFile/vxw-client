@@ -10,6 +10,7 @@ import std.algorithm;
 import std.conv;
 import std.stdio;
 import std.file;
+import std.math;
 import gfx;
 import snd;
 import main;
@@ -91,9 +92,10 @@ immutable SettingsMenu_ConfigEntries=[
 	SettingsMenuEntry_t("l", "gun_flashes", "bool", "toggles flashes from shots (big source of lag if you have lots of fellow players!)", 0.0, 1.0, "false"),
 	SettingsMenuEntry_t("x", "explosion_flashes", "bool", "toggles flashes from explosions", 0.0, 1.0, "true"),
 	SettingsMenuEntry_t("h", "chat_alpha", "ubyte", "sets chat transparency",  0, 255, "255"),
-	SettingsMenuEntry_t("g", "bound_hit_checks", "bool", "toggles bound hit checking (faster, but may not register some hits)", 0.0, 1.0, "true"),
 	SettingsMenuEntry_t("n", "sound", "bool", "toggles sounds", 0.0, 1.0, "true"),
 	SettingsMenuEntry_t("v", "volume", "float", "sets the volume", 0.0, float.infinity, "100.0", 1.0),
+	SettingsMenuEntry_t("i", "model_modification", "bool", "toggles some model modification effects (may crash the game occassionally)", 0.0, float.infinity, "false"),
+	SettingsMenuEntry_t("r", "sprite_visibility_checks", "bool", "toggles visibility checks for sprites (increases FPS, but may hide normally visible objects sometimes)", 0.0, float.infinity, "false")
 ];
 
 void SettingsMenu_ChangeEntry(float val){
@@ -105,7 +107,7 @@ void SettingsMenu_ChangeEntry(float val){
 		rangestep=1.0;
 	else
 		rangestep=(entry.maxval-entry.minval)/10.0;
-	if(entry.step!=float.nan)
+	if(!entry.step.isNaN())
 		rangestep=entry.step;
 	if(entry.type=="float"){
 		float newval=Config_Read!float(entry.entry)+val*rangestep;
@@ -686,7 +688,7 @@ void WriteMsg(string msg, uint color){
 		ChatText[0]=msg;
 	}
 	else{
-		uint lines=msg.length/maxlinelength+1;
+		auto lines=msg.length/maxlinelength+1;
 		foreach(j; 0..lines){
 			for(uint i=cast(uint)ChatText.length-1; i; i--){
 				ChatColors[i]=ChatColors[i-1];
