@@ -310,7 +310,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				type.recoil_yc=packet.recoil_yc;
 				type.recoil_ym=packet.recoil_ym;
 				type.block_damage=packet.block_damage;
-				type.block_damage_range=packet.block_damage_range;
+				type.use_range=packet.use_range;
 				type.is_weapon=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_WEAPON);
 				type.repeated_use=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_REPEATEDUSE);
 				type.show_palette=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_SHOWPALETTE);
@@ -403,9 +403,13 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					uint oldlength=cast(uint)Objects.length;
 					Objects.length=packet.obj_id+1;
 					for(uint i=oldlength; i<Objects.length; i++)
-						Objects[i].Init(i);
+						Objects[i]=Object_t(i);
 				}
 				Object_t *obj=&Objects[packet.obj_id];
+				if(packet.model_id!=VoidModelID && !obj.visible){
+					obj.Init();
+					obj.visible=true;
+				}
 				obj.minimap_img=packet.minimap_img;
 				obj.weightfactor=packet.weightfactor;
 				obj.bouncefactor=Vector3_t(packet.bouncefactor);
@@ -426,11 +430,9 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					if(Hittable_Objects.canFind(packet.obj_id))
 						Hittable_Objects.remove(packet.obj_id);
 				}
+				obj.color=packet.color;
 				obj.modify_model=cast(bool)(packet.flags&SetObjectFlags.ModelModification);
-				if(packet.model_id==255){
-					obj.UnInit();
-				}
-				if(obj.visible){
+				if(packet.model_id!=VoidModelID){
 					if(Enable_Object_Model_Modification && obj.modify_model){
 						obj.model=Mod_Models[packet.model_id].copy();
 					}
@@ -440,8 +442,10 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				}
 				else{
 					obj.model=null;
+					if(obj.visible){
+						obj.UnInit();
+					}
 				}
-				obj.color=packet.color;
 				break;
 			}
 			case SetObjectPosPacketID:{

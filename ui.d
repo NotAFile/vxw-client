@@ -95,7 +95,9 @@ immutable SettingsMenu_ConfigEntries=[
 	SettingsMenuEntry_t("n", "sound", "bool", "toggles sounds", 0.0, 1.0, "true"),
 	SettingsMenuEntry_t("v", "volume", "float", "sets the volume", 0.0, float.infinity, "100.0", 1.0),
 	SettingsMenuEntry_t("i", "model_modification", "bool", "toggles some model modification effects (may crash the game occassionally)", 0.0, float.infinity, "false"),
-	SettingsMenuEntry_t("r", "sprite_visibility_checks", "bool", "toggles visibility checks for sprites (increases FPS, but may hide normally visible objects sometimes)", 0.0, float.infinity, "false")
+	SettingsMenuEntry_t("r", "sprite_visibility_checks", "bool", "toggles visibility checks for sprites (increases FPS, but may hide normally visible objects sometimes)", 0.0, float.infinity, "false"),
+	SettingsMenuEntry_t("z", "render_zoomed_scopes", "bool", "toggles rendering zoomed in scopes (might decrease FPS a bit)", 0.0, float.infinity, "true")
+
 ];
 
 void SettingsMenu_ChangeEntry(float val){
@@ -734,7 +736,7 @@ void Render_HUD(){
 	//TODO: fix array out of bounds exception
 	if(Joined_Game()){
 		if(Players[LocalPlayerID].items.length){
-			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon){
+			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].Is_Gun()){
 				Item_t *item=&Players[LocalPlayerID].items[Players[LocalPlayerID].item];
 				if(ProtocolBuiltin_AmmoCounterBG){
 					MenuElement_Draw(ProtocolBuiltin_AmmoCounterBG);

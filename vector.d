@@ -12,11 +12,11 @@ version(GNU){
 }
 
 T degsin(T)(T val){
-	return cast(T)sin(val*PI/180.0);
+	return cast(T)sin(val*PI/cast(T)180.0);
 }
 
 T degcos(T)(T val){
-	return cast(T)cos(val*PI/180.0);
+	return cast(T)cos(val*PI/cast(T)180.0);
 }
 
 alias Vector3_t=Vector_t!(3);
@@ -95,8 +95,14 @@ version(DigitalMars){pragma(inline, true):}
 nothrow pure struct Vector_t(alias dim=3, element_t=float){
 	union{
 		element_t[dim] elements;
+		static if(dim==2){
+			struct{
+				element_t x, y, d1, d2;
+			}
+		}
 		static if(dim==3){
 			struct{
+				//Additional padding element
 				element_t x, y, z, w;
 			}
 		}
@@ -127,20 +133,28 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		x=cast(typeof(x))val[0]; y=cast(typeof(y))val[1]; z=cast(typeof(z))val[2];
 	}
 	this(T)(T val) if(__traits(isScalar, val)){
-		x=cast(typeof(x))val; y=cast(typeof(y))val; z=cast(typeof(z))val;
+		elements[0..dim]=cast(element_t)val;
 	}
 	static if(dim!=3){
 		this(element_t[dim] initelements...){
 			elements[]=initelements[];
 		}
+		this(T)(T val) if(isVectorLike!T){
+			this.elements[0..$]=val.elements[0..$];
+		}
+		this(Args...)(Args args) if(args.length==dim){
+			foreach(i; 0..dim)
+				this.elements[i]=cast(element_t)args[i];
+		}
 	}
+	else{
 	//Optimized version for fast Vector3_t
 	this(T1, T2, T3)(T1 ix, T2 iy, T3 iz){
 		x=cast(typeof(x))ix; y=cast(typeof(y))iy; z=cast(typeof(z))iz;
 	}
-	version(DigitalMars){ pragma(inline, true):}
 	this(T)(T val) if(isVectorLike!T){
 		x=cast(typeof(x))val.x; y=cast(typeof(y))val.y; z=cast(typeof(z))val.z;
+	}
 	}
 	void opIndexAssign(T)(element_t val, T ind){
 		elements[ind]=val;
@@ -241,6 +255,7 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		}
 	}
 	
+	static if(dim==3){
 	const __this_type cossin(){return __this_type(degcos(x), degsin(y), degsin(z));}
 	const __this_type sincos(){return __this_type(degsin(x), degcos(y), degcos(z));}
 	
@@ -249,23 +264,32 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 	const __this_type sin(){return __this_type(degsin(x), degsin(y), degsin(z));}
 	const __this_type cos(){return __this_type(degcos(x), degcos(y), degcos(z));}
 	
-	__this_type rotdir(){return __this_type(degcos(x), degsin(x), degcos(y));}
+	const __this_type rotdir(){return __this_type(degcos(x), degsin(x), degcos(y));}
 	
-	__this_type normal(){if(this.length)return (this/this.length); return __this_type(0.0, 0.0, 0.0);}
-	//DEPRECATED
-	__this_type abs(){return this.normal();}
 	const __this_type vecabs(){
 		static if(isFloat!element_t())
 			return __this_type(fabs(x), fabs(y), fabs(z));
 		else
 			return __this_type(std.math.abs(x), std.math.abs(y), std.math.abs(z));
 	}
+	const Vector_t!(3, T) cross(T)(Vector_t!(3, T) vec){
+		return Vector_t!(3, T)(y*vec.z-z*vec.y, z*vec.x-x*vec.z, x*vec.y-y*vec.x);
+	}
+	const __this_type sgn(){
+		return __this_type(std.math.sgn(x), std.math.sgn(y), std.math.sgn(z));
+	}
+}
+	
+	__this_type normal(){if(this.length)return (this/this.length); return __this_type(0.0);}
+	//DEPRECATED
+	__this_type abs(){return this.normal();}
 	__this_type inv(){
 		__this_type ret;
 		ret.elements[]=(cast(element_t)1.0)/this.elements[];
 		return ret;
 	}
 	
+	static if(dim==3){
 	__this_type rotate(__this_type rot){
 		__this_type rrot=rot;
 		rrot.x=rot.z; rrot.z=rot.x;
@@ -346,7 +370,7 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 	const typeof(x) dot(__this_type vec){
 		return x*vec.x+y*vec.y+z*vec.z;
 	}
-	
+	}
 	const T opCast(T)() if(is(T==__this_type)){return this;}
 	const T opCast(T)() if(isArray!T){return elements;}
 	const T opCast(T)() if(is(T==bool)){return x && y && z;}
@@ -360,18 +384,12 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 	}
 	mixin(__mixin_VectorCTFilter!(dim)());
 	mixin(__mixin_VectorRTFilter!(dim)());
-	__this_type sgn(){
-		return __this_type(std.math.sgn(x), std.math.sgn(y), std.math.sgn(z));
-	}
 	__this_type min(__this_type vec){
 		__this_type ret;
 		foreach(i, ref val; this.elements){
 			ret.elements[i]=std.algorithm.min(val, vec.elements[i]);
 		}
 		return ret;
-	}
-	Vector_t!(3, T) cross(T)(Vector_t!(3, T) vec){
-		return Vector_t!(3, T)(y*vec.z-z*vec.y, z*vec.x-x*vec.z, x*vec.y-y*vec.x);
 	}
 
 	const string toString(){

@@ -35,7 +35,7 @@ void main(string[] args){
 		UnInit_Game();
 		writeflnlog("Usage: ./main <address:port> <nick>");
 		writeflnlog("Or ./main to connect to localhost as Deuce");
-		writeflnlog("You can use DNS names without protocol identifiers (without \"http://\" or \"https://\")");
+		writeflnlog("You can use DNS names without any protocol identifiers (without \"http://\" or \"https://\")");
 		return;
 	}
 	if(args.length>1){
@@ -48,6 +48,7 @@ void main(string[] args){
 		port=to!ushort(ClientConfig["last_port"]);
 	}
 	{
+		SDL_SetWindowTitle(scrn_window, toStringz("[VoxelWar] Connecting to "~address~":"~to!string(port)));
 		int ret=Connect_To(address, port);
 		if(ret<=0){
 			writeflnlog("Error code: %d", ret);

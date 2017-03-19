@@ -664,7 +664,8 @@ struct Player_t{
 		Vector3_t usepos, usedir;
 		if(player_id==LocalPlayerID && LocalPlayerScoping()){
 			auto scp=Get_Player_Scope(player_id);
-			usepos=scp.pos; usedir=scp.rot.RotationAsDirection();
+			usepos=scp.pos;
+			usedir=scp.rot.RotationAsDirection();
 		}
 		else{
 			usepos=CameraPos();
@@ -679,7 +680,7 @@ struct Player_t{
 		Vector3_t block_build_pos;
 		
 		if(itemtype.block_damage){
-			short range=itemtype.block_damage_range;
+			short range=itemtype.use_range;
 			if(range<0)
 				range=cast(short)Current_Visibility_Range;
 			auto rcp=RayCast(usepos, spreadeddir, range);
@@ -768,7 +769,7 @@ struct Player_t{
 		}
 		if(block_hit_dist<player_hit_dist && block_hit_dist<object_hit_dist){
 			uint dmgx=touint(block_hit_pos.x), dmgy=touint(block_hit_pos.y), dmgz=touint(block_hit_pos.z);
-			if(itemtype.is_weapon){
+			if(itemtype.Is_Gun()){
 				Vector3_t particle_pos=usepos+spreadeddir*block_hit_dist;
 				Damage_Block(player_id, dmgx, dmgy, dmgz, itemtype.block_damage, &particle_pos);
 			}
@@ -798,7 +799,7 @@ struct Player_t{
 			current_item.use_timer=current_tick;
 		float xrecoil=(itemtype.recoil_xc+itemtype.recoil_xm*uniform01())*((uniform!int()&1)*2-1);
 		float yrecoil=itemtype.recoil_yc+itemtype.recoil_ym*uniform01()*((uniform!int()&1)*2-1);
-		if(player_id==LocalPlayerID && itemtype.is_weapon){
+		if(player_id==LocalPlayerID && itemtype.Is_Gun()){
 			if(LocalPlayerScoping()){
 				MouseRot.x+=xrecoil*.5;
 				MouseRot.y+=yrecoil*.5;
@@ -1023,7 +1024,7 @@ struct ItemType_t{
 	uint maxamount1, maxamount2;
 	bool is_weapon, repeated_use, show_palette, color_mod;
 	ubyte block_damage;
-	short block_damage_range;
+	short use_range;
 	float spread_c, spread_m;
 	float recoil_xc, recoil_xm;
 	float recoil_yc, recoil_ym;
@@ -1412,18 +1413,21 @@ struct Object_t{
 
 	@property Model_t *model(){return obj.spr.model;} @property void model(Model_t *m){obj.spr.model=m;}
 	@property uint color(){return obj.spr.color_mod;} @property void color(uint c){obj.spr.color_mod=c;}
+	
+	this(uint initindex){
+		this.index=initindex;
+		physics_mode=ObjectPhysicsMode.Standard;
+		acl=Vector3_t(0.0);
+		obj=PhysicalObject_t([Vector3_t(0.0, 0.0, 0.0)]);
+	}
 
-	void Init(uint initindex){
+	void Init(){
 		if(DamagedObjects.canFind(index))
 			DamagedObjects.remove(DamagedObjects.countUntil(index));
 		if(Solid_Objects.canFind(index))
 			Solid_Objects.remove(Solid_Objects.countUntil(index));
 		if(Hittable_Objects.canFind(index))
 			Hittable_Objects.remove(Hittable_Objects.countUntil(index));
-		index=initindex;
-		physics_mode=ObjectPhysicsMode.Standard;
-		acl=Vector3_t(0.0);
-		obj=PhysicalObject_t([Vector3_t(0.0, 0.0, 0.0)]);
 		visible=true;
 	}
 	

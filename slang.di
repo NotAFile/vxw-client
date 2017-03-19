@@ -190,6 +190,7 @@ struct SLang_Load_Type
 int SLang_init_slang();
 int SLang_init_slmath();
 int SLang_init_slfile();
+int SLang_init_array();
 int SLang_load_string(char *);
 int SLns_load_string (const char *, const char *);
 

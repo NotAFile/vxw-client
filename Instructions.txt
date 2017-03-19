@@ -1,11 +1,15 @@
-W/A/S/D = Walk
-Space = Jump
-Left CTRL = Crouch
-Left Click = Use Equipped Item
-Vertical Mouse Wheel/Number Keys = Select Items
-Right Click = Use Item in an alternative way (e.g. pick colour for the block, scope for guns)
-E = Use Object (e.g. go to mortar, press e to equip it, look around to rotate it, left click to shoot)
-Escape = Quit the game
+
+THE BASICS:
+	W/A/S/D = Walk
+	Space = Jump
+	Left CTRL = Crouch
+	Left Click = Use Equipped Item
+	Vertical Mouse Wheel/Number Keys = Select Items
+	Right Click = Use Item in an alternative way (e.g. pick colour for the block, scope for guns)
+	Escape = Quit the game
+
+
+E = Use Object (e.g. go to a mortar and hold E while using it if your server has them)
 -/+ = Change Framerate
 Left CTRL and -/+ = Change Renderer Quality
 Enter = Start Typing Chat / Submit Chat Message
@@ -19,5 +23,5 @@ Typical commands:
 	switch = Takes you to the spawn menu (team/item selection)
 If you have no idea at all, just type "/help" into the chat.
 F1 = toggle in-game instructions
-F2 = toggle server message
+F2 = toggle server message (only if available for the current server)
 Alt + F4 = toggle in-game settings

@@ -219,7 +219,7 @@ struct ItemTypePacketLayout{
 	float recoil_xc, recoil_xm;
 	float recoil_yc, recoil_ym;
 	ubyte block_damage;
-	short block_damage_range;
+	short use_range;
 	float power;
 	ubyte typeflags;
 	ModelID_t model_id;

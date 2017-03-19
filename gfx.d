@@ -408,11 +408,11 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 	for(uint p=0; p<Players.length; p++){
 		Render_Player(p);
 	}
-	if(ProtocolBuiltin_BlockBuildWireframe) {
+	if(ProtocolBuiltin_BlockBuildWireframe){
 		ItemType_t *type = &ItemTypes[Players[LocalPlayerID].Equipped_Item().type];
-		if(type.block_damage_range || (type.is_weapon && !type.Is_Gun())){
-			auto rc=RayCast(CameraPos, Players[LocalPlayerID].dir, ItemTypes[Players[LocalPlayerID].Equipped_Item().type].block_damage_range);
-			if(rc.colldist<=type.block_damage_range && rc.collside){
+		if(type.use_range){
+			auto rc=RayCast(CameraPos, Players[LocalPlayerID].dir, ItemTypes[Players[LocalPlayerID].Equipped_Item().type].use_range);
+			if(rc.colldist<=type.use_range && rc.collside){
 				Sprite_t spr;
 				spr.rhe=0.0; spr.rti=0.0; spr.rst=0.0;
 				Vector3_t wfpos=Vector3_t(rc.x, rc.y, rc.z)-Players[LocalPlayerID].dir.sgn().filter(rc.collside==1, rc.collside==2, rc.collside==3)+.5;
@@ -781,9 +781,11 @@ void Render_Screen(){
 							auto res=Get_Player_Scope(LocalPlayerID);
 							auto scope_pic=Renderer_DrawRoundZoomedIn(&res.pos, &res.rot, ProtocolBuiltin_ScopePicture, 1.5, 1.5);
 							MenuElement_t *e=ProtocolBuiltin_ScopePicture;
-							uint[2] size=[scope_pic.scope_texture_width, scope_pic.scope_texture_height];
-							Renderer_Blit2D(scope_pic.scope_texture, &size, &scope_pic.dstrect, 255, null, &scope_pic.srcrect);
-							size=[Mod_Picture_Sizes[e.picture_index][0], Mod_Picture_Sizes[e.picture_index][0]];
+							if(Config_Read!bool("render_zoomed_scopes")){
+								uint[2] size=[scope_pic.scope_texture_width, scope_pic.scope_texture_height];
+								Renderer_Blit2D(scope_pic.scope_texture, &size, &scope_pic.dstrect, 255, null, &scope_pic.srcrect);
+							}
+							uint[2] size=[Mod_Picture_Sizes[e.picture_index][0], Mod_Picture_Sizes[e.picture_index][0]];
 							Renderer_Blit2D(Mod_Pictures[e.picture_index], &size, &scope_pic.dstrect);
 						}
 					}
@@ -864,7 +866,7 @@ void Render_Screen(){
 				int midx=prct.x+prct.w/2, midy=prct.y+prct.h/2;
 				Renderer_DrawLine2D(midx, midy, midx+to!int(_dir.x*10.0), midy+to!int(_dir.z*10.0), &col);
 				if(plr.player_id!=LocalPlayerID){
-					if(!(plr.left_click && ItemTypes[plr.Equipped_Item().type].is_weapon))
+					if(!(plr.left_click && ItemTypes[plr.Equipped_Item().type].Is_Gun()))
 						Renderer_FillRect2D(&prct, &col);
 					else
 						Renderer_FillRect2D(&prct, &plrfcol);
@@ -934,7 +936,7 @@ void Render_Screen(){
 bool LocalPlayerScoping(){
 	if(LocalPlayerID<Players.length){
 		if(Players[LocalPlayerID].items.length){
-			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].is_weapon
+			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].Is_Gun()
 			&& !Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading && MouseRightClick && BlurAmount<.8){
 				return true;
 			}
@@ -1052,14 +1054,17 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	}
 	auto current_tick=PreciseClock_ToMSecs(PreciseClock());
 	Item_t *item=&plr.items[plr.item];
-	bool item_is_weapon=ItemTypes[item.type].is_weapon;
+	spr.model=Mod_Models[ItemTypes[plr.items[plr.item].type].model_id];
+	spr.density=Vector3_t(player_id!=LocalPlayerID ? .03 : .04);
+	bool item_is_gun=ItemTypes[item.type].Is_Gun();
 	Vector3_t target_item_offset;
 	if(player_id==LocalPlayerID){
 		if(LocalPlayerScoping()){
-			target_item_offset=Vector3_t(.5, 0.0, 0.0);
+			auto model_offset=(spr.model.pivot.filter!(true, true, true))*spr.density;
+			target_item_offset=Vector3_t(10.0*spr.density.z, 0.0, model_offset.y);
 		}
 		else
-		if(plr.left_click && !item_is_weapon){
+		if(plr.left_click && !item_is_gun){
 			target_item_offset=Vector3_t(1.2, 0.0, .9);
 		}
 		else{
@@ -1077,7 +1082,7 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 		}
 		item_offset=plr.current_item_offset;
 	}
-	if(player_id==LocalPlayerID && item_is_weapon){
+	if(player_id==LocalPlayerID && item_is_gun){
 		if(current_tick-item.use_timer<ItemTypes[item.type].use_delay){
 			item_offset.x-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), 2.0)*(item.last_recoil!=0.0)*.1;
 		}
@@ -1087,9 +1092,8 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	spr.rst=rot.z*0.0; spr.rhe=rot.x; spr.rti=rot.y;
 	Vector3_t itempos=pos+item_offset.rotate_raw(Vector3_t(0.0, 90.0-rot.x, 90.0)).rotate_raw(Vector3_t(0.0, 90.0-rot.y+180.0, 0.0));
 	spr.xpos=itempos.x; spr.ypos=itempos.y; spr.zpos=itempos.z;
-	spr.density=Vector3_t(player_id!=LocalPlayerID ? .03 : .04);
 	//BIG WIP
-	if(item_is_weapon){
+	if(item_is_gun){
 		if(!item.Reloading){
 			if(current_tick-item.use_timer<ItemTypes[item.type].use_delay)
 				spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), 2.0)*sgn(item.last_recoil)*1.0;
@@ -1105,7 +1109,6 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 		spr.color_mod=(plr.color&0x00ffffff) | 0xff000000;
 	else
 		spr.color_mod=0;
-	spr.model=Mod_Models[ItemTypes[plr.items[plr.item].type].model_id];
 	sprarr~=spr;
 	return sprarr;
 }

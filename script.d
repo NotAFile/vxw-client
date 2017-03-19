@@ -432,6 +432,7 @@ void Init_Script(){
 	SLang_Traceback=SL_TB_PARTIAL;
 	SLang_init_slang();
 	SLang_init_slmath();
+	SLang_init_array();
 	foreach(funcname; SLStdLib_DisabledFuncs)
 		SLadd_intrinsic_function(cast(const(char*))toStringz(funcname), &SLStdLib_DisabledFunc, SLANG_VOID_TYPE, 0);
 	foreach(varname; SLStdLib_DisabledVars)
@@ -446,6 +447,7 @@ void Init_Script(){
 	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapYSize"), &MapYSize, DLangType_To_SLangType!(typeof(MapYSize))(), 1);
 	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapZSize"), &MapZSize, DLangType_To_SLangType!(typeof(MapZSize))(), 1);
 	SLadd_intrinsic_function(cast(const(char*))toStringz("Vector3_RotationAsDirection"), &ScrVecLib_RotationAsDirection, SLANG_VOID_TYPE, 1, SLANG_ARRAY_TYPE);
+	SLadd_intrinsic_function(cast(const(char*))toStringz("Vector3_DirectionAsRotation"), &ScrVecLib_DirectionAsRotation, SLANG_VOID_TYPE, 1, SLANG_ARRAY_TYPE);
 	ScriptLibraries=[ScriptLib_t("None", ""), ScriptLib_t("GUI", "scrgui"), ScriptLib_t("World", "scrworld")];
 }
 
@@ -677,6 +679,13 @@ void ScrVecLib_RotationAsDirection(SLang_Array_Type *vec){
 	SLindex_Type ind=0;
 	SLang_get_array_element(vec, &ind, &x); ind++; SLang_get_array_element(vec, &ind, &y); ind++; SLang_get_array_element(vec, &ind, &z);
 	Push_DLang_Object(Vector3_t(x, y, z).RotationAsDirection());
+}
+
+void ScrVecLib_DirectionAsRotation(SLang_Array_Type *vec){
+	float x, y, z;
+	SLindex_Type ind=0;
+	SLang_get_array_element(vec, &ind, &x); ind++; SLang_get_array_element(vec, &ind, &y); ind++; SLang_get_array_element(vec, &ind, &z);
+	Push_DLang_Object(Vector3_t(x, y, z).DirectionAsRotation());
 }
 
 ubyte ScrStdLib_KeyPressed(){

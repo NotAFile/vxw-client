@@ -219,6 +219,7 @@ T bitwise_min(T)(T x, T y){
 	return y + ((x - y) & ((x - y) >> (T.sizeof * BITS_PER_BYTE - 1)));
 }
 
+//Hoping that someday, I will find some fast and somewhat reliable int sqrt function
 TR int_sqrt(TI, TR=TI)(TI val){
 	return cast(TR)sqrt(cast(double)val);
 }
