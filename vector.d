@@ -319,14 +319,14 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 	
 	//This function is correct (lecom approved) (except for maybe negligible precision loss)
 	//(Not suitable for OpenGL, needs corrections for that)
-	__this_type RotationAsDirection(){
+	const __this_type RotationAsDirection(){
 		__this_type dir=__this_type(1.0, 0.0, 0.0);
 		dir=dir.rotate(__this_type(this.y, this.x, this.z));
 		auto result=__this_type(dir.x, -dir.z, dir.y);
 		return result;
 	}
 	
-	__this_type DirectionAsRotation(){
+	const __this_type DirectionAsRotation(){
 		float ry=atan2(cast(__float_type)this.z, cast(__float_type)this.x)*180.0/PI;
 		float rx=asin(cast(__float_type)this.y)*180.0/PI;
 		float rz=0.0;

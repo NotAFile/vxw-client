@@ -1,5 +1,5 @@
 # VoxelWar
-*a new voxel shooter client*
+*a new voxel first person shooter*
 
 History:
 Ever since the originally free-to-play voxel FPS "Ace Of Spades" was bought by a company with the purpose of commercial distribution, the leftovers of the community have been trying to make a new game. VoxelWar is one of those games, initially started as an alternative AoS client written in C by lecom. At some point, it became clear that 1. maintenance and development of the client in C was too much work with a too big code base 2. the existing AoS server, PySnip, was too complex and the code was written in a bad way, hence the VxW client was rewritten in D and got a new server written in Python. Because Python was too slow and not very suitable for game development, it was rewritten in S-Lang. Right now, the developers are working towards a first release.
@@ -100,6 +100,7 @@ CREDITS:
 lecom - main programming
 Chameleon - actually rather contributed assets to the server IIRC
 bytebit - his own OpenGL renderer, a small amount of physics code (player physics, AABB code)
+longbyte - for being a very convincing guy (you know what I'm referring to ;)    )
 
 
 ## Notes

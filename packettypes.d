@@ -9,11 +9,14 @@ version(GNU){
 	import gdc_stdlib;
 }
 
-alias PlayerID_t=ubyte;
+alias PlayerID_t=ubyte; immutable PlayerID_t VoidPlayerID=255;
 alias PacketID_t=ubyte;
 alias TeamID_t=ubyte;
 alias ModelID_t=ubyte; immutable ModelID_t VoidModelID=255;
 alias SoundID_t=ubyte; immutable SoundID_t VoidSoundID=255;
+alias ObjectID_t=ushort; immutable ObjectID_t VoidObjectID=65535;
+alias ItemID_t=ubyte; immutable ItemID_t VoidItemID=255;
+alias ItemTypeID_t=ubyte; immutable ItemTypeID_t VoidItemTypeID=255;
 
 struct ClientVersionPacketLayout{
 	uint Protocol_Version;
@@ -199,7 +202,6 @@ struct MouseClickPacketLayout{
 }
 immutable PacketID_t MouseClickPacketID=19;
 
-//NOTE: Implement as script? (HP bars are already server-side)
 struct PlayerHitPacketLayout{
 	PlayerID_t player_id;
 	ubyte hit_sprite;
@@ -212,7 +214,7 @@ enum{
 
 //NOTE: TODO: Scripted weapons and throw this out
 struct ItemTypePacketLayout{
-	ubyte weapon_id;
+	ItemID_t item_id;
 	ushort use_delay;
 	uint maxamount1, maxamount2;
 	float spread_c, spread_m;
@@ -221,6 +223,7 @@ struct ItemTypePacketLayout{
 	ubyte block_damage;
 	short use_range;
 	float power;
+	float cooling;
 	ubyte typeflags;
 	ModelID_t model_id;
 	ModelID_t bullet_model_id;
@@ -343,8 +346,9 @@ struct ChangeFOVPacketLayout{
 }
 immutable PacketID_t ChangeFOVPacketID=36;
 
-enum AssignBuiltinTypes{
-	Model=0, Picture=1, Sent_Image=2, Sound=3
+//Sent_Image is deprecated
+enum AssignBuiltinTypes : ubyte{
+	Model=0, Picture=1, Sent_Image=2, Sound=3, MenuElement=Sent_Image
 }
 
 enum AssignBuiltinModelTypes{
@@ -358,6 +362,7 @@ enum AssignBuiltinPictureTypes{
 enum AssignBuiltinSentImageTypes{
 	AmmoCounterBG=0, AmmoCounterBullet=1, Palette_HBorder=2, Palette_HFG=3, Palette_VBorder=4, Palette_VFG=5, ScopeGfx=6
 }
+alias AssignBuiltinMenuElementTypes=AssignBuiltinSentImageTypes;
 
 enum AssignBuiltinSoundTypes{
 	Step=0, Explosion=1, Block_Break=2
@@ -457,13 +462,13 @@ immutable PacketID_t RunScriptPacketID=50;
 
 //Standard = hardcoded physics; Scripted = hardcoded physics + script hook called
 //Full_Scripted = script hook called + only collision code (fdeltapos = movement vector)
-//Script_Override = no hardcoded physics, object update call = only script hook call
+//Script_Override = no hardcoded physics and object update call = only script hook call
 enum ObjectPhysicsMode{
 	Standard=0, Scripted=1, Full_Scripted=2, Script_Override=3
 }
 
 struct SetObjectPhysicsPacketLayout{
-	ushort obj_id;
+	ObjectID_t obj_id;
 	ubyte physics_mode;
 	ubyte script;
 }
@@ -482,6 +487,37 @@ struct PlaySoundPacketLayout{
 	SoundID_t sound;
 }
 immutable PacketID_t PlaySoundPacketID=53;
+
+struct SetObjectSmokePacketLayout{
+	ObjectID_t obj_id;
+	float amount;
+	uint color;
+}
+immutable PacketID_t SetObjectSmokePacketID=54;
+
+enum ObjectAttachmentFlags : ubyte{
+	FreeRotation=(1<<0)
+}
+
+struct SetObjectAttachmentPacketLayout{
+	ObjectID_t obj_id;
+	ObjectID_t attached_to_obj;
+	float xoffset, yoffset, zoffset;
+	ObjectAttachmentFlags flags;
+}
+immutable PacketID_t SetObjectAttachmentPacketID=55;
+
+struct AssignObjectItemPacketLayout{
+	ObjectID_t obj_id;
+	ItemTypeID_t itemtype_id;
+}
+immutable PacketID_t AssignObjectItemPacketID=56;
+
+struct EquipObjectItemPacketLayout{
+	PlayerID_t player_id;
+	ObjectID_t obj_id;
+}
+immutable PacketID_t EquipObjectItemPacketID=57;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)

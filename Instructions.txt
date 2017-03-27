@@ -24,4 +24,4 @@ Typical commands:
 If you have no idea at all, just type "/help" into the chat.
 F1 = toggle in-game instructions
 F2 = toggle server message (only if available for the current server)
-Alt + F4 = toggle in-game settings
+Alt + F4 = toggle in-game settings (or alternatively press F10)

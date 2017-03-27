@@ -19,6 +19,7 @@ import renderer;
 import renderer_templates;
 import protocol;
 import packettypes;
+import modlib;
 import misc;
 import world;
 import snd;
@@ -409,20 +410,22 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 		Render_Player(p);
 	}
 	if(ProtocolBuiltin_BlockBuildWireframe){
-		ItemType_t *type = &ItemTypes[Players[LocalPlayerID].Equipped_Item().type];
-		if(type.use_range){
-			auto rc=RayCast(CameraPos, Players[LocalPlayerID].dir, ItemTypes[Players[LocalPlayerID].Equipped_Item().type].use_range);
-			if(rc.colldist<=type.use_range && rc.collside){
-				Sprite_t spr;
-				spr.rhe=0.0; spr.rti=0.0; spr.rst=0.0;
-				Vector3_t wfpos=Vector3_t(rc.x, rc.y, rc.z)-Players[LocalPlayerID].dir.sgn().filter(rc.collside==1, rc.collside==2, rc.collside==3)+.5;
-				spr.xpos=wfpos.x; spr.ypos=wfpos.y; spr.zpos=wfpos.z;
-				spr.xdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.xsize; spr.ydensity=1.0/ProtocolBuiltin_BlockBuildWireframe.ysize;
-				spr.zdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.zsize;
-				spr.color_mod=(Players[LocalPlayerID].color&0x00ffffff) | 0xff000000;
-				spr.replace_black=spr.color_mod;
-				spr.model=ProtocolBuiltin_BlockBuildWireframe;
-				Renderer_DrawWireframe(spr);
+		if(Players[LocalPlayerID].equipped_item){
+			ItemType_t *type = &ItemTypes[Players[LocalPlayerID].equipped_item.type];
+			if(type.use_range){
+				auto rc=RayCast(CameraPos, Players[LocalPlayerID].dir, ItemTypes[Players[LocalPlayerID].equipped_item.type].use_range);
+				if(rc.colldist<=type.use_range && rc.collside){
+					Sprite_t spr;
+					spr.rhe=0.0; spr.rti=0.0; spr.rst=0.0;
+					Vector3_t wfpos=Vector3_t(rc.x, rc.y, rc.z)-Players[LocalPlayerID].dir.sgn().filter(rc.collside==1, rc.collside==2, rc.collside==3)+.5;
+					spr.xpos=wfpos.x; spr.ypos=wfpos.y; spr.zpos=wfpos.z;
+					spr.xdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.xsize; spr.ydensity=1.0/ProtocolBuiltin_BlockBuildWireframe.ysize;
+					spr.zdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.zsize;
+					spr.color_mod=(Players[LocalPlayerID].color&0x00ffffff) | 0xff000000;
+					spr.replace_black=spr.color_mod;
+					spr.model=ProtocolBuiltin_BlockBuildWireframe;
+					Renderer_DrawWireframe(spr);
+				}
 			}
 		}
 	}
@@ -866,10 +869,15 @@ void Render_Screen(){
 				int midx=prct.x+prct.w/2, midy=prct.y+prct.h/2;
 				Renderer_DrawLine2D(midx, midy, midx+to!int(_dir.x*10.0), midy+to!int(_dir.z*10.0), &col);
 				if(plr.player_id!=LocalPlayerID){
-					if(!(plr.left_click && ItemTypes[plr.Equipped_Item().type].Is_Gun()))
+					if(plr.equipped_item){
+						if(!(plr.left_click && ItemTypes[plr.equipped_item.type].Is_Gun()))
+							Renderer_FillRect2D(&prct, &col);
+						else
+							Renderer_FillRect2D(&prct, &plrfcol);
+					}
+					else{
 						Renderer_FillRect2D(&prct, &col);
-					else
-						Renderer_FillRect2D(&prct, &plrfcol);
+					}
 				}
 				else{
 					prct.w+=2; prct.h+=2;
@@ -936,8 +944,9 @@ void Render_Screen(){
 bool LocalPlayerScoping(){
 	if(LocalPlayerID<Players.length){
 		if(Players[LocalPlayerID].items.length){
-			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].Is_Gun()
-			&& !Players[LocalPlayerID].items[Players[LocalPlayerID].item].Reloading && MouseRightClick && BlurAmount<.8){
+			if(!Players[LocalPlayerID].equipped_item)
+				return false;
+			if(!Players[LocalPlayerID].equipped_item.Reloading && MouseRightClick && BlurAmount<.8){
 				return true;
 			}
 		}
@@ -981,7 +990,9 @@ Sprite_t[] Get_Player_Sprites(uint player_id){
 	Sprite_t[] attached_sprites=Get_Player_Attached_Sprites(player_id);
 	Vector3_t hands_pos;
 	if(attached_sprites.length)
-		hands_pos=Vector3_t(attached_sprites[0].xpos, attached_sprites[0].ypos, attached_sprites[0].zpos);
+		hands_pos=Vector3_t(attached_sprites[0].pos);
+	else
+		hands_pos=pos+Players[player_id].dir*1.5;
 	foreach(immutable model; plr.models){
 		if(player_id==LocalPlayerID && !model.FirstPersonModel)
 			continue;
@@ -1027,9 +1038,9 @@ auto Get_Player_Scope(uint player_id){
 	Result_t result;
 	Sprite_t spr=Get_Player_Attached_Sprites(player_id)[0];
 	result.rot=Vector3_t(spr.rhe, spr.rti, spr.rst);
-	Item_t *item=Players[player_id].Equipped_Item();
+	Item_t *item=Players[player_id].equipped_item;
 	auto current_tick=PreciseClock_ToMSecs(PreciseClock());
-	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, Vector3_t(-.45, -.5, -.5)+spr.model.pivot));
+	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, Vector3_t(-.45, -.5, -.5)*(item.container_type==ItemContainerType_t.Player)+spr.model.pivot));
 	if(Voxel_IsSolid(result.pos.x, result.pos.y, result.pos.z)){
 		if(result.pos.y>=63.0)
 			result.pos.y=62.99;
@@ -1041,7 +1052,9 @@ auto Get_Player_Scope(uint player_id){
 Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	if(!Players[player_id].items.length || !Players[player_id].Spawned)
 		return [];
-	if(ItemTypes[Players[player_id].items[Players[player_id].item].type].model_id==255)
+	if(!Players[player_id].equipped_item)
+		return [];
+	if(ItemTypes[Players[player_id].equipped_item.type].model_id==255)
 		return[];
 	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
 	Vector3_t pos=Players[player_id].CameraPos;
@@ -1053,8 +1066,8 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 		pos=CameraPos;
 	}
 	auto current_tick=PreciseClock_ToMSecs(PreciseClock());
-	Item_t *item=&plr.items[plr.item];
-	spr.model=Mod_Models[ItemTypes[plr.items[plr.item].type].model_id];
+	Item_t *item=plr.equipped_item;
+	spr.model=Mod_Models[ItemTypes[item.type].model_id];
 	spr.density=Vector3_t(player_id!=LocalPlayerID ? .03 : .04);
 	bool item_is_gun=ItemTypes[item.type].Is_Gun();
 	Vector3_t target_item_offset;
@@ -1105,10 +1118,23 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 			spr.rhe-=(1.0-tofloat(current_tick-item.use_timer)/tofloat(ItemTypes[item.type].use_delay))*pow(abs(item.last_recoil), 1.0)*sgn(item.last_recoil)*20.0;
 		}
 	}
-	if(ItemTypes[item.type].color_mod==true)
+	if(ItemTypes[item.type].color_mod==true){
 		spr.color_mod=(plr.color&0x00ffffff) | 0xff000000;
-	else
-		spr.color_mod=0;
+	}
+	else{
+		if(!item.heat || !Config_Read!bool("show_gun_heat")){
+			spr.color_mod=0;
+		}
+		else{
+			spr.color_mod=0x00ff0000 | (to!ubyte((1.0-1.0/(item.heat+1.0))*255.0)<<24);
+		}
+	}
+	if(item.container_type==ItemContainerType_t.Object){
+		auto objspr=Objects[item.container_obj].toSprite();
+		spr.model=objspr.model;
+		spr.density=objspr.density;
+		spr.pos=objspr.pos;
+	}
 	sprarr~=spr;
 	return sprarr;
 }
@@ -1235,12 +1261,15 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	}
 }
 
-void Create_Smoke(Vector3_t pos, uint amount, uint col, float size, float speedspread=1.0, float alpha=1.0, Vector3_t cvel=Vector3_t(0)){
-	uint old_size=cast(uint)SmokeParticles.length;
-	amount=to!uint((amount+1)*SmokeAmount);
-	SmokeParticles.length+=amount;
+real SmokeAmountCounter=0.0;
+void Create_Smoke(Vector3_t pos, float amount, uint col, float size, float speedspread=1.0, float alpha=1.0, Vector3_t cvel=Vector3_t(0)){
+	SmokeAmountCounter+=amount*SmokeAmount;
+	size_t old_size=SmokeParticles.length;
+	uint smoke_amount=to!uint(SmokeAmountCounter);
+	SmokeAmountCounter-=smoke_amount;
+	SmokeParticles.length+=smoke_amount;
 	float sizeratio=pow(size, .2);
-	for(uint i=old_size; i<old_size+amount; i++){
+	for(size_t i=old_size; i<old_size+smoke_amount; i++){
 		Vector3_t spos=pos+RandomVector()*.12*size;
 		Vector3_t vel=(RandomVector()*size*.01+(spos-pos)*(.5+sizeratio*.4))*speedspread+cvel;
 		SmokeParticles[i].Init(spos, vel,
@@ -1324,7 +1353,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	if(Enable_Object_Model_Modification && Config_Read!bool("model_modification")){
 		uint explosion_r=(col&255), explosion_g=(col>>8)&255, explosion_b=(col>>16)&255;
 		foreach(uint obj_id, obj; Objects){
-			if(!obj.modify_model)
+			if(!obj.modify_model || !obj.visible)
 				continue;
 			auto spr=Objects[obj_id].toSprite();
 			//Crappy early out case check; need to fix this and consider pivots
@@ -1335,13 +1364,13 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 				float vxdist=(vxpos-pos).length*(.8+uniform01()*.2);
 				if(vxdist>radius)
 					continue;
-				uint alpha=touint((vxdist/radius)*255.0), inv_alpha=255-alpha;
-				uint r=(vox.color)&255, g=(vox.color>>8)&255, b=(vox.color>>16)&255;
-				vox.color=((r*alpha)>>8) | (((g*alpha)>>8)<<8) | (((g*alpha)>>8)<<16);
+				uint alpha=touint((vxdist/radius)*255.0);
+				uint comp1=vox.color&0x00ff00ff, comp2=vox.color&0x0000ff00;
+				vox.color=(((comp1*alpha)>>>8)&0x00ff00ff) | (((comp2*alpha)>>>8)&0x0000ff00);
 			}
 		}
 	}
-	//Honestly, that's such a piece of crap that we don't even want to OPTIONALLY expose it to players xd
+	//Honestly, that's such a piece of crap that we don't even want to OPTIONALLY expose it to players xd (and we already have enough other cool stuff)
 	if(Config_Read!bool("effects") && 0){
 		float powrad=radius*radius;
 		int miny=cast(int)max(0, -radius+pos.y), maxy=cast(int)min(MapYSize, radius+pos.y);
@@ -1432,7 +1461,7 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 		d.obj.vel=RandomVector();
 		Debris_Parts~=d;
 	}
-	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount/4, 0xff808080, radius);
+	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount*.25, 0xff808080, radius);
 	Create_Particles(pos, vel, radius, spread, amount*7, [], 1.0/(1.0+amount*.001));
 	Create_Particles(pos, vel, 0, spread*3.0, amount*10, [0x00ffff00, 0x00ffa000], .05);
 	if(Config_Read!bool("explosion_flashes"))
@@ -1690,113 +1719,6 @@ struct Model_t{
 		return ret;
 	}
 }
-Model_t *Model_FromVoxelArray(ModelVoxel_t[][] _voxels, uint xsize, uint zsize){
-	ModelVoxel_t[][] voxels=_voxels.dup;
-	for(uint zctr=0; zctr<zsize; zctr++){
-		bool empty_rows=true;
-		for(uint x=0; x<xsize; x++){
-			if(voxels[x].length){
-				empty_rows=false;
-				break;
-			}
-		}
-		if(!empty_rows)
-			break;
-		for(uint z=0; z<zsize-1; z++){
-			for(uint x=0; x<xsize; x++){
-				voxels[x+z*xsize]=voxels[x+(z+1)*xsize];
-			}
-		}
-		for(uint x=0; x<xsize; x++)
-			voxels[x+(zsize-1)*xsize].length=0;
-	}
-	for(uint xctr=0; xctr<xsize; xctr++){
-		bool empty_rows=true;
-		for(uint z=0; z<zsize; z++){
-			if(voxels[z*xsize].length){
-				empty_rows=false;
-				break;
-			}
-		}
-		if(!empty_rows)
-			break;
-		for(uint z=0; z<zsize; z++){
-			for(uint x=0; x<xsize-1; x++){
-				voxels[x+z*xsize]=voxels[x+1+z*xsize];
-			}
-		}
-		for(uint z=0; z<zsize; z++)
-			voxels[xsize-1+z*xsize].length=0;
-	}
-	uint origzsize=zsize;
-	for(uint zctr=0; zctr<origzsize; zctr++){
-		bool empty_rows=true;
-		for(uint x=0; x<xsize; x++){
-			if(voxels[x+(zsize-1)*xsize].length){
-				empty_rows=false;
-				break;
-			}
-		}
-		if(!empty_rows)
-			break;
-		zsize--;
-		ModelVoxel_t[][] nvoxels;
-		nvoxels.length=xsize*zsize;
-		for(uint x=0; x<xsize; x++){
-			for(uint z=0; z<zsize; z++){
-				nvoxels[x+z*xsize]=voxels[x+z*xsize];
-			}
-		}
-		voxels=nvoxels;
-	}
-	uint origxsize=xsize;
-	for(uint xctr=0; xctr<origxsize; xctr++){
-		bool empty_rows=true;
-		for(uint z=0; z<zsize; z++){
-			if(voxels[xsize-1+z*xsize].length){
-				empty_rows=false;
-				break;
-			}
-		}
-		if(!empty_rows)
-			break;
-		xsize--;
-		ModelVoxel_t[][] nvoxels;
-		nvoxels.length=xsize*zsize;
-		for(uint x=0; x<xsize; x++){
-			for(uint z=0; z<zsize; z++){
-				nvoxels[x+z*xsize]=voxels[x+z*(xsize+1)];
-			}
-		}
-		voxels=nvoxels;
-	}
-	Model_t *model=new Model_t;
-	uint voxelcount=0, min_y=uint.max, max_y=uint.min;
-	foreach(ref voxcol; voxels){
-		voxelcount+=voxcol.length;
-		voxcol.sort!("a.ypos<b.ypos");
-		if(voxcol.length){
-			min_y=min(voxcol[0].ypos, min_y); max_y=max(voxcol[$-1].ypos, max_y);
-		}
-	}
-	model.voxels.length=voxelcount;
-	model.xsize=xsize; model.ysize=max_y-min_y+1; model.zsize=zsize;
-	model.pivot=Vector3_t(model.size)*.5;
-	model.lower_mip_levels=null;
-	model.offsets.length=model.column_lengths.length=xsize*zsize;
-	uint offset=0;
-	for(uint x=0; x<xsize; x++){
-		for(uint z=0; z<zsize; z++){
-			ushort col_len=to!ushort(voxels[x+z*xsize].length);
-			model.column_lengths[x+z*xsize]=col_len;
-			model.voxels[offset..offset+col_len]=voxels[x+z*xsize];
-			model.offsets[x+z*xsize]=offset;
-			offset+=col_len;
-		}
-	}
-	return model;
-	
-}
 
 struct SpriteRenderData_t{
 	Model_t *model;
@@ -1846,6 +1768,14 @@ struct Sprite_t{
 		model=imodel;
 		motion_blur=0;
 	}
+	const nothrow Vector_t!(3, T)[4] Edge_Vectors(T=real)(){
+		immutable renderrot=Vector_t!(3, T)(rot.x, -(rot.y+90.0), -rot.z);
+		immutable minpos=(Vector_t!(3, T)(-model.pivot)*density).rotate_raw(renderrot)+pos;
+		return [minpos,
+		((Vector_t!(3, T)(model.size.filter!(1, 0, 0)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos,
+		((Vector_t!(3, T)(model.size.filter!(0, 1, 0)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos,
+		((Vector_t!(3, T)(model.size.filter!(0, 0, 1)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos];
+	}
 	const auto opCast(AABB_t)(){
 		immutable renderrot=Vector_t!(3, real)(rot.x, -(rot.y+90.0), -rot.z);
 		immutable minpos=(-model.pivot*density).rotate_raw(renderrot)+pos;
@@ -1863,10 +1793,9 @@ struct Sprite_t{
 	}
 	int opApply(scope int delegate(ref ModelVoxel_t vox, immutable in Vector_t!(3, real) pos) dg){
 		immutable renderrot=Vector_t!(3, real)(rot.x, -(rot.y+90.0), -rot.z);
-		immutable minpos=(-model.pivot*density).rotate_raw(renderrot)+pos;
-		immutable xdiff=(((Vector_t!(3, real)(model.size.filter!(1, 0, 0)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos)/cast(real)model.size.x;
-		immutable ydiff=(((Vector_t!(3, real)(model.size.filter!(0, 1, 0)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos)/cast(real)model.size.y;
-		immutable zdiff=(((Vector_t!(3, real)(model.size.filter!(0, 0, 1)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos)/cast(real)model.size.z;
+		immutable edges=Edge_Vectors();
+		immutable minpos=edges[0];
+		immutable xdiff=edges[1]/cast(real)model.size.x, ydiff=edges[2]/cast(real)model.size.y, zdiff=edges[3]/cast(real)model.size.z;
 		Vector_t!(3, real) basepos=minpos+xdiff*.5+ydiff*.5+zdiff*.5;
 		for(uint blkx=0; blkx<model.size.x; blkx++){
 			for(uint blkz=0; blkz<model.size.z; blkz++){

@@ -185,6 +185,8 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case ModRequirementPacketID:{
 				auto packet=UnpackPacketToStruct!(ModRequirementPacketLayout)(PacketData);
+				if(packet.index==255)
+					break;
 				string filename="Ressources/"~packet.path;
 				ModFile_t mf=ModFile_t(packet.path, packet.index, packet.type);
 				if(LoadingMods.length<=packet.type)
@@ -299,7 +301,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			case ItemTypePacketID:{
 				auto packet=UnpackPacketToStruct!(ItemTypePacketLayout)(PacketData);
 				ItemType_t type;
-				type.index=packet.weapon_id;
+				type.index=packet.item_id;
 				type.use_delay=packet.use_delay;
 				type.maxamount1=packet.maxamount1;
 				type.maxamount2=packet.maxamount2;
@@ -315,7 +317,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				type.repeated_use=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_REPEATEDUSE);
 				type.show_palette=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_SHOWPALETTE);
 				type.color_mod=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_COLORMOD);
-				type.power=packet.power;
+				type.power=packet.power; type.cooling=packet.cooling;
 				type.model_id=packet.model_id;
 				if(packet.bullet_model_id!=VoidModelID){
 					if(packet.bullet_model_id<Mod_Models.length){
@@ -351,7 +353,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case ToolSwitchPacketID:{
 				auto packet=UnpackPacketToStruct!(ToolSwitchPacketLayout)(PacketData);
-				Players[packet.player_id].Switch_Tool(packet.tool_id);
+				Players[packet.player_id].Switch_Item(packet.tool_id);
 				break;
 			}
 			case BlockBreakPacketID:{
@@ -383,6 +385,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				else
 					plr.selected_item_types.length=0;
 				plr.items.length=plr.selected_item_types.length;
+				plr.equipped_item=null;
 				break;
 			}
 			case SetTextBoxPacketID:{
@@ -408,7 +411,6 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				Object_t *obj=&Objects[packet.obj_id];
 				if(packet.model_id!=VoidModelID && !obj.visible){
 					obj.Init();
-					obj.visible=true;
 				}
 				obj.minimap_img=packet.minimap_img;
 				obj.weightfactor=packet.weightfactor;
@@ -430,6 +432,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 					if(Hittable_Objects.canFind(packet.obj_id))
 						Hittable_Objects.remove(packet.obj_id);
 				}
+				obj.particles=[];
 				obj.color=packet.color;
 				obj.modify_model=cast(bool)(packet.flags&SetObjectFlags.ModelModification);
 				if(packet.model_id!=VoidModelID){
@@ -498,8 +501,10 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 						break;
 					}
 					case AssignBuiltinTypes.Picture:{
-						RendererTexture_t dstpic=Mod_Pictures[packet.index];
-						uint xsize=Mod_Picture_Sizes[packet.index][0], ysize=Mod_Picture_Sizes[packet.index][1];
+						RendererTexture_t dstpic=null;
+						if(packet.index<Mod_Pictures.length)
+							dstpic=Mod_Pictures[packet.index];
+						//uint xsize=Mod_Picture_Sizes[packet.index][0], ysize=Mod_Picture_Sizes[packet.index][1];
 						switch(packet.target){
 							case AssignBuiltinPictureTypes.Font:{
 								Set_ModFile_Font(packet.index);
@@ -510,8 +515,11 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 						break;
 					}
 					case AssignBuiltinTypes.Sent_Image:{
-						MenuElement_t *element=&MenuElements[packet.index];
-						element.move_z(InvisibleZPos);
+						MenuElement_t *element=null;
+						if(packet.index<MenuElements.length){
+							element=&MenuElements[packet.index];
+							element.move_z(InvisibleZPos);
+						}
 						switch(packet.target){
 							case AssignBuiltinSentImageTypes.AmmoCounterBG:{
 								ProtocolBuiltin_AmmoCounterBG=element;
@@ -523,16 +531,20 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 							}
 							case AssignBuiltinSentImageTypes.Palette_HFG:{
 								ProtocolBuiltin_PaletteHFG=element;
-								Palette_H_Colors=Mod_Picture_Surfaces[element.picture_index];
-								Palette_Color_HIndex=ProtocolBuiltin_PaletteHFG.xsize/2;
-								Palette_Color_HPos=tofloat(Palette_Color_HIndex);
+								if(element){
+									Palette_H_Colors=Mod_Picture_Surfaces[element.picture_index];
+									Palette_Color_HIndex=ProtocolBuiltin_PaletteHFG.xsize/2;
+									Palette_Color_HPos=tofloat(Palette_Color_HIndex);
+								}
 								break;
 							}
 							case AssignBuiltinSentImageTypes.Palette_VFG:{
 								ProtocolBuiltin_PaletteVFG=element;
-								Palette_V_Colors=Mod_Picture_Surfaces[element.picture_index];
-								Palette_Color_VIndex=ProtocolBuiltin_PaletteVFG.ysize/2;
-								Palette_Color_VPos=tofloat(Palette_Color_VIndex);
+								if(element){
+									Palette_V_Colors=Mod_Picture_Surfaces[element.picture_index];
+									Palette_Color_VIndex=ProtocolBuiltin_PaletteVFG.ysize/2;
+									Palette_Color_VPos=tofloat(Palette_Color_VIndex);
+								}
 								break;
 							}
 							case AssignBuiltinSentImageTypes.ScopeGfx:{
@@ -544,7 +556,9 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 						break;
 					}
 					case AssignBuiltinTypes.Sound:{
-						auto snd=packet.index;
+						SoundID_t snd=VoidSoundID;
+						if(packet.index<Mod_Sounds.length)
+							snd=packet.index;
 						switch(packet.target){
 							case AssignBuiltinSoundTypes.Step:ProtocolBuiltin_StepSound=snd;break;
 							case AssignBuiltinSoundTypes.Explosion:ProtocolBuiltin_ExplosionSound=snd;break;
@@ -667,9 +681,8 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case SetObjectPhysicsPacketID:{
 				auto packet=UnpackPacketToStruct!(SetObjectPhysicsPacketLayout)(PacketData);
-				Object_t *obj=&Objects[packet.obj_id];
-				obj.physics_mode=to!ObjectPhysicsMode(packet.physics_mode);
-				obj.physics_script=packet.script;
+				Objects[packet.obj_id].physics_mode=to!ObjectPhysicsMode(packet.physics_mode);
+				Objects[packet.obj_id].physics_script=packet.script;
 				break;
 			}
 			case SetGMScorePacketID:{
@@ -682,6 +695,39 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				auto src=SoundSource_t(Vector3_t(packet.xpos, packet.ypos, packet.zpos));
 				src.Play_Sound(Mod_Sounds[packet.sound], [SoundPlayOptions.Volume: packet.volume/255.0f]);
 				EnvironmentSoundSources~=src;
+				break;
+			}
+			case SetObjectSmokePacketID:{
+				auto packet=UnpackPacketToStruct!(SetObjectSmokePacketLayout)(PacketData);
+				Objects[packet.obj_id].smoke_amount=packet.amount;
+				Objects[packet.obj_id].smoke_color=packet.color;
+				break;
+			}
+			case SetObjectAttachmentPacketID:{
+				auto packet=UnpackPacketToStruct!(SetObjectAttachmentPacketLayout)(PacketData);
+				Object_t *obj=&Objects[packet.obj_id];
+				obj.attached_to_obj=packet.attached_to_obj;
+				if(packet.attached_to_obj!=VoidObjectID){
+					obj.attached_offset=Vector3_t(packet.xoffset, packet.yoffset, packet.zoffset);
+					obj.attached_freerotation=cast(bool)(packet.flags&ObjectAttachmentFlags.FreeRotation);
+				}
+				break;
+			}
+			case AssignObjectItemPacketID:{
+				auto packet=UnpackPacketToStruct!(AssignObjectItemPacketLayout)(PacketData);
+				Object_t *obj=&Objects[packet.obj_id];
+				if(packet.itemtype_id!=VoidItemTypeID){
+					obj.item=new Item_t(packet.itemtype_id, ItemContainerType_t.Object);
+					obj.item.container_obj=packet.obj_id;
+				}
+				else{
+					obj.item=null;
+				}
+				break;
+			}
+			case EquipObjectItemPacketID:{
+				auto packet=UnpackPacketToStruct!(EquipObjectItemPacketLayout)(PacketData);
+				Players[packet.player_id].Equip_ObjectItem(&Objects[packet.obj_id]);
 				break;
 			}
 			default:{

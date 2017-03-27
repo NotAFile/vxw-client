@@ -16,6 +16,7 @@ import gfx;
 import world;
 import protocol;
 import packettypes;
+import network;
 import renderer;
 import vector;
 import std.string;
@@ -443,6 +444,8 @@ void Init_Script(){
 	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("Key_Pressed"), &ScrStdLib_KeyPressed, SLANG_UCHAR_TYPE, 0);
 	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("plog"), &ScrStdLib_PrintLog, SLANG_VOID_TYPE, 0);
 	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("Ping"), &Get_Ping, SLANG_UINT_TYPE, 0);
+	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("AssignBuiltin"), &ScrStdLib_AssignBuiltin, SLANG_VOID_TYPE, 0);
+	SLns_add_intrinsic_function(ScrStdLib_Ns, cast(const(char*))toStringz("ClearBuiltin"), &ScrStdLib_ClearBuiltin, SLANG_VOID_TYPE, 0);
 	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapXSize"), &MapXSize, DLangType_To_SLangType!(typeof(MapXSize))(), 1);
 	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapYSize"), &MapYSize, DLangType_To_SLangType!(typeof(MapYSize))(), 1);
 	SLns_add_intrinsic_variable(ScrStdLib_Ns, toStringz("MapZSize"), &MapZSize, DLangType_To_SLangType!(typeof(MapZSize))(), 1);
@@ -609,7 +612,6 @@ ubyte ScrGuiLib_MouseRightChanged(){return MouseRightChanged;}
 void ScrGuiLib_MenuMode_Set(){ubyte mode; SLang_pop_uchar(&mode); Set_Menu_Mode(cast(bool)mode);}
 ubyte ScrGuiLib_MenuMode_Get(){return Menu_Mode;}
 
-
 void ScrGuiLib_StandardFont_Set(ubyte font){
 	Set_ModFile_Font(font);
 }
@@ -716,4 +718,25 @@ void ScrStdLib_PrintLog(){
 		SLfree(content);
 	}
 }
+void ScrStdLib_AssignBuiltin(){
+	AssignBuiltinPacketLayout packet;
+	if(SLang_pop_uchar(&packet.index)) return;
+	if(SLang_pop_uchar(&packet.target)) return;
+	if(SLang_pop_uchar(&packet.type)) return;
+	ReceivedPacket_t recv_packet;
+	recv_packet.ConnectionID=0;
+	recv_packet.data=AssignBuiltinPacketID~PackStructToPacket(packet);
+	On_Packet_Receive(recv_packet);
+}
+void ScrStdLib_ClearBuiltin(){
+	AssignBuiltinPacketLayout packet;
+	if(SLang_pop_uchar(&packet.target)) return;
+	if(SLang_pop_uchar(&packet.type)) return;
+	packet.index=255;
+	ReceivedPacket_t recv_packet;
+	recv_packet.ConnectionID=0;
+	recv_packet.data=AssignBuiltinPacketID~PackStructToPacket(packet);
+	On_Packet_Receive(recv_packet);
+}
+
 }

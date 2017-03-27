@@ -318,8 +318,8 @@ struct Player_t{
 	int Model; int Gun_Model; int Arm_Model;
 	uint Gun_Timer;
 	Item_t[] items;
+	Item_t *equipped_item;
 	ubyte[] selected_item_types;
-	uint item;
 	uint item_animation_counter;
 	Vector3_t current_item_offset;
 	bool left_click, right_click;
@@ -355,14 +355,15 @@ struct Player_t{
 		current_item_offset=Vector3_t(0.0);
 		score=0; gmscore=0;
 		Walk_Forwards_Timer=0.0; Walk_Sidewards_Timer=0.0;
+		if(items.length)
+			equipped_item=&items[0];
+		else
+			equipped_item=null;
 	}
 	Team_t *Get_Team(){
 		if(team==255)
 			return null;
 		return &Teams[team];
-	}
-	Item_t *Equipped_Item(){
-		return &items[item];
 	}
 	void Spawn(Vector3_t location, TeamID_t spteam){
 		if(player_id==LocalPlayerID)
@@ -399,10 +400,12 @@ struct Player_t{
 	}
 	
 	void Delete(){
+		if(equipped_item)
+			equipped_item.equipped=false;
 		sndsource.UnInit();
 	}
 	
-	void Update(){
+	void Update(float dt=WorldSpeed){
 		if(Spawned){
 			uint ticks_should_have = cast(uint)floor((PreciseClock_ToMSecs(PreciseClock())-physics_start)/1000.0F*ticks_ps);
 			if(ticks<ticks_should_have) {
@@ -417,10 +420,14 @@ struct Player_t{
 				if(player_id!=LocalPlayerID || !Menu_Mode)
 					Use_Item();
 			}
-			if(Equipped_Item()){
-				if(PreciseClock_ToMSecs(PreciseClock())-Equipped_Item().use_timer>ItemTypes[Equipped_Item().type].use_delay){
-					Equipped_Item.last_recoil=0.0;
+			if(equipped_item){
+				if(PreciseClock_ToMSecs(PreciseClock())-equipped_item.use_timer>ItemTypes[equipped_item.type].use_delay){
+					equipped_item.last_recoil=0.0;
 				}
+			}
+			foreach(ref item; items){
+				if(&item!=equipped_item)
+					item.Update(dt);
 			}
 			if(dir.length){
 				float l=vel.filter(true, false, true).dot(dir.filter(true, false, true))*WorldSpeed;
@@ -651,11 +658,13 @@ struct Player_t{
 		}
 	}
 	void Use_Item(){
+		if(!equipped_item)
+			return;
 		auto current_tick=PreciseClock_ToMSecs(PreciseClock());
-		Item_t *current_item=&items[item];
+		Item_t *current_item=equipped_item;
 		ItemType_t *itemtype=&ItemTypes[current_item.type];
 		auto timediff=current_tick-current_item.use_timer;
-		if(timediff<ItemTypes[current_item.type].use_delay || current_item.Reloading || (!current_item.amount1 && itemtype.maxamount1 && player_id==LocalPlayerID))
+		if(!current_item.Can_Use())
 			return;
 		Update_Position_Data(true);
 		Update_Rotation_Data(true);
@@ -672,7 +681,7 @@ struct Player_t{
 			usedir=dir;
 		}
 		Vector3_t spreadeddir;
-		float spreadfactor=itemtype.spread_c+itemtype.spread_m*uniform01();
+		float spreadfactor=itemtype.spread_c+itemtype.spread_m*uniform01()*(1.0+pow(current_item.heat, 2.0));
 		spreadeddir=usedir*(1.0-spreadfactor)+Vector3_t(uniform01(), uniform01(), uniform01()).abs()*spreadfactor;
 
 		float block_hit_dist=10e99;
@@ -762,9 +771,8 @@ struct Player_t{
 				object_hit_id=LastHitID;
 			}
 			if(itemtype.Is_Gun()){
-				Create_Smoke(usepos+spreadeddir*1.0, to!uint(2*itemtype.power), 0xff808080, 1.0*sqrt(itemtype.power), .1, .1, spreadeddir*.1*sqrt(itemtype.power));
-				if(itemtype.bullet_sprite.model!=null)
-					Bullet_Shoot(usepos+spreadeddir*.5, spreadeddir*200.0, LastHitDist, &itemtype.bullet_sprite);
+				Create_Smoke(usepos+spreadeddir*1.0, 2.0*itemtype.power, 0xff808080, 1.0*sqrt(itemtype.power), .1, .1, spreadeddir*.1*sqrt(itemtype.power));
+				Bullet_Shoot(usepos+spreadeddir*.5, spreadeddir*200.0, LastHitDist, &itemtype.bullet_sprite);
 			}
 		}
 		if(block_hit_dist<player_hit_dist && block_hit_dist<object_hit_dist){
@@ -816,9 +824,25 @@ struct Player_t{
 		if(itemtype.use_sound_id!=VoidSoundID){
 			sndsource.Play_Sound(Mod_Sounds[itemtype.use_sound_id]);
 		}
+		if(itemtype.Is_Gun)
+			current_item.heat+=itemtype.power;
 	}
-	void Switch_Tool(ubyte tool_id){
-		item=tool_id;
+	void Switch_Item(ItemID_t item_id){
+		if(equipped_item)
+			equipped_item.equipped=false;
+		if(item_id!=VoidItemID)
+			equipped_item=&items[item_id];
+		else
+			equipped_item=null;
+		if(equipped_item)
+			equipped_item.equipped=true;
+	}
+	void Equip_ObjectItem(Object_t *obj){
+		if(equipped_item)
+			equipped_item.equipped=false;
+		equipped_item=obj.item;
+		if(equipped_item)
+			equipped_item.equipped=true;
 	}
 	bool In_Water(){
 		return Voxel_IsWater(pos.x, pos.y+height(), pos.z);
@@ -1029,6 +1053,7 @@ struct ItemType_t{
 	float recoil_xc, recoil_xm;
 	float recoil_yc, recoil_ym;
 	float power;
+	float cooling;
 	ModelID_t model_id;
 	SoundID_t use_sound_id;
 	Sprite_t bullet_sprite;
@@ -1038,12 +1063,28 @@ struct ItemType_t{
 }
 ItemType_t[] ItemTypes;
 
+enum ItemContainerType_t{
+	Player, Object
+}
+
 struct Item_t{
-	ubyte type;
+	ItemTypeID_t type;
+	ItemContainerType_t container_type;
+	union{
+		PlayerID_t container_plr;
+		ObjectID_t container_obj;
+	}
 	uint amount1, amount2;
 	uint use_timer;
 	bool Reloading;
 	float last_recoil;
+	float heat;
+	bool equipped;
+	this(ubyte inittype, ItemContainerType_t icontainer){
+		Init(inittype);
+		container_type=icontainer;
+		equipped=false;
+	}
 	void Init(ubyte inittype){
 		type=inittype;
 		use_timer=0;
@@ -1051,10 +1092,23 @@ struct Item_t{
 		amount2=ItemTypes[type].maxamount2;
 		Reloading=false;
 		last_recoil=0.0;
+		heat=0.0;
+		container_type=ItemContainerType_t.Player;
+		equipped=false;
 	}
 	bool Can_Use(){
-		if(Reloading || (!amount1 && ItemTypes[type].maxamount1))
+		if(Reloading || (!amount1 && ItemTypes[type].maxamount1) || !Use_Ready())
 			return false;
+		return true;
+	}
+	void Update(float dt){
+		if(heat){
+			heat-=dt*ItemTypes[type].cooling;
+			if(heat<0.0)
+				heat=0.0;
+		}
+	}
+	bool Use_Ready(){
 		int timediff=PreciseClock_ToMSecs(PreciseClock())-use_timer;
 		if(timediff<ItemTypes[type].use_delay)
 			return false;
@@ -1404,12 +1458,18 @@ struct Object_t{
 	Vector3_t acl;
 	ObjectPhysicsMode physics_mode;
 	ScriptIndex_t physics_script;
+	Vector3_t attached_offset;
+	ObjectID_t attached_to_obj;
+	bool attached_freerotation;
 	union{
 		PhysicalObject_t obj;
 		struct{mixin(__StructDefToString!PhysicalObject_t());}
 	}
-
+	float smoke_amount;
+	uint smoke_color;
 	DamageParticle_t[] particles;
+	
+	Item_t *item;
 
 	@property Model_t *model(){return obj.spr.model;} @property void model(Model_t *m){obj.spr.model=m;}
 	@property uint color(){return obj.spr.color_mod;} @property void color(uint c){obj.spr.color_mod=c;}
@@ -1419,16 +1479,19 @@ struct Object_t{
 		physics_mode=ObjectPhysicsMode.Standard;
 		acl=Vector3_t(0.0);
 		obj=PhysicalObject_t([Vector3_t(0.0, 0.0, 0.0)]);
+		smoke_amount=0.0;
+		attached_to_obj=VoidObjectID;
+		item=null;
 	}
 
 	void Init(){
-		if(DamagedObjects.canFind(index))
-			DamagedObjects.remove(DamagedObjects.countUntil(index));
-		if(Solid_Objects.canFind(index))
-			Solid_Objects.remove(Solid_Objects.countUntil(index));
-		if(Hittable_Objects.canFind(index))
-			Hittable_Objects.remove(Hittable_Objects.countUntil(index));
+		smoke_amount=0.0;
+		if(visible)
+			UnInit();
+		particles=[];
+		attached_to_obj=VoidObjectID;
 		visible=true;
+		item=null;
 	}
 	
 	void UnInit(){
@@ -1438,11 +1501,25 @@ struct Object_t{
 			Solid_Objects.remove(Solid_Objects.countUntil(index));
 		if(Hittable_Objects.canFind(index))
 			Hittable_Objects.remove(Hittable_Objects.countUntil(index));
+		particles=[];
 		visible=false;
+		item=null;
 	}
 	
 	void Update(float dt=WorldSpeed){
-		immutable oldpos=pos;
+		if(!visible)
+			return;
+		if(item)
+			item.Update(dt);
+		if(attached_to_obj!=VoidObjectID && attached_to_obj<Objects.length){
+			Object_t *obj=&Objects[attached_to_obj];
+			vel=obj.vel;
+			if(!attached_freerotation)
+				rot=obj.rot;
+			pos=(attached_offset.normal().DirectionAsRotation()+obj.rot).RotationAsDirection()*attached_offset.length+obj.pos;
+			return;
+		}
+		immutable oldpos=pos, oldrot=rot;
 		if(physics_mode==ObjectPhysicsMode.Standard || physics_mode==ObjectPhysicsMode.Scripted){
 			if(physics_mode==ObjectPhysicsMode.Scripted){
 				Vector3_t deltapos=obj.Vertices_CheckCollisions(vel*dt);
@@ -1469,11 +1546,22 @@ struct Object_t{
 				pos+=fdeltapos;
 			}
 		}
+		immutable deltarot=rot-oldrot;
 		immutable deltapos=pos-oldpos;
+		if(deltarot){
+			foreach(ref particle; particles){
+				immutable vdist=particle.pos-pos;
+				immutable rot=vdist.DirectionAsRotation();
+				particle.pos=pos+vdist.length+(rot+deltarot).RotationAsDirection();
+			}
+		}
 		if(deltapos){
 			foreach(ref particle; particles){
 				particle.pos+=deltapos;
 			}
+		}
+		if(smoke_amount){
+			Create_Smoke(pos, smoke_amount*dt, smoke_color, pow(smoke_amount, .75), .2, .75, vel*.01);
 		}
 	}
 
@@ -1512,6 +1600,10 @@ struct Object_t{
 		return ret;
 	}
 	void Render(){
+		if(item){
+			if(item.equipped)
+				return;
+		}
 		return obj.Render();
 	}
 }

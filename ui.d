@@ -96,8 +96,8 @@ immutable SettingsMenu_ConfigEntries=[
 	SettingsMenuEntry_t("v", "volume", "float", "sets the volume", 0.0, float.infinity, "100.0", 1.0),
 	SettingsMenuEntry_t("i", "model_modification", "bool", "toggles some model modification effects (may crash the game occassionally)", 0.0, float.infinity, "false"),
 	SettingsMenuEntry_t("r", "sprite_visibility_checks", "bool", "toggles visibility checks for sprites (increases FPS, but may hide normally visible objects sometimes)", 0.0, float.infinity, "false"),
-	SettingsMenuEntry_t("z", "render_zoomed_scopes", "bool", "toggles rendering zoomed in scopes (might decrease FPS a bit)", 0.0, float.infinity, "true")
-
+	SettingsMenuEntry_t("z", "render_zoomed_scopes", "bool", "toggles rendering zoomed in scopes (might decrease FPS a bit)", 0.0, float.infinity, "true"),
+	SettingsMenuEntry_t("t", "show_gun_heat", "bool", "toggles gun heat indicator that turns your gun red", 0.0, float.infinity, "false")
 ];
 
 void SettingsMenu_ChangeEntry(float val){
@@ -473,6 +473,10 @@ void Check_Input(){
 						}
 						break;
 					}
+					case SDLK_F10:{
+						SettingsMenu_Enable=!SettingsMenu_Enable;
+						break;
+					}
 					default:{break;}
 				}
 				if(number_key_pressed>0 && Joined_Game() && !TypingChat){
@@ -503,8 +507,8 @@ void Check_Input(){
 					MouseLeftChanged=old_left_click!=MouseLeftClick;
 					MouseRightChanged=old_right_click!=MouseRightClick;
 					if(MouseLeftChanged && MouseLeftClick && JoinedGame){
-						if(Players[LocalPlayerID].items.length){
-							if(Players[LocalPlayerID].items[Players[LocalPlayerID].item].Can_Use()){
+						if(Players[LocalPlayerID].items.length && Players[LocalPlayerID].equipped_item){
+							if(Players[LocalPlayerID].equipped_item.Can_Use()){
 								Update_Position_Data(true);
 								Update_Rotation_Data(true);
 							}
@@ -642,8 +646,8 @@ void Check_Input(){
 		}*/
 	}
 	if(Joined_Game()){
-		if(Players[LocalPlayerID].items.length){
-			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].show_palette && ProtocolBuiltin_PaletteHFG && ProtocolBuiltin_PaletteVFG){
+		if(Players[LocalPlayerID].items.length && Players[LocalPlayerID].equipped_item){
+			if(ItemTypes[Players[LocalPlayerID].equipped_item.type].show_palette && ProtocolBuiltin_PaletteHFG && ProtocolBuiltin_PaletteVFG){
 				float scrollspeed=WorldSpeed*15.0;
 				if(KeyState[SDL_SCANCODE_LEFT] && Palette_Color_HIndex>=scrollspeed){
 					Changed_Palette_Color=true;
@@ -735,9 +739,9 @@ float Palette_Color_HPos=0.0, Palette_Color_VPos=0.0;
 void Render_HUD(){
 	//TODO: fix array out of bounds exception
 	if(Joined_Game()){
-		if(Players[LocalPlayerID].items.length){
-			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].Is_Gun()){
-				Item_t *item=&Players[LocalPlayerID].items[Players[LocalPlayerID].item];
+		if(Players[LocalPlayerID].items.length && Players[LocalPlayerID].equipped_item){
+			if(ItemTypes[Players[LocalPlayerID].equipped_item.type].Is_Gun()){
+				Item_t *item=Players[LocalPlayerID].equipped_item;
 				if(ProtocolBuiltin_AmmoCounterBG){
 					MenuElement_Draw(ProtocolBuiltin_AmmoCounterBG);
 				}
@@ -755,7 +759,7 @@ void Render_HUD(){
 					}
 				}
 			}
-			if(ItemTypes[Players[LocalPlayerID].items[Players[LocalPlayerID].item].type].show_palette){
+			if(ItemTypes[Players[LocalPlayerID].equipped_item.type].show_palette){
 				if(ProtocolBuiltin_PaletteVFG){
 					MenuElement_t *e=ProtocolBuiltin_PaletteVFG;
 					SDL_Rect r;

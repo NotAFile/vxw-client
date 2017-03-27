@@ -6,11 +6,14 @@ import std.path;
 import std.array;
 import std.string;
 import std.digest.crc;
+import std.algorithm;
+import std.conv;
 import gfx;
 import snd;
 import misc;
 import script;
 import renderer;
+import vector;
 version(LDC){
 	import ldc_stdlib;
 }
@@ -76,6 +79,113 @@ Model_t *Model_FromKV6(ubyte[] data, string filename){
 			voxel_zindex+=ylength[x][z];
 		}
 		voxel_xindex+=xlength[x];
+	}
+	return model;
+}
+
+Model_t *Model_FromVoxelArray(ModelVoxel_t[][] _voxels, uint xsize, uint zsize){
+	ModelVoxel_t[][] voxels=_voxels.dup;
+	for(uint zctr=0; zctr<zsize; zctr++){
+		bool empty_rows=true;
+		for(uint x=0; x<xsize; x++){
+			if(voxels[x].length){
+				empty_rows=false;
+				break;
+			}
+		}
+		if(!empty_rows)
+			break;
+		for(uint z=0; z<zsize-1; z++){
+			for(uint x=0; x<xsize; x++){
+				voxels[x+z*xsize]=voxels[x+(z+1)*xsize];
+			}
+		}
+		for(uint x=0; x<xsize; x++)
+			voxels[x+(zsize-1)*xsize].length=0;
+	}
+	for(uint xctr=0; xctr<xsize; xctr++){
+		bool empty_rows=true;
+		for(uint z=0; z<zsize; z++){
+			if(voxels[z*xsize].length){
+				empty_rows=false;
+				break;
+			}
+		}
+		if(!empty_rows)
+			break;
+		for(uint z=0; z<zsize; z++){
+			for(uint x=0; x<xsize-1; x++){
+				voxels[x+z*xsize]=voxels[x+1+z*xsize];
+			}
+		}
+		for(uint z=0; z<zsize; z++)
+			voxels[xsize-1+z*xsize].length=0;
+	}
+	uint origzsize=zsize;
+	for(uint zctr=0; zctr<origzsize; zctr++){
+		bool empty_rows=true;
+		for(uint x=0; x<xsize; x++){
+			if(voxels[x+(zsize-1)*xsize].length){
+				empty_rows=false;
+				break;
+			}
+		}
+		if(!empty_rows)
+			break;
+		zsize--;
+		ModelVoxel_t[][] nvoxels;
+		nvoxels.length=xsize*zsize;
+		for(uint x=0; x<xsize; x++){
+			for(uint z=0; z<zsize; z++){
+				nvoxels[x+z*xsize]=voxels[x+z*xsize];
+			}
+		}
+		voxels=nvoxels;
+	}
+	uint origxsize=xsize;
+	for(uint xctr=0; xctr<origxsize; xctr++){
+		bool empty_rows=true;
+		for(uint z=0; z<zsize; z++){
+			if(voxels[xsize-1+z*xsize].length){
+				empty_rows=false;
+				break;
+			}
+		}
+		if(!empty_rows)
+			break;
+		xsize--;
+		ModelVoxel_t[][] nvoxels;
+		nvoxels.length=xsize*zsize;
+		for(uint x=0; x<xsize; x++){
+			for(uint z=0; z<zsize; z++){
+				nvoxels[x+z*xsize]=voxels[x+z*(xsize+1)];
+			}
+		}
+		voxels=nvoxels;
+	}
+	Model_t *model=new Model_t;
+	uint voxelcount=0, min_y=uint.max, max_y=uint.min;
+	foreach(ref voxcol; voxels){
+		voxelcount+=voxcol.length;
+		voxcol.sort!("a.ypos<b.ypos");
+		if(voxcol.length){
+			min_y=min(voxcol[0].ypos, min_y); max_y=max(voxcol[$-1].ypos, max_y);
+		}
+	}
+	model.voxels.length=voxelcount;
+	model.xsize=xsize; model.ysize=max_y-min_y+1; model.zsize=zsize;
+	model.pivot=model.size*.5;
+	model.lower_mip_levels=null;
+	model.offsets.length=model.column_lengths.length=xsize*zsize;
+	uint offset=0;
+	for(uint x=0; x<xsize; x++){
+		for(uint z=0; z<zsize; z++){
+			ushort col_len=to!ushort(voxels[x+z*xsize].length);
+			model.column_lengths[x+z*xsize]=col_len;
+			model.voxels[offset..offset+col_len]=voxels[x+z*xsize];
+			model.offsets[x+z*xsize]=offset;
+			offset+=col_len;
+		}
 	}
 	return model;
 }
