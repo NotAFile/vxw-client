@@ -33,7 +33,6 @@ enum SoundPlayOptions{
 struct SoundSource_t{
 	ALuint[] al_sources;
 	ALuint[][] al_src_buffers;
-	Sound_t *sounds;
 	Vector3_t pos, vel;
 	this(T)(T initarg){
 		static if(is(T==Vector3_t))
@@ -118,6 +117,7 @@ struct SoundSource_t{
 			__AlError("alSourcef() for velocity");
 		}
 	}
+	//Hmm not sure if this option assoc is the best solution
 	void Play_Sound(Sound_t snd, float[SoundPlayOptions] options=null){
 		if(!Sound_Enabled)
 			return;
@@ -162,6 +162,20 @@ struct SoundSource_t{
 				return true;
 		}
 		return false;
+	}
+	bool Sound_Playing(Sound_t snd){
+		size_t src_ind; bool src_found=false;
+		foreach(ind; 0..al_src_buffers.length){
+			if(al_src_buffers[ind]==snd.buffers){
+				src_found=true;
+				src_ind=ind;
+			}
+		}
+		if(!src_found)
+			return false;
+		int state;
+		alGetSourcei(al_sources[src_ind], AL_SOURCE_STATE, &state);
+		return state==AL_PLAYING;
 	}
 }
 

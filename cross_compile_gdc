@@ -1,0 +1,2 @@
+#!/bin/bash
+wine ../i686-w64-mingw32-gdc.exe *.d ./vxwclient-voxlap-renderer/*.d ./vxwclient-voxlap-renderer/*.di ./vxwclient-voxlap-renderer/voxlap5.a -omain ./derelict/sdl2/*.d ./derelict/enet/*.d ./derelict/util/*.d ./derelict/openal/*.d ./derelict/vorbis/*.d ./derelict/ogg/*.d

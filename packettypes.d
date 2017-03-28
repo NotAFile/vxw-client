@@ -481,6 +481,10 @@ struct SetGMScorePacketLayout{
 }
 immutable PacketID_t SetGMScorePacketID=52;
 
+enum ProtocolPlaySoundFlags : ubyte{
+	Repeat=(1<<0), Stop=(1<<1)
+}
+
 struct PlaySoundPacketLayout{
 	float xpos, ypos, zpos;
 	ubyte volume;
@@ -518,6 +522,14 @@ struct EquipObjectItemPacketLayout{
 	ObjectID_t obj_id;
 }
 immutable PacketID_t EquipObjectItemPacketID=57;
+
+struct SetObjectSoundPacketLayout{
+	ObjectID_t obj_id;
+	SoundID_t snd_id;
+	ProtocolPlaySoundFlags flags;
+}
+
+immutable PacketID_t SetObjectSoundPacketID=58;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)

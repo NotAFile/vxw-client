@@ -97,7 +97,8 @@ immutable SettingsMenu_ConfigEntries=[
 	SettingsMenuEntry_t("i", "model_modification", "bool", "toggles some model modification effects (may crash the game occassionally)", 0.0, float.infinity, "false"),
 	SettingsMenuEntry_t("r", "sprite_visibility_checks", "bool", "toggles visibility checks for sprites (increases FPS, but may hide normally visible objects sometimes)", 0.0, float.infinity, "false"),
 	SettingsMenuEntry_t("z", "render_zoomed_scopes", "bool", "toggles rendering zoomed in scopes (might decrease FPS a bit)", 0.0, float.infinity, "true"),
-	SettingsMenuEntry_t("t", "show_gun_heat", "bool", "toggles gun heat indicator that turns your gun red", 0.0, float.infinity, "false")
+	SettingsMenuEntry_t("t", "show_gun_heat", "bool", "toggles gun heat indicator that turns your gun red", 0.0, float.infinity, "false"),
+	SettingsMenuEntry_t("k", "draw_arms", "bool", "toggles rendering first-person mode arms", 0.0, float.infinity, "true")
 ];
 
 void SettingsMenu_ChangeEntry(float val){

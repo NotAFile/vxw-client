@@ -55,6 +55,8 @@ void Init_World(){
 void UnInit_World(){
 	foreach(ref p; Players)
 		p.Delete();
+	foreach(ref obj; Objects)
+		obj.Delete();
 	Players.length=0;
 }
 
@@ -98,62 +100,25 @@ struct AABB_t {
 		Department of Computer Science, University of Calgary
 	*/
 	TR Intersect(TP, TD, TR=real)(TP pos, TD dir){
-		TR tnear=-TR.max, tfar=TR.max;
-		if(!dir.x){
-			if((pos.x<minvec.x) || (pos.x>maxvec.x))
-				return TR.nan;
-		}
-		else{
-			TR t1=(minvec.x-pos.x)/dir.x;
-			TR t2=(maxvec.x-pos.x)/dir.x;
-			if(t1>t2)
-				swap(t1, t2);
-			if(t1>tnear)
-				tnear=t1;
-			if(t2<tfar)
-				tfar=t2;
-			if(tnear>tfar)
-				return TR.nan;
-			if(tfar<0.0)
-				return TR.nan;
-		}
-		if(!dir.y){
-			if((pos.y<minvec.y) || (pos.y>maxvec.y))
-				return TR.nan;
-		}
-		else{
-			TR t1=(minvec.y-pos.y)/dir.y;
-			TR t2=(maxvec.y-pos.y)/dir.y;
-			if(t1>t2)
-				swap(t1, t2);
-			if(t1>tnear)
-				tnear=t1;
-			if(t2<tfar)
-				tfar=t2;
-			if(tnear>tfar)
-				return TR.nan;
-			if(tfar<0.0)
-				return TR.nan;
-		}
-		if(!dir.z){
-			if((pos.z<minvec.z) || (pos.z>maxvec.z))
-				return TR.nan;
-		}
-		else{
-			TR t1=(minvec.z-pos.z)/dir.z;
-			TR t2=(maxvec.z-pos.z)/dir.z;
-			if(t1>t2)
-				swap(t1, t2);
-			if(t1>tnear)
-				tnear=t1;
-			if(t2<tfar)
-				tfar=t2;
-			if(tnear>tfar)
-				return TR.nan;
-			if(tfar<0.0)
-				return TR.nan;
-		}
-		return tnear;
+		if(!dir.x && ((pos.x<minvec.x) || (pos.x>maxvec.x)))
+			return TR.nan;
+		if(!dir.y && ((pos.y<minvec.y) || (pos.y>maxvec.y)))
+			return TR.nan;
+		if(!dir.z && ((pos.z<minvec.z) || (pos.z>maxvec.z)))
+			return TR.nan;
+		return Intersect_invdir(pos, TD(1.0)/dir);
+	}
+	
+	TR Intersect_invdir2(TP, TD, TR=real)(TP pos, TD dir){
+		auto tmin=(minvec-pos)*dir, tmax=(maxvec-pos)*dir;
+		if(tmin.x>tmax.x)swap(tmin.x, tmax.x);
+		if(tmin.y>tmax.y)swap(tmin.y, tmax.y);
+		if(tmin.z>tmax.z)swap(tmin.z, tmax.z);
+		if(tmin.x>tmax.y || tmin.y>tmax.x)
+			return TR.nan;
+		if(min(tmin.x, tmin.y)>tmax.z || max(tmax.x, tmax.y)<tmin.z)
+			return TR.nan;
+		return min(tmin.x, tmin.y, tmin.z);
 	}
 	
 	TR Intersect_invdir(TP, TD, TR=real)(TP pos, TD dir){
@@ -405,6 +370,7 @@ struct Player_t{
 		sndsource.UnInit();
 	}
 	
+	//Code by ByteBit (edited by lecom)
 	void Update(float dt=WorldSpeed){
 		if(Spawned){
 			uint ticks_should_have = cast(uint)floor((PreciseClock_ToMSecs(PreciseClock())-physics_start)/1000.0F*ticks_ps);
@@ -426,8 +392,7 @@ struct Player_t{
 				}
 			}
 			foreach(ref item; items){
-				if(&item!=equipped_item)
-					item.Update(dt);
+				item.Update(dt);
 			}
 			if(dir.length){
 				float l=vel.filter(true, false, true).dot(dir.filter(true, false, true))*WorldSpeed;
@@ -478,6 +443,7 @@ struct Player_t{
 		return ret;
 	}
 	
+	//Code by ByteBit (edited by lecom)
 	void Update_Physics() {
 		Vector3_t prev_pos=CameraPos();
 		float dt = 1.0F/(cast(float)ticks_ps);
@@ -772,7 +738,7 @@ struct Player_t{
 			}
 			if(itemtype.Is_Gun()){
 				Create_Smoke(usepos+spreadeddir*1.0, 2.0*itemtype.power, 0xff808080, 1.0*sqrt(itemtype.power), .1, .1, spreadeddir*.1*sqrt(itemtype.power));
-				Bullet_Shoot(usepos+spreadeddir*.5, spreadeddir*200.0, LastHitDist, &itemtype.bullet_sprite);
+				Bullet_Shoot(usepos+spreadeddir*.5+Vector3_t(-.04, .04, 0.0).rotate(spreadeddir.RotationAsDirection), spreadeddir*200.0, LastHitDist, &itemtype.bullet_sprite);
 			}
 		}
 		if(block_hit_dist<player_hit_dist && block_hit_dist<object_hit_dist){
@@ -1470,6 +1436,9 @@ struct Object_t{
 	DamageParticle_t[] particles;
 	
 	Item_t *item;
+	
+	SoundSource_t sndsource;
+	SoundID_t[] loop_sounds;
 
 	@property Model_t *model(){return obj.spr.model;} @property void model(Model_t *m){obj.spr.model=m;}
 	@property uint color(){return obj.spr.color_mod;} @property void color(uint c){obj.spr.color_mod=c;}
@@ -1482,6 +1451,7 @@ struct Object_t{
 		smoke_amount=0.0;
 		attached_to_obj=VoidObjectID;
 		item=null;
+		sndsource=SoundSource_t(0);
 	}
 
 	void Init(){
@@ -1494,6 +1464,15 @@ struct Object_t{
 		item=null;
 	}
 	
+	void Play(SoundID_t snd, bool repeat){
+		if(repeat){
+			if(!loop_sounds.canFind(snd)){
+				loop_sounds~=snd;
+			}
+		}
+		sndsource.Play_Sound(Mod_Sounds[snd]);
+	}
+	
 	void UnInit(){
 		if(DamagedObjects.canFind(index))
 			DamagedObjects.remove(DamagedObjects.countUntil(index));
@@ -1504,6 +1483,11 @@ struct Object_t{
 		particles=[];
 		visible=false;
 		item=null;
+		
+	}
+	
+	void Delete(){
+		sndsource.UnInit();
 	}
 	
 	void Update(float dt=WorldSpeed){
@@ -1562,6 +1546,12 @@ struct Object_t{
 		}
 		if(smoke_amount){
 			Create_Smoke(pos, smoke_amount*dt, smoke_color, pow(smoke_amount, .75), .2, .75, vel*.01);
+		}
+		sndsource.SetPos(pos);
+		sndsource.SetVel(vel);
+		foreach(lsound; loop_sounds){
+			if(!sndsource.Sound_Playing(Mod_Sounds[lsound]))
+				sndsource.Play_Sound(Mod_Sounds[lsound]);
 		}
 	}
 

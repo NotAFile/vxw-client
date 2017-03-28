@@ -730,6 +730,11 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				Players[packet.player_id].Equip_ObjectItem(&Objects[packet.obj_id]);
 				break;
 			}
+			case SetObjectSoundPacketID:{
+				auto packet=UnpackPacketToStruct!(SetObjectSoundPacketLayout)(PacketData);
+				Objects[packet.obj_id].Play(packet.snd_id, packet.flags&ProtocolPlaySoundFlags.Repeat);
+				break;
+			}
 			default:{
 				writeflnlog("Invalid packet ID %d", id);
 				break;

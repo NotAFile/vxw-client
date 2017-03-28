@@ -154,37 +154,41 @@ void Gfx_MapLoadingStart(uint xsize, uint zsize){
 	SDL_SetWindowTitle(scrn_window, toStringz("[VoxelWar] Loading map \""~CurrentMapName~"\" ..."));
 }
 
-@save void Gfx_OnMapDataAdd(uint[] loading_map){
-	uint[] map_pixels=cast(uint[])(cast(uint*)MapLoadingSrfc.pixels)[0..MapLoadingSrfc.w*MapLoadingSrfc.h];
-	uint maxx, maxz;
+void Gfx_OnMapDataAdd(uint[] loading_map){
+	uint[] map_pixels=cast(uint[])((cast(uint*)MapLoadingSrfc.pixels)[0..MapLoadingSrfc.w*MapLoadingSrfc.h]);
 	SDL_SetWindowTitle(scrn_window, toStringz("[VoxelWar] Loading map \""~CurrentMapName~"\" ... ("~to!string(loading_map.length*400/MapTargetSize)~"%)"));
 	try{
-		uint map_ind=0;
-		for(uint z=0; z<MapLoadingSrfc.h; z++){
-			for(uint x=0; x<MapLoadingSrfc.w; x++){
-				int y=0;
-				uint min_y=uint.max;
-				while(1){
-					uint header=loading_map[map_ind];
-					int datasize=(header)&255, col_start2=(header>>8)&255, col_end2=(header>>16)&255;
-					int col_height2=col_end2-col_start2;
-					uint color_ind=map_ind-col_start2+1;
-					if(col_start2<min_y){
-						min_y=col_start2;
-						map_pixels[x+z*MapLoadingSrfc.w]=loading_map[color_ind+col_start2];
-					}
-					if(!datasize){
-						map_ind+=col_height2+2;
-						break;
-					}	
-					map_ind+=datasize;
-					int airstart=(loading_map[map_ind]>>24)&255;
-					color_ind=map_ind-airstart;
+		_sGfx_OnMapDataAdd(loading_map, map_pixels);
+	}
+	catch(core.exception.RangeError){}
+}
+
+@safe void _sGfx_OnMapDataAdd(uint[] loading_map, uint[] map_pixels){
+	uint maxx, maxz;
+	uint map_ind=0;
+	for(uint z=0; z<MapLoadingSrfc.h; z++){
+		for(uint x=0; x<MapLoadingSrfc.w; x++){
+			int y=0;
+			uint min_y=uint.max;
+			while(1){
+				uint header=loading_map[map_ind];
+				int datasize=(header)&255, col_start2=(header>>8)&255, col_end2=(header>>16)&255;
+				int col_height2=col_end2-col_start2;
+				uint color_ind=map_ind-col_start2+1;
+				if(col_start2<min_y){
+					min_y=col_start2;
+					map_pixels[x+z*MapLoadingSrfc.w]=loading_map[color_ind+col_start2];
 				}
+				if(!datasize){
+					map_ind+=col_height2+2;
+					break;
+				}	
+				map_ind+=datasize;
+				int airstart=(loading_map[map_ind]>>24)&255;
+				color_ind=map_ind-airstart;
 			}
 		}
 	}
-	catch(core.exception.RangeError){}
 }
 
 void Gfx_OnMapLoadFinish(){
@@ -1015,6 +1019,8 @@ Sprite_t[] Get_Player_Sprites(uint player_id){
 		Vector3_t offset=Vector3_t(model.offset).rotate_raw(offsetrot);
 		mpos-=offset;
 		if(model.Rotate && model.FirstPersonModel){
+			if(!Config_Read!bool("draw_arms"))
+				continue;
 			Vector3_t hand_offset=(hands_pos-mpos).abs();
 			if(player_id==LocalPlayerID){
 				mpos-=hand_offset*.6;
@@ -1040,7 +1046,8 @@ auto Get_Player_Scope(uint player_id){
 	result.rot=Vector3_t(spr.rhe, spr.rti, spr.rst);
 	Item_t *item=Players[player_id].equipped_item;
 	auto current_tick=PreciseClock_ToMSecs(PreciseClock());
-	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, Vector3_t(-.45, -.5, -.5)*(item.container_type==ItemContainerType_t.Player)+spr.model.pivot));
+	Vector3_t offset=item.container_type==ItemContainerType_t.Player ? Vector3_t(-.45, -.5, -.5) : Vector3_t(-1.5, 0.0, 0.0);
+	result.pos=Validate_Coord(Get_Absolute_Sprite_Coord(&spr, offset+spr.model.pivot));
 	if(Voxel_IsSolid(result.pos.x, result.pos.y, result.pos.z)){
 		if(result.pos.y>=63.0)
 			result.pos.y=62.99;
@@ -1147,10 +1154,10 @@ bool SpriteHitScan(in Sprite_t spr, in Vector3_t pos, in Vector3_t dir, out Vect
 	voxpos=Vector3_t(spr.xpos, spr.ypos, spr.zpos);
 	immutable renderrot=Vector_t!(3, real)(spr.rot.x, -(spr.rot.y+90.0), -spr.rot.z);
 	auto minvxdist=real.infinity;
-	immutable minpos=(-spr.model.pivot*spr.density).rotate_raw(renderrot)+spr.pos;
-	immutable xdiff=(((Vector_t!(3, real)(spr.model.size.filter!(1, 0, 0)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.x;
-	immutable ydiff=(((Vector_t!(3, real)(spr.model.size.filter!(0, 1, 0)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.y;
-	immutable zdiff=(((Vector_t!(3, real)(spr.model.size.filter!(0, 0, 1)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)/cast(real)spr.model.size.z;
+	immutable spr_edges=spr.Edge_Vectors();
+	immutable minpos=spr_edges[0];
+	immutable xdiff=spr_edges[1]/cast(real)spr.model.size.x, ydiff=spr_edges[2]/cast(real)spr.model.size.y, 
+	zdiff=spr_edges[3]/cast(real)spr.model.size.z;
 	immutable hvoxsize=xdiff*.5+ydiff*.5+zdiff*.5;
 	auto vxpos=minpos+hvoxsize;
 	immutable invdir=Vector_t!(3, real)(1.0)/dir;
@@ -1777,22 +1784,16 @@ struct Sprite_t{
 		((Vector_t!(3, T)(model.size.filter!(0, 0, 1)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos];
 	}
 	const auto opCast(AABB_t)(){
-		immutable renderrot=Vector_t!(3, real)(rot.x, -(rot.y+90.0), -rot.z);
-		immutable minpos=(-model.pivot*density).rotate_raw(renderrot)+pos;
-		immutable xdiff=(((Vector_t!(3, real)(model.size.filter!(1, 0, 0)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos);
-		immutable ydiff=(((Vector_t!(3, real)(model.size.filter!(0, 1, 0)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos);
-		immutable zdiff=(((Vector_t!(3, real)(model.size.filter!(0, 0, 1)())-model.pivot)*density).rotate_raw(renderrot)+pos-minpos);
-		auto vxpos=minpos+xdiff*.5/(cast(real)model.size.x)+ydiff*.5/(cast(real)model.size.y)+zdiff*.5/(cast(real)model.size.z);
+		immutable edges=Edge_Vectors();
 		real minx=real.max, maxx=-real.max, miny=real.max, maxy=-real.max, minz=real.max, maxz=-real.max;
 		foreach(edgeindex; 0..8){
-			immutable voxpos=vxpos+xdiff*to!real(edgeindex%2)+ydiff*to!real((edgeindex%4)>1)+zdiff*to!real(edgeindex>3);
+			immutable voxpos=edges[0]+edges[1]*to!real(edgeindex%2)+edges[2]*to!real((edgeindex%4)>1)+edges[3]*to!real(edgeindex>3);
 			minx=min(voxpos.x, minx); maxx=max(voxpos.x, maxx); miny=min(voxpos.y, miny);
 			maxy=max(voxpos.y, maxy); minz=min(voxpos.z, minz); maxz=max(voxpos.z, maxz);
 		}
 		return AABB_t(minx, miny, minz, maxx, maxy, maxz);
 	}
 	int opApply(scope int delegate(ref ModelVoxel_t vox, immutable in Vector_t!(3, real) pos) dg){
-		immutable renderrot=Vector_t!(3, real)(rot.x, -(rot.y+90.0), -rot.z);
 		immutable edges=Edge_Vectors();
 		immutable minpos=edges[0];
 		immutable xdiff=edges[1]/cast(real)model.size.x, ydiff=edges[2]/cast(real)model.size.y, zdiff=edges[3]/cast(real)model.size.z;
