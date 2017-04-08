@@ -417,7 +417,7 @@ struct Player_t{
 			sndsource.SetVel(vel);
 			float fwalk_sign=sgn(sin(Walk_Forwards_Timer)), swalk_sign=sgn(sin(Walk_Sidewards_Timer));
 			if(((fwalk_sign!=prev_fwalk_sign && fwalk_sign && prev_fwalk_sign) || (swalk_sign!=prev_swalk_sign && swalk_sign && prev_swalk_sign)) && !airborne){
-				if(ProtocolBuiltin_StepSound!=-1)
+				if(ProtocolBuiltin_StepSound!=VoidSoundID)
 					sndsource.Play_Sound(Mod_Sounds[ProtocolBuiltin_StepSound]);
 			}
 			if(fwalk_sign)
@@ -484,7 +484,7 @@ struct Player_t{
 		} else {
 			if(!airborne && airborne_old) { //fall or jump end
 				float d = pos.y-airborne_start;
-				if(ProtocolBuiltin_StepSound!=-1)
+				if(ProtocolBuiltin_StepSound!=VoidSoundID)
 					sndsource.Play_Sound(Mod_Sounds[ProtocolBuiltin_StepSound]);
 				debug{
 					if(d>0.0F) {
@@ -637,7 +637,7 @@ struct Player_t{
 		current_item.use_timer=current_tick;
 		
 		Vector3_t usepos, usedir;
-		if(player_id==LocalPlayerID && LocalPlayerScoping()){
+		if((player_id==LocalPlayerID && LocalPlayerScoping()) || current_item.container_type==ItemContainerType_t.Player){
 			auto scp=Get_Player_Scope(player_id);
 			usepos=scp.pos;
 			usedir=scp.rot.RotationAsDirection();
@@ -737,8 +737,10 @@ struct Player_t{
 				object_hit_id=LastHitID;
 			}
 			if(itemtype.Is_Gun()){
-				Create_Smoke(usepos+spreadeddir*1.0, 2.0*itemtype.power, 0xff808080, 1.0*sqrt(itemtype.power), .1, .1, spreadeddir*.1*sqrt(itemtype.power));
-				Bullet_Shoot(usepos+spreadeddir*.5+Vector3_t(-.04, .04, 0.0).rotate(spreadeddir.RotationAsDirection), spreadeddir*200.0, LastHitDist, &itemtype.bullet_sprite);
+				immutable bullet_exit_pos=usepos+spreadeddir*Mod_Models[ItemTypes[equipped_item.type].model_id].size.z
+				*Get_Player_Attached_Sprites(player_id)[0].density.z;
+				Create_Smoke(bullet_exit_pos, 2.0*itemtype.power, 0xff808080, 2.0*sqrt(itemtype.power), .1, .1, spreadeddir*.1*sqrt(itemtype.power));
+				Bullet_Shoot(bullet_exit_pos+Vector3_t(-.04, .04, 0.0).rotate(spreadeddir.RotationAsDirection), spreadeddir*200.0, LastHitDist, &itemtype.bullet_sprite);
 			}
 		}
 		if(block_hit_dist<player_hit_dist && block_hit_dist<object_hit_dist){

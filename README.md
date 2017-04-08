@@ -5,29 +5,29 @@ History:
 Ever since the originally free-to-play voxel FPS "Ace Of Spades" was bought by a company with the purpose of commercial distribution, the leftovers of the community have been trying to make a new game. VoxelWar is one of those games, initially started as an alternative AoS client written in C by lecom. At some point, it became clear that 1. maintenance and development of the client in C was too much work with a too big code base 2. the existing AoS server, PySnip, was too complex and the code was written in a bad way, hence the VxW client was rewritten in D and got a new server written in Python. Because Python was too slow and not very suitable for game development, it was rewritten in S-Lang. Right now, the developers are working towards a first release.
 
 Gameplay:
--Bring back the old AoS feeling from anything before 0.54:
-	-No free headhunting, if you want to kill someone, you should have to aim your weapon
-	-Proper weapon balancing, make the rifle king of long-ranged combat again and SMG short-ranged to middle-ranged
-	-Slow-paced gameplay, take your time to think of a good way to defeat the enemy
-	-More focus on engineering different buildings
-	-More genmaps with a special API for easy map generation
-	-Implied classes, mostly equal equipment and abilities for all players, determine your class based on the way you play the game
-	-Make fulfilling the game mode's target worth it (e.g. intel/flag "ESP", game mode points)
--Introduction of artillery weapons (mortars atm) as a balancing measure, new "class" and a general feature of the game
--Proper airstrikes (compared to AoS classic) with planes dropping bombs, wich can be shot down (both the planes and the bombs \o/)
--"Reasonable" level of realism (make things feel somewhat relatable to rl, but not exagerate with realism)
--AI players to assist you
+- Bring back the old AoS feeling from anything before 0.54:
+	- No free headhunting, if you want to kill someone, you should have to aim your weapon
+	- Proper weapon balancing, make the rifle king of long-ranged combat again and SMG short-ranged to middle-ranged
+	- Slow-paced gameplay, take your time to think of a good way to defeat the enemy
+	- More focus on engineering different buildings
+	- More genmaps with a special API for easy map generation
+	- Implied classes, mostly equal equipment and abilities for all players, determine your class based on the way you play the game
+	- Make fulfilling the game mode's target worth it (e.g. intel/flag "ESP", game mode points)
+- Introduction of artillery weapons (mortars atm) as a balancing measure, new "class" and a general feature of the game
+- Proper airstrikes (compared to AoS classic) with planes dropping bombs, wich can be shot down (both the planes and the bombs \o/)
+- "Reasonable" level of realism (make things feel somewhat relatable to rl, but not exagerate with realism)
+- AI players to assist you
 
 What VxW is not and never going to be:
--CoD/CS (don't even think about it, guys)
--AoS classic (not before 0.60, at least)
--BF1
--ArmA (but can serve as a source of "inspiration" for content creators)
+- CoD/CS (don't even think about it, guys)
+- AoS classic (not before 0.60, at least)
+- BF1
+- ArmA (but can serve as a source of "inspiration" for content creators)
 
 Coming soon:
--A broad variety of game modes
--Player-controllable planes, dogfights
--Release of VxW 1.0
+- A broad variety of game modes
+- Player-controllable planes, dogfights
+- Release of VxW 1.0
 
 # Compiling
 

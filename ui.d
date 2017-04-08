@@ -119,7 +119,7 @@ void SettingsMenu_ChangeEntry(float val){
 		if(entry.entry=="smoke")
 			SmokeAmount=Renderer_SmokeRenderSpeed*Config_Read!float("smoke")*10.0;
 		if(entry.entry=="render_lod")
-			Renderer_SetQuality(Config_Read!float("render_lod"));
+			Renderer_SetLOD(Config_Read!float("render_lod"));
 		if(entry.entry=="upscale")
 			Change_Resolution(WindowXSize, WindowYSize);
 		if(entry.entry=="volume"){
@@ -360,10 +360,8 @@ void Check_Input(){
 					}
 					case SDLK_r:{
 						if(Joined_Game() && !TypingChat){
-							if(true){
-								ItemReloadPacketLayout packet;
-								Send_Packet(ItemReloadPacketID, packet);
-							}
+							ItemReloadPacketLayout packet;
+							Send_Packet(ItemReloadPacketID, packet);
 						}
 						break;
 					}

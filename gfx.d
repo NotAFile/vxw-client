@@ -125,7 +125,7 @@ void Change_Resolution(uint newxsize, uint newysize){
 	ScreenXSize=WindowXSize=newxsize; ScreenYSize=WindowYSize=newysize;
 	newxsize=cast(uint)(WindowXSize*ScreenSizeRatio); newysize=cast(uint)(WindowYSize*ScreenSizeRatio);
 	Renderer_SetUp(newxsize, newysize);
-	Renderer_SetQuality(Config_Read!float("render_lod"));
+	Renderer_SetLOD(Config_Read!float("render_lod"));
 	foreach(ref elem; MenuElements){elem.AdjustToScreen();}
 	foreach (ref tbox; TextBoxes){tbox.AdjustToScreen();}
 	if(ProtocolBuiltin_AmmoCounterBG)
@@ -744,6 +744,7 @@ void Render_Screen(){
 			CameraRot=MouseRot;
 			Sound_SetListenerOri(CameraRot);
 			Renderer_SetBlur(Current_Blur_Amount);
+			Renderer_SetLOD(Config_Read!float("render_lod")+LocalPlayerScoping()*5.0);
 		}
 		else{
 			MouseRot.x+=MouseMovedX*.7*14.0*Config_Read!float("mouse_accuracy")*X_FOV/90.0; MouseRot.y+=MouseMovedY*.5*14.0*Config_Read!float("mouse_accuracy")*Y_FOV/90.0;
@@ -759,6 +760,7 @@ void Render_Screen(){
 			MouseMovedX = 0;
 			MouseMovedY = 0;
 			Renderer_SetBlur(0.0);
+			Renderer_SetLOD(Config_Read!float("render_lod"));
 		}
 		if(Current_Shake_Amount>0.0){
 			Vector3_t shake_cam=CameraPos;
@@ -786,7 +788,9 @@ void Render_Screen(){
 					if(LocalPlayerScoping()){
 						if(ProtocolBuiltin_ScopePicture){
 							auto res=Get_Player_Scope(LocalPlayerID);
+							Renderer_SetLOD(Config_Read!float("render_lod"));
 							auto scope_pic=Renderer_DrawRoundZoomedIn(&res.pos, &res.rot, ProtocolBuiltin_ScopePicture, 1.5, 1.5);
+							Renderer_SetLOD(Config_Read!float("render_lod")+5.0);
 							MenuElement_t *e=ProtocolBuiltin_ScopePicture;
 							if(Config_Read!bool("render_zoomed_scopes")){
 								uint[2] size=[scope_pic.scope_texture_width, scope_pic.scope_texture_height];
