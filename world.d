@@ -29,7 +29,7 @@ float GroundFriction=2.0;
 float WaterFriction=2.5;
 float CrouchFriction=5.0;
 //Inb4 SMB
-float PlayerJumpPower=6.0;
+float PlayerJumpPower=10.0;
 float PlayerWalkSpeed=1.0;
 float PlayerSprintSpeed=1.5;
 float WorldSpeedRatio=2.0;
@@ -495,7 +495,7 @@ struct Player_t{
 		}
 		
 		if(!airborne && Jump && !LastJump) {
-			vel.y = Crouch?-8.0F:-10.0F;
+			vel.y = -(PlayerJumpPower - ( Crouch ? 2.0f : 0.0f));
 			LastJump = true;
 		} else {
 			if(!Jump) {
@@ -637,7 +637,7 @@ struct Player_t{
 		current_item.use_timer=current_tick;
 		
 		Vector3_t usepos, usedir;
-		if((player_id==LocalPlayerID && LocalPlayerScoping()) || current_item.container_type==ItemContainerType_t.Player){
+		if((player_id==LocalPlayerID && LocalPlayerScoping())){
 			auto scp=Get_Player_Scope(player_id);
 			usepos=scp.pos;
 			usedir=scp.rot.RotationAsDirection();
@@ -645,6 +645,9 @@ struct Player_t{
 		else{
 			usepos=CameraPos();
 			usedir=dir;
+		}
+		if(current_item.container_type!=ItemContainerType_t.Player){
+			usepos=Objects[current_item.container_obj].pos;
 		}
 		Vector3_t spreadeddir;
 		float spreadfactor=itemtype.spread_c+itemtype.spread_m*uniform01()*(1.0+pow(current_item.heat, 2.0));
@@ -1375,6 +1378,9 @@ struct RCRay_t{
 					rayz+=zdsgn;
 				}
 			}
+			//If there's issues with raycasting skipping voxels, the next line might be related to it
+			if(lastdist>maxlength)
+				break;
 			if(!loops){
 				writeflnlog("Warning: DDA raycasting results in an infinite loop (%s) (rare?)", this);
 				break;
@@ -1444,6 +1450,8 @@ struct Object_t{
 
 	@property Model_t *model(){return obj.spr.model;} @property void model(Model_t *m){obj.spr.model=m;}
 	@property uint color(){return obj.spr.color_mod;} @property void color(uint c){obj.spr.color_mod=c;}
+	
+	//ctor: when newly created; Init(): when object exists and gets reinitialized via packet
 	
 	this(uint initindex){
 		this.index=initindex;

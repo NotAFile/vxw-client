@@ -97,9 +97,13 @@ Follow the compile steps for your choosen renderer module and procede here after
 5. Run compile.bat
 
 CREDITS:
+
 lecom - main programming
+
 Chameleon - actually rather contributed assets to the server IIRC
+
 bytebit - his own OpenGL renderer, a small amount of physics code (player physics, AABB code)
+
 longbyte - for being a very convincing guy (you know what I'm referring to ;) )
 
 
@@ -107,4 +111,9 @@ longbyte - for being a very convincing guy (you know what I'm referring to ;) )
 
 The "derelict/" folder contains D bindings to ENet, SDL2, libogg and Vorbis. This is not the usual way of using derelict, but *DUB* is a nightmare to use and We would rather not rely on such kinds of packaging programs.
 
+## Licensing
+
+VoxelWar uses the S-Lang library under an exception of its GPL license, allowing VoxelWar to use it under the LGPL license.
 VoxelWar uses the original S-Lang library, as offered at http://jedsoft.org/slang/
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

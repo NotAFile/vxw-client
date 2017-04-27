@@ -272,6 +272,18 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		else
 			return __this_type(std.math.abs(x), std.math.abs(y), std.math.abs(z));
 	}
+	const __this_type floor(){
+		__this_type ret;
+		foreach(el; 0..dim)
+			ret.elements[el]=cast(typeof(ret.elements[el]))std.math.floor(cast(__float_type)elements[el]);
+		return ret;
+	}
+	const __this_type apply(F)(){
+		__this_type ret;
+		foreach(el; 0..dim)
+			ret.elements[el]=F(elements[el]);
+		return ret;
+	}
 	const Vector_t!(3, T) cross(T)(Vector_t!(3, T) vec){
 		return Vector_t!(3, T)(y*vec.z-z*vec.y, z*vec.x-x*vec.z, x*vec.y-y*vec.x);
 	}

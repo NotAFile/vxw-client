@@ -98,7 +98,9 @@ immutable SettingsMenu_ConfigEntries=[
 	SettingsMenuEntry_t("r", "sprite_visibility_checks", "bool", "toggles visibility checks for sprites (increases FPS, but may hide normally visible objects sometimes)", 0.0, float.infinity, "false"),
 	SettingsMenuEntry_t("z", "render_zoomed_scopes", "bool", "toggles rendering zoomed in scopes (might decrease FPS a bit)", 0.0, float.infinity, "true"),
 	SettingsMenuEntry_t("t", "show_gun_heat", "bool", "toggles gun heat indicator that turns your gun red", 0.0, float.infinity, "false"),
-	SettingsMenuEntry_t("k", "draw_arms", "bool", "toggles rendering first-person mode arms", 0.0, float.infinity, "true")
+	SettingsMenuEntry_t("k", "draw_arms", "bool", "toggles rendering first-person mode arms", 0.0, float.infinity, "true"),
+	SettingsMenuEntry_t("b", "render_threads", "string", "Sets the amount of rendering threads (experimental, better don't touch and leave at 1)",
+	0.0, float.infinity, "1")
 ];
 
 void SettingsMenu_ChangeEntry(float val){
@@ -112,6 +114,19 @@ void SettingsMenu_ChangeEntry(float val){
 		rangestep=(entry.maxval-entry.minval)/10.0;
 	if(!entry.step.isNaN())
 		rangestep=entry.step;
+	if(entry.entry=="render_threads"){
+		if(entry.entry=="auto"){
+			Config_Write(entry.entry, "0");
+		}
+		auto cores=Config_Read!uint(entry.entry);
+		if(val>0){
+			Config_Write(entry.entry, cores+1);
+		}
+		else{
+			if(cores>1)
+				Config_Write(entry.entry, cores-1);
+		}
+	}
 	if(entry.type=="float"){
 		float newval=Config_Read!float(entry.entry)+val*rangestep;
 		newval=min(newval, entry.maxval); newval=max(newval, entry.minval);
