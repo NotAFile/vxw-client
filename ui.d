@@ -919,7 +919,7 @@ void Config_Write(T)(string entry, T val){
 void ClientConfig_Load(){
 	import std.file;
 	if(!exists("./config.txt")){
-		ClientConfig["nick"]="Deuce";
+		ClientConfig["nick"]="";
 		ClientConfig["resolution_x"]="800";
 		ClientConfig["resolution_y"]="600";
 		ClientConfig["fullscreen"]="false";

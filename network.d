@@ -32,7 +32,12 @@ struct Connection_t{
 			return -1;
 		enet_address_set_host(&address, toStringz(addr));
 		address.port=port;
+		writeflnlog("Connecting to %s via port %s", addr, port);
 		peer=enet_host_connect(client, &address, 2, connection_byte);
+		if(!peer){
+			writeflnerr("Fatal ENet error (enet_host_connect)");
+			return -1;
+		}
 		ENetEvent event;
 		int ret=enet_host_service(client, &event, connect_time);
 		if(ret>0){
@@ -173,7 +178,6 @@ void UnInit_Netcode(){
 }
 
 Connection_t connection;
-
 int Connect_To(string address, ushort port){
 	return connection.Connect(address, port, 5000, 69);
 }

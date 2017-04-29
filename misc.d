@@ -213,6 +213,8 @@ void proper_reverse_overwrite(T)(ref T arr){
 		swap(arr[i], arr[arr.length-1-i]);
 }
 
+T pow2(T)(T num){return num*num;}
+
 immutable uint BITS_PER_BYTE=8;
 //credits go to the genious guy who wrote https://graphics.stanford.edu/~seander/bithacks.html#IntegerMinOrMax
 T bitwise_min(T)(T x, T y){

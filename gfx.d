@@ -413,8 +413,8 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 	for(uint p=0; p<Players.length; p++){
 		Render_Player(p);
 	}
-	if(ProtocolBuiltin_BlockBuildWireframe){
-		if(Players[LocalPlayerID].equipped_item){
+	if(ProtocolBuiltin_BlockBuildWireframe && Joined_Game()){
+		if(Players[LocalPlayerID].equipped_item && Players[LocalPlayerID].Spawned){
 			ItemType_t *type = &ItemTypes[Players[LocalPlayerID].equipped_item.type];
 			if(type.use_range){
 				auto rc=RayCast(CameraPos, Players[LocalPlayerID].dir, ItemTypes[Players[LocalPlayerID].equipped_item.type].use_range);
@@ -809,7 +809,7 @@ void Render_Screen(){
 			Renderer_Blit2D(MapLoadingTex, &size, null);
 		}
 	}
-	if(!LocalPlayerScoping){
+	if(!LocalPlayerScoping && Joined_Game()){
 		foreach(plr; Players){
 			if(plr.Spawned && plr.team==Players[LocalPlayerID].team && plr.player_id!=LocalPlayerID){
 				auto dist=plr.CameraPos-Players[LocalPlayerID].CameraPos;
@@ -965,6 +965,8 @@ bool LocalPlayerScoping(){
 	if(LocalPlayerID<Players.length){
 		if(Players[LocalPlayerID].items.length){
 			if(!Players[LocalPlayerID].equipped_item)
+				return false;
+			if(!ItemTypes[Players[LocalPlayerID].equipped_item.type].Is_Gun)
 				return false;
 			if(!Players[LocalPlayerID].equipped_item.Reloading && MouseRightClick && BlurAmount<.8){
 				return true;

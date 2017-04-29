@@ -632,8 +632,10 @@ struct Player_t{
 		auto timediff=current_tick-current_item.use_timer;
 		if(!current_item.Can_Use())
 			return;
-		Update_Position_Data(true);
-		Update_Rotation_Data(true);
+		if(player_id==LocalPlayerID){
+			Update_Position_Data(true);
+			Update_Rotation_Data(true);
+		}
 		current_item.use_timer=current_tick;
 		
 		Vector3_t usepos, usedir;

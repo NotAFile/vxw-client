@@ -30,22 +30,38 @@ void main(string[] args){
 	ClientConfig_Load();
 	Init_Game();
 	ushort port; string address;
-	string requested_name;
-	if(args.length>1 && args.length<3){
-		UnInit_Game();
-		writeflnlog("Usage: ./main <address:port> <nick>");
-		writeflnlog("Or ./main to connect to localhost as Deuce");
-		writeflnlog("You can use DNS names without any protocol identifiers (without \"http://\" or \"https://\")");
-		return;
-	}
-	if(args.length>1){
-		requested_name=args[2];
-		formattedRead(args[1], "%s:%u", &address, &port);
-	}
-	else{
-		requested_name=ClientConfig["nick"];
-		address=ClientConfig["last_addr"];
-		port=to!ushort(ClientConfig["last_port"]);
+	string requested_name=ClientConfig["nick"];
+	{
+		switch(args.length){
+			case 1:{
+				address=ClientConfig["last_addr"];
+				port=to!ushort(ClientConfig["last_port"]);
+				break;
+			}
+			case 2:{
+				import std.string;
+				if(args[1].indexOf(':')>0){
+					formattedRead(args[1], "%s:%u", &address, &port);
+				}
+				else{
+					address=args[1];
+					port=32887;
+				}
+				break;
+			}
+			case 3:{
+				requested_name=args[2];
+				goto case 2;
+				break;
+			}
+			default:{
+				writeflnlog("Usage: ./main <address:port> <nick>");
+				writeflnlog("Or ./main to connect to the address with the nickname defined in config.txt (or default)");
+				writeflnlog("You can use DNS names without any protocol identifiers (without \"http://\" or \"https://\")");
+				UnInit_Game();
+				break;
+			}
+		}
 	}
 	{
 		SDL_SetWindowTitle(scrn_window, toStringz("[VoxelWar] Connecting to "~address~":"~to!string(port)));

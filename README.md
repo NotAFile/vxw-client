@@ -43,12 +43,12 @@ There are two right now, first the software based voxlap renderer and a much new
 
 Follow the compile steps for your choosen renderer module and procede here after you've copied the renderer's ```renderer.d``` file here as well as other required library files.
 
-#### On Linux
+#### On Linux/any POSIX-compliant OSes
 1. If you are using Debian or Ubuntu and don't have these installed already:
 	```
 	sudo apt-get install libsdl2-dev libenet-dev git -y
 	```
-	If not, install SDL2, ENet and git the way you would do it on your distribution.
+	If not, install SDL2, ENet and git the way you would do it on your OS.
 	
 	(You can get the Voxlap renderer with ./setup_voxlap_renderer)
 	(It is not legal to distribute VoxelWar with the voxlap renderer, use it only for private purposes)
@@ -68,7 +68,7 @@ Follow the compile steps for your choosen renderer module and procede here after
 	to compile the derelict files into a compact .a file
 
 	```
-	./compile_***
+	make
 	```
 
 	to compile the source (instead of "compile_***", use the name of the corresponding renderer compilation script)
@@ -110,6 +110,8 @@ longbyte - for being a very convincing guy (you know what I'm referring to ;) )
 ## Notes
 
 The "derelict/" folder contains D bindings to ENet, SDL2, libogg and Vorbis. This is not the usual way of using derelict, but *DUB* is a nightmare to use and We would rather not rely on such kinds of packaging programs.
+
+This software runs way faster on other systems than on windows because of compiler issues arising from stubborn D devs who keep insisting on using microsoft development software above all.
 
 ## Licensing
 

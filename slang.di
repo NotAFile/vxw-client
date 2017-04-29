@@ -378,7 +378,7 @@ immutable SL_TB_FULL=0x1;    /* full traceback */
 immutable SL_TB_OMIT_LOCALS=0x2;    /* full, but omit local vars */
 immutable SL_TB_PARTIAL=0x4;    /* show just on line of traceback */
 
-extern __gshared int SLang_Num_Function_Args;
+//extern __gshared int SLang_Num_Function_Args; (Unneeded, also not to introduce dependency (shitty OPTLINK can't work with this))
 
 void SLfree(void *);	       /* This function handles NULL */
 

@@ -71,6 +71,9 @@ void Send_Chat_Packet(string line){
 	Send_Data(ChatPacketID~data);
 }
 
+size_t[PacketID_t] IncomingPacket_Stats;
+size_t[PacketID_t] OutgoingPacket_Stats;
+
 void On_Packet_Receive(ReceivedPacket_t recv_packet){
 	if(JoinedGamePhase>=JoinedGameMaxPhases){
 		ubyte id=(cast(ubyte[])recv_packet.data)[0];
@@ -80,6 +83,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 		debug{
 			writeflnlog("Received packet with ID %s", id);
 		}
+		IncomingPacket_Stats[id]+=recv_packet.data.length-1;
 		switch(id){
 			case MapChangePacketID:{
 				auto packet=UnpackPacketToStruct!(MapChangePacketLayout)(PacketData);
@@ -773,6 +777,7 @@ void Send_Disconnect_Packet(){
 
 void Send_Packet(T)(PacketID_t id, T packet){
 	auto packetbytes=PackStructToPacket(packet);
+	OutgoingPacket_Stats[id]+=packetbytes.length;
 	Send_Data(id~packetbytes);
 }
 

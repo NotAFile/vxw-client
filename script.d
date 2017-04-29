@@ -430,7 +430,17 @@ void Init_Script(){
 			}
 		}
 	}*/
-	SLang_Traceback=SL_TB_PARTIAL;
+	version(DigitalMars){
+		version(Windows){
+			//Don't access, or segfault (because shitty OPTLINK)
+		}
+		else{
+			SLang_Traceback=SL_TB_PARTIAL;
+		}
+	}
+	else{
+		SLang_Traceback=SL_TB_PARTIAL;
+	}
 	SLang_init_slang();
 	SLang_init_slmath();
 	SLang_init_array();

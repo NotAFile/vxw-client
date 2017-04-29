@@ -13,10 +13,7 @@ main
 *.dll
 *.obj
 *.bat
-compile_with_voxlap
-compile_with_voxlap_ldc
-compile_with_voxlap_gdc
-compile_with_voxlap_ll
+Makefile
 compile_with_ogl
 compile_with_ogl_ll
 *.ll
