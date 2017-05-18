@@ -100,7 +100,8 @@ immutable SettingsMenu_ConfigEntries=[
 	SettingsMenuEntry_t("t", "show_gun_heat", "bool", "toggles gun heat indicator that turns your gun red", 0.0, float.infinity, "false"),
 	SettingsMenuEntry_t("k", "draw_arms", "bool", "toggles rendering first-person mode arms", 0.0, float.infinity, "true"),
 	SettingsMenuEntry_t("b", "render_threads", "string", "Sets the amount of rendering threads (experimental, better don't touch and leave at 1)",
-	0.0, float.infinity, "1")
+	0.0, float.infinity, "1"),
+	SettingsMenuEntry_t("y", "chat_lines_amount", "uint", "Sets the amount of chat lines shown", 0, float.infinity, "8", 1)
 ];
 
 void SettingsMenu_ChangeEntry(float val){
@@ -156,6 +157,10 @@ void SettingsMenu_ChangeEntry(float val){
 			newval=step<0 ? uint.min : uint.max;
 		}
 		Config_Write(entry.entry, newval);
+		if(entry.entry=="chat_lines_amount"){
+			ChatText.length=Config_Read!size_t(entry.entry);
+			ChatColors.length=ChatText.length;
+		}
 	}
 	if(entry.type=="ubyte"){
 		immutable ubyte oldval=Config_Read!ubyte(entry.entry);
@@ -291,7 +296,7 @@ struct TextBox_t{
 TextBox_t[] TextBoxes;
 
 void Init_UI(){
-	ChatText.length=8; ChatColors.length=8;
+	ChatText.length=Config_Read!size_t("chat_lines_amount"); ChatColors.length=ChatText.length;
 	ubyte *kbstate;
 	int kbstatesize;
 	kbstate=SDL_GetKeyboardState(&kbstatesize);

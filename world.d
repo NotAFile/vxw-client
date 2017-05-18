@@ -214,7 +214,7 @@ struct AABB_t {
 		return (min_x <= b.max_x && b.min_x <= max_x) && (min_y <= b.max_y && b.min_y <= max_y) && (min_z <= b.max_z && b.min_z <= max_z);
 	}
 	
-	bool intersection_terrain() {
+	bool intersection_terrain(alias is_player=false)() {
 		AABB_t terrain_cube;
 
 		int min_x = cast(int)floor(min_x);
@@ -228,6 +228,10 @@ struct AABB_t {
 		for(int x=min_x;x<max_x;x++) {
 			for(int z=min_z;z<max_z;z++) {
 				for(int y=min_y;y<max_y;y++) {
+					static if(is_player){
+						if(y<0)
+							continue;
+					}
 					if(x<0 || z<0 || x>=MapXSize || z>=MapZSize || y>=MapYSize || (y!=MapYSize-1 && Coord_Collides(x,y,z))) {
 						terrain_cube.min_x = x;
 						terrain_cube.min_y = y;
@@ -366,7 +370,7 @@ struct Player_t{
 	
 	void Delete(){
 		if(equipped_item)
-			equipped_item.equipped=false;
+			equipped_item.equipped=VoidPlayerID;
 		sndsource.UnInit();
 	}
 	
@@ -452,11 +456,11 @@ struct Player_t{
 		if(Crouch && TryUnCrouch) {
 			player_aabb.set_size(0.75F,Player_Stand_Size,0.75F);
 			player_aabb.set_bottom_center(pos.x,pos.y,pos.z);
-			if(!player_aabb.intersection_terrain()) {
+			if(!player_aabb.intersection_terrain!true()) {
 				Crouch = TryUnCrouch = false;
 			} else {
 				player_aabb.set_bottom_center(pos.x,pos.y+0.9F,pos.z);
-				if(!player_aabb.intersection_terrain()) {
+				if(!player_aabb.intersection_terrain!true()) {
 					pos.y += 0.9F;
 					Crouch = TryUnCrouch = false;
 				}
@@ -468,7 +472,7 @@ struct Player_t{
 		player_aabb.set_size(0.75F,Crouch?Player_Crouch_Size:Player_Stand_Size,0.75F);
 		
 		player_aabb.set_bottom_center(pos.x,pos.y+vel.y*dt,pos.z);
-		if(!player_aabb.intersection_terrain()) {
+		if(!player_aabb.intersection_terrain!true()) {
 			pos.y += vel.y*dt;
 			vel.y += dt*Gravity*2.0F;
 		} else {
@@ -477,7 +481,7 @@ struct Player_t{
 		
 		player_aabb.set_bottom_center(pos.x,pos.y+0.1F,pos.z);
 		airborne_old = airborne;
-		airborne = !player_aabb.intersection_terrain();
+		airborne = !player_aabb.intersection_terrain!true();
 		
 		if(airborne && !airborne_old) { //fall or jump start
 			airborne_start = pos.y;
@@ -574,11 +578,11 @@ struct Player_t{
 		
 		//movement in x and y direction by velocity
 		player_aabb.set_bottom_center(pos.x+vel.x*dt,pos.y,pos.z);
-		if(player_aabb.intersection_terrain()) {
+		if(player_aabb.intersection_terrain!true()) {
 			blocked_in_x = true;
 		}
 		player_aabb.set_bottom_center(pos.x,pos.y,pos.z+vel.z*dt);
-		if(player_aabb.intersection_terrain()) {
+		if(player_aabb.intersection_terrain!true()) {
 			blocked_in_z = true;
 		}
 		  
@@ -586,13 +590,13 @@ struct Player_t{
 			bool climb = false;
 			
 			player_aabb.set_bottom_center(pos.x+vel.x*dt,pos.y-1.0F,pos.z);
-			if(!player_aabb.intersection_terrain() && blocked_in_x) {
+			if(!player_aabb.intersection_terrain!true() && blocked_in_x) {
 				climb = true;
 				blocked_in_x = false;
 			}
 			
 			player_aabb.set_bottom_center(pos.x,pos.y-1.0F,pos.z+vel.z*dt);
-			if(!player_aabb.intersection_terrain() && blocked_in_z) {
+			if(!player_aabb.intersection_terrain!true() && blocked_in_z) {
 				climb = true;
 				blocked_in_z = false;
 			}
@@ -742,8 +746,9 @@ struct Player_t{
 				object_hit_id=LastHitID;
 			}
 			if(itemtype.Is_Gun()){
-				immutable bullet_exit_pos=usepos+spreadeddir*Mod_Models[ItemTypes[equipped_item.type].model_id].size.z
-				*Get_Player_Attached_Sprites(player_id)[0].density.z;
+				/*immutable bullet_exit_pos=usepos+spreadeddir*Mod_Models[ItemTypes[equipped_item.type].model_id].size.z
+				*Get_Player_Attached_Sprites(player_id)[0].density.z;*/
+				immutable bullet_exit_pos=current_item.bullet_exit_pos;
 				Create_Smoke(bullet_exit_pos, 2.0*itemtype.power, 0xff808080, 2.0*sqrt(itemtype.power), .1, .1, spreadeddir*.1*sqrt(itemtype.power));
 				Bullet_Shoot(bullet_exit_pos+Vector3_t(-.04, .04, 0.0).rotate(spreadeddir.RotationAsDirection), spreadeddir*200.0, LastHitDist, &itemtype.bullet_sprite);
 			}
@@ -802,20 +807,20 @@ struct Player_t{
 	}
 	void Switch_Item(ItemID_t item_id){
 		if(equipped_item)
-			equipped_item.equipped=false;
+			equipped_item.equipped=VoidPlayerID;
 		if(item_id!=VoidItemID)
 			equipped_item=&items[item_id];
 		else
 			equipped_item=null;
 		if(equipped_item)
-			equipped_item.equipped=true;
+			equipped_item.equipped=player_id;
 	}
 	void Equip_ObjectItem(Object_t *obj){
 		if(equipped_item)
-			equipped_item.equipped=false;
+			equipped_item.equipped=VoidPlayerID;
 		equipped_item=obj.item;
 		if(equipped_item)
-			equipped_item.equipped=true;
+			equipped_item.equipped=player_id;
 	}
 	bool In_Water(){
 		return Voxel_IsWater(pos.x, pos.y+height(), pos.z);
@@ -1052,11 +1057,11 @@ struct Item_t{
 	bool Reloading;
 	float last_recoil;
 	float heat;
-	bool equipped;
+	PlayerID_t equipped;
 	this(ubyte inittype, ItemContainerType_t icontainer){
 		Init(inittype);
 		container_type=icontainer;
-		equipped=false;
+		equipped=VoidPlayerID;
 	}
 	void Init(ubyte inittype){
 		type=inittype;
@@ -1067,7 +1072,7 @@ struct Item_t{
 		last_recoil=0.0;
 		heat=0.0;
 		container_type=ItemContainerType_t.Player;
-		equipped=false;
+		equipped=VoidPlayerID;
 	}
 	bool Can_Use(){
 		if(Reloading || (!amount1 && ItemTypes[type].maxamount1) || !Use_Ready())
@@ -1077,8 +1082,12 @@ struct Item_t{
 	void Update(float dt){
 		if(heat){
 			heat-=dt*ItemTypes[type].cooling;
-			if(heat<0.0)
+			if(heat<0.0){
 				heat=0.0;
+			}
+			if(heat){
+				Create_Smoke(bullet_exit_pos, pow(heat*.1, .3), 0x80000000, pow(heat*.03, .3), .1, .1, Vector3_t(0.0, -.01, 0.0));
+			}
 		}
 	}
 	bool Use_Ready(){
@@ -1086,6 +1095,22 @@ struct Item_t{
 		if(timediff<ItemTypes[type].use_delay)
 			return false;
 		return true;
+	}
+	Vector3_t bullet_exit_pos(){
+		return spr.RelativeCoordinates_To_AbsoluteCoordinates!float(Vector3_t(.5, 0.0, 0.0));
+	}
+	Sprite_t spr(){
+		if(equipped!=VoidPlayerID){
+			return Get_Player_Attached_Sprites(equipped)[0];
+		}
+		final switch(container_type){
+			case ItemContainerType_t.Player:{
+				return Get_Player_Attached_Sprites(container_plr)[0];
+			}
+			case ItemContainerType_t.Object:{
+				return Objects[container_obj].toSprite();
+			}
+		}
 	}
 }
 
@@ -1282,10 +1307,27 @@ void Damage_Block(PlayerID_t player_id, uint xpos, uint ypos, uint zpos, ubyte v
 		Create_Particles(*particle_pos, (*particle_pos-(Vector3_t(xpos, ypos, zpos)+.5)).normal()*.2, 1.0, .1, dmgdiff/3, [col]);
 	}
 	else{
-		for(uint side=0; side<6; side++){
-			Create_Particles(Vector3_t(xpos+to!float(cast(bool)(side&1))*uniform01(),
-			ypos+to!float(cast(bool)(side&2))*uniform01(), zpos+to!float(cast(bool)(side&4))*uniform01())
+		/*for(uint side=0; side<8; side++){
+			//Create_Particles(Vector3_t(xpos+to!float(cast(bool)(side&1)),
+			//ypos+to!float(cast(bool)(side&2)), zpos+to!float(cast(bool)(side&4)))
+			//, Vector3_t(0.0), 1.0, .1, dmgdiff/3/6, [col]);
+			Create_Particles(Vector3_t(xpos+uniform01(),ypos+uniform01(), zpos+uniform01())
 			, Vector3_t(0.0), 1.0, .1, dmgdiff/3/6, [col]);
+		}*/
+		for(uint side=0; side<12; side++){
+			float y;
+			if(side<4)y=0.0; else if(side<9)y=.5; else y=1.0;
+			float x, z;
+			if((side%4)<2){
+				x=(side%2) ? 1.0 : 0.0;
+				z=.5;
+			}
+			else{
+				x=.5;
+				z=(side%2) ? 1.0 : 0.0;
+			}
+			Create_Particles(Vector3_t(xpos+x, ypos+y, zpos+z)
+			, Vector3_t(0.0), 1.0, .1, dmgdiff/2/12, [col]);
 		}
 	}
 	if(dmg.broken){
@@ -1603,7 +1645,7 @@ struct Object_t{
 	}
 	void Render(){
 		if(item){
-			if(item.equipped)
+			if(item.equipped!=VoidPlayerID)
 				return;
 		}
 		return obj.Render();

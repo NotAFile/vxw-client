@@ -156,7 +156,8 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case ChatPacketID:{
 				auto packet=UnpackPacketToStruct!(ChatMessagePacketLayout)(PacketData);
-				WriteMsg(packet.message, packet.color);
+				foreach(msg; packet.message.split('\n'))
+					WriteMsg(msg, packet.color);
 				break;
 			}
 			case PlayerDisconnectPacketID:{

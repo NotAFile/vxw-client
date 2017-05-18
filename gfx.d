@@ -854,10 +854,9 @@ void Render_Screen(){
 					}
 					else{
 						int alpha=obj.color>>24;
-						int[3] cmarr=[(obj.color>>16)&255, (obj.color>>8)&255, (obj.color>>0)&255];
-						cmarr=[255, 255, 255]-cmarr[];
-						cmarr=[255, 255, 255]-((cmarr[]*[alpha, alpha, alpha])/[256, 256, 256]);
-						colormod=[cast(ubyte)cmarr[0], cast(ubyte)cmarr[1], cast(ubyte)cmarr[2]];
+						auto cmarr=Vector_t!(3, uint)(255)-Vector_t!(3, uint)((obj.color>>16)&255, (obj.color>>8)&255, (obj.color>>0)&255);
+						cmarr=Vector_t!(3, uint)(255)-((cmarr*alpha)/256);
+						colormod=[cast(ubyte)cmarr.elements[0], cast(ubyte)cmarr.elements[1], cast(ubyte)cmarr.elements[2]];
 					}
 				}
 				else{
@@ -1828,5 +1827,9 @@ struct Sprite_t{
 			}
 		}
 		return 0;
+	}
+	const Vector_t!(3, T) RelativeCoordinates_To_AbsoluteCoordinates(T=real, T2)(Vector_t!(3, T2) coord){
+		auto edges=this.Edge_Vectors!T();
+		return edges[0]+edges[1]*coord.x+edges[2]*coord.y+edges[3]*coord.z;
 	}
 }
