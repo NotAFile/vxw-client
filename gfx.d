@@ -1334,6 +1334,10 @@ struct Debris_t{
 		obj.bouncefactor=Vector3_t(.8);
 		timer=sqrt(cast(float)model.voxels.length)*100.0;
 		split_counter=0;
+		obj.rot=RandomVector()*360.0;
+		timer=.0001;
+		split_counter=0;
+		obj.vel=RandomVector();
 	}
 	this(Vector3_t pos, Vector_t!(4, uint)[] blocks, uint isizefactor=1){	
 		ModelVoxel_t[][] voxels;
@@ -1345,8 +1349,10 @@ struct Debris_t{
 		}
 		Vector_t!(3, uint) size=[maxpos.x-minpos.x+1, maxpos.y-minpos.y+1, maxpos.z-minpos.z+1];
 		voxels.length=size.x*size.z;
-		foreach(blk; blocks)
+		foreach(blk; blocks){
+			
 			voxels[blk.x-minpos.x+(blk.z-minpos.z)*size.x]~=ModelVoxel_t(blk.w, cast(ushort)(blk.y-minpos.y), 15, 0);
+		}
 		this(pos, (*Model_FromVoxelArray(voxels, size.x, size.z))<<(1+cast(uint)log2(isizefactor)), isizefactor);
 	}
 	void Update(float dt){
@@ -1364,6 +1370,32 @@ struct Debris_t{
 }
 
 Debris_t[] Debris_Parts;
+
+Debris_t Blocks_ToDebris(uint[3][] input_blocks){
+	int[3] minval=[int.max, int.max, int.max], maxval=[0, 0, 0];
+	Vector_t!(4, uint)[] blocks;
+	foreach(block; input_blocks){
+		if(Voxel_IsSolid(block)){
+			blocks~=Vector_t!(4, uint)(block[0], block[1], block[2], Voxel_GetColor(block[0], block[1], block[2]));
+			Voxel_Remove(block);
+		}
+		else{
+			blocks~=Vector_t!(4, uint)(block[0], block[1], block[2], 0x00808080);
+		}
+		foreach(i; 0..3){
+			minval[i]=min(minval[i], block[i]);
+			maxval[i]=max(maxval[i], block[i]);
+		}
+	}
+	auto middle_vec=Vector_t!(4, uint)(((iVector3_t(maxval)-minval)/2+minval).elements~0);
+	Debris_t d=Debris_t(Vector3_t(middle_vec), blocks);
+	d.obj.rot.y=270.0;
+	d.timer=.0001;
+	d.split_counter=0;
+	d.obj.vel=RandomVector();
+	Debris_Parts~=d;
+	return d;
+}
 
 Model_t *Debris_BaseModel;
 

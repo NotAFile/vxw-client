@@ -14,6 +14,9 @@ git clone https://github.com/DerelictOrg/DerelictUtil
 mv ./DerelictUtil/source/derelict/util ./derelict
 rm -r ./DerelictUtil --interactive=never
 git clone https://github.com/DerelictOrg/Derelictvorbis
+cd Derelictvorbis
+git checkout fc2a7be7b261121600027a9adbdf6c14c314c133
+cd ..
 mv ./Derelictvorbis/source/derelict/vorbis ./derelict
 rm -r ./Derelictvorbis --interactive=never
 git clone https://github.com/DerelictOrg/DerelictOgg

@@ -683,7 +683,7 @@ void ScrWorldLib_VisibilityRangeSet(){SLang_pop_uint(&Base_Visibility_Range);}
 void ScrWorldLib_VoxelDel(){
 	uint x, y, z;
 	SLang_pop_uint(&x); SLang_pop_uint(&y); SLang_pop_uint(&z);
-	Voxel_Remove(x, y, z);
+	Break_Block!(false, false)(x, y, z);
 }
 
 void ScrVecLib_RotationAsDirection(SLang_Array_Type *vec){

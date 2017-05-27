@@ -16,6 +16,10 @@ bool Voxel_IsSolid(T)(T pos) if(isArray!T){
 	return cast(bool)isvoxelsolid(cast(uint)pos[0], cast(uint)pos[0], cast(uint)pos[0]);
 }
 
+void Voxel_Remove(T)(T pos) if(isArray!T){
+	return renderer.Voxel_Remove(pos[0], pos[1], pos[2]);
+}
+
 void Renderer_Draw3DParticle(alias hole_side=false)(immutable in Vector3_t pos, RendererParticleSize_t w, RendererParticleSize_t h, RendererParticleSize_t l, uint col){
 	return renderer.Renderer_Draw3DParticle(pos.x, pos.y, pos.z, w, h, l, col);
 }

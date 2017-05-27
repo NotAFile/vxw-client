@@ -22,6 +22,9 @@ T degcos(T)(T val){
 alias Vector3_t=Vector_t!(3);
 alias Vector4_t=Vector_t!(4);
 
+alias uVector3_t=Vector_t!(3, uint);
+alias iVector3_t=Vector_t!(3, int);
+
 string __mixin_NearestFloatType(T)(){
 	static if(is(T==float) || is(T==double))
 		return T.stringof;
@@ -293,7 +296,7 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 }
 	
 	__this_type normal(){if(this.length)return (this/this.length); return __this_type(0.0);}
-	//DEPRECATED
+	//DEPR3ATED
 	__this_type abs(){return this.normal();}
 	__this_type inv(){
 		__this_type ret;
@@ -407,21 +410,33 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 	const string toString(){
 		string ret="{";
 		for(uint i=0; i<dim; i++){
-			ret~=format("%10.10f", elements[i]);
+			static if(isFloatingPoint!element_t)
+				ret~=format("%10.10f", elements[i]);
+			else
+			static if(isIntegral!element_t)
+				ret~=format("%d", elements[i]);
+			else
+				ret~=format("%s", elements[i]);
 			if(i!=dim-1)
 				ret~=";";
 		}
 		ret~="}";
 		return ret;
 	}
+	const bool opEquals(ref const __this_type param){
+		return elements==param.elements;
+	}
+	@safe const nothrow size_t toHash(){
+		return typeid(elements).getHash(&elements);
+	}
 }
 
-Vector3_t vmin(Vector3_t vec1, Vector3_t vec2){
-	return Vector3_t(min(vec1.x, vec2.x), min(vec1.y, vec2.y), min(vec1.z, vec2.z));
+auto vmin(T1, T2, R=T1)(Vector_t!(3, T1) vec1, Vector_t!(3, T2) vec2){
+	return Vector_t!(3, R)(min(vec1.x, vec2.x), min(vec1.y, vec2.y), min(vec1.z, vec2.z));
 }
 
-Vector3_t vmax(Vector3_t vec1, Vector3_t vec2){
-	return Vector3_t(max(vec1.x, vec2.x), max(vec1.y, vec2.y), max(vec1.z, vec2.z));
+auto vmax(T1, T2, R=T1)(Vector_t!(3, T1) vec1, Vector_t!(3, T2) vec2){
+	return Vector_t!(3, R)(max(vec1.x, vec2.x), max(vec1.y, vec2.y), max(vec1.z, vec2.z));
 }
 
 Vector3_t RandomVector(){

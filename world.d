@@ -683,7 +683,7 @@ struct Player_t{
 			ubyte LastHitSpriteIndex;
 			PlayerID_t LastHitPlayer;
 			float LastHitDist=block_hit_dist;
-			if(Config_Read!bool("gun_flashes"))
+			if(Config_Read!bool("gun_flashes") && itemtype.Is_Gun())
 				Renderer_AddFlash(usepos, 4.0, 1.0);
 			foreach(PlayerID_t pid, const plr; Players){
 				if(pid==player_id)
@@ -1085,7 +1085,7 @@ struct Item_t{
 			if(heat<0.0){
 				heat=0.0;
 			}
-			if(heat){
+			if(heat && Visible){
 				Create_Smoke(bullet_exit_pos, pow(heat*.1, .3), 0x80000000, pow(heat*.03, .3), .1, .1, Vector3_t(0.0, -.01, 0.0));
 			}
 		}
@@ -1112,6 +1112,16 @@ struct Item_t{
 			}
 		}
 	}
+	bool Visible(){
+		final switch(container_type){
+			case ItemContainerType_t.Player:{
+				return equipped!=VoidPlayerID;
+			}
+			case ItemContainerType_t.Object:{
+				return true;
+			}
+		}
+	}
 }
 
 float delta_time;
@@ -1133,6 +1143,19 @@ void Update_World(){
 	foreach(ref o; Objects)
 		o.Update();
 	Current_Tick=PreciseClock_ToMSecs(PreciseClock());
+	if(FloatingBlockScan_Blocks.length){
+		iVector3_t minpos=int.max, maxpos=int.min;
+		foreach(block; FloatingBlockScan_Blocks){
+			minpos=vmin(minpos, block);
+			maxpos=vmax(maxpos, block);
+		}
+		minpos-=1;
+		maxpos+=1;
+		minpos=vmax(minpos, typeof(minpos)(0));
+		maxpos=vmin(maxpos, typeof(maxpos)(MapXSize, MapYSize, MapZSize));
+		FloatingBlocks_Detect(uVector3_t(minpos), uVector3_t(maxpos));
+		FloatingBlockScan_Blocks.length=0;
+	}
 	if(BlockDamage.length){
 		bool __dmgblock_removed=false;
 		while(!__dmgblock_removed && BlockDamage.length){
@@ -1346,11 +1369,23 @@ void Damage_Block(PlayerID_t player_id, uint xpos, uint ypos, uint zpos, ubyte v
 	}
 }
 
-void Break_Block(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, uint zpos){
-	if(!break_type){
+uVector3_t[] FloatingBlockScan_Blocks;
+
+void Player_BreakBlock(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, uint zpos){
+	Break_Block(xpos, ypos, zpos);
+}
+
+void Break_Block(alias check_floating=true, alias create_particles=true)(uint xpos, uint ypos, uint zpos){
+	uint hash=Hash_Coordinates(xpos, ypos, zpos);
+	bool block_was_damaged=false;
+	if(hash in BlockDamage){
+		block_was_damaged=true;
+		BlockDamage.remove(hash);
+	}
+	static if(create_particles){
 		uint col=Voxel_GetColor(xpos, ypos, zpos);
 		uint x, y, z;
-		uint particle_amount=touint(1.0/BlockBreakParticleSize*.5)+1;
+		uint particle_amount=touint(1.0/BlockBreakParticleSize*.5)/(2-block_was_damaged)+1;
 		for(x=0; x<particle_amount; x++){
 			for(y=0; y<particle_amount; y++){
 				for(z=0; z<particle_amount; z++){
@@ -1359,7 +1394,7 @@ void Break_Block(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, u
 					p.vel=Vector3_t(uniform01()*(uniform(0, 2)?1.0:-1.0)*.075, 0.0, uniform01()*(uniform(0, 2)?1.0:-1.0)*.075);
 					p.pos=Vector3_t(to!float(xpos)+to!float(x)*BlockBreakParticleSize,
 					to!float(ypos)+to!float(y)*BlockBreakParticleSize,
-					to!float(zpos)+to!float(z)*BlockBreakParticleSize);
+					to!float(zpos)+to!float(z)*BlockBreakParticleSize)+RandomVector()*.3;
 					p.col=col;
 					p.timer=uniform(550, 650);
 				}
@@ -1367,9 +1402,9 @@ void Break_Block(PlayerID_t player_id, ubyte break_type, uint xpos, uint ypos, u
 		}
 	}
 	Voxel_Remove(xpos, ypos, zpos);
-	uint hash=Hash_Coordinates(xpos, ypos, zpos);
-	if(hash in BlockDamage)
-		BlockDamage.remove(hash);
+	//EVERYONE TO HIS STARTING POSITION, FLOATING BLOCK DETECTION INCOMING
+	static if(check_floating)
+		FloatingBlockScan_Blocks~=uVector3_t(xpos, ypos, zpos);
 }
 
 struct RCRay_t{
@@ -1789,3 +1824,299 @@ Vector3_t Validate_Coord(immutable in Vector3_t coord){
 void On_Map_Loaded(){
 	Set_Sun(Vector3_t(MapXSize, MapYSize, MapZSize)/2.0+Vector3_t(60.0, 15.0, 0.0).RotationAsDirection(), 1.0);
 }
+
+//PySnip approach - a kind of 3D flood fill, and then see if it hits the ground or not (not used, and not recommended either)
+//(works well for single voxels but a killer for large holes)
+uVector3_t[] FloatingBlockDetectionSingle(T=uint)(Vector_t!(3, T) starting_coords) if(isIntegral!T){
+	uVector3_t[] blocks_checked;
+	uVector3_t[] blocks_to_check=[uVector3_t(starting_coords)];
+	while(blocks_to_check.length){
+		bool block_added=false;
+		immutable nearby_vox=[
+			iVector3_t(-1, 0, 0), iVector3_t(1, 0, 0), iVector3_t(0, -1, 0), iVector3_t(0, 0, -1), iVector3_t(0, 0, 1), iVector3_t(0, 1, 0)
+		];
+		immutable nearby_vox_cancel=[
+			"block.x==1", "block.x==MapXSize-2", "", "block.z==1", "block.z==MapZSize-2", "block.y==MapYSize-1"
+		];
+		immutable string __voxel_check_mixin(immutable uint ind){
+			immutable string vox_varname="vox_"~to!string(ind);
+			return "immutable "~vox_varname~"=block+nearby_vox["~to!string(ind)~"]; if(!blocks_checked.canFind("~vox_varname~")"~
+			"&&!_new_blocks.canFind("~vox_varname~")){if(Voxel_IsSolid("~vox_varname~")){"~(nearby_vox_cancel[ind].length ?
+			"if("~nearby_vox_cancel[ind]~")return[];" : "")~"_new_blocks~="~vox_varname~";}}";
+		}
+		uVector3_t[] _new_blocks;
+		foreach_reverse(immutable block; blocks_to_check){
+			mixin(__voxel_check_mixin(2));
+			mixin(__voxel_check_mixin(0));
+			mixin(__voxel_check_mixin(1));
+			mixin(__voxel_check_mixin(3));
+			mixin(__voxel_check_mixin(4));
+			{
+				auto _block=block+iVector3_t(0, 1, 0);
+				while(Voxel_IsSolid(_block)){
+					if(_block.y==MapYSize-1){
+						return [];
+					}
+					_block.y++;
+				}
+				_block.y--;
+				if(Voxel_IsSolid(_block)){
+					if(!_new_blocks.canFind(_block) && !blocks_checked.canFind(_block))
+						_new_blocks~=_block;
+				}
+			}
+			blocks_checked~=block;
+		}
+		blocks_to_check=_new_blocks;
+	}
+	return blocks_checked;
+}
+
+struct VoxelPillar_t{
+	uint y1, y2;
+	uint group_index;
+}
+
+struct VoxelPillarArr_t{
+	bool extracted;
+	VoxelPillar_t[] pillars;
+}
+
+struct VoxelPillarGroup_t{
+	uint index;
+	size_t[3][] pillars;
+	bool grounded;
+}
+
+struct VoxelPillarSlice_t{
+	VoxelPillarArr_t[][] pillars; //THE PILLARS ARE YOUR BEST FRIENDS
+	bool[][] pillars_extracted;
+	uVector3_t startpos, endpos;
+	this(uVector3_t coord1, uVector3_t coord2){
+		coord1.y=0; coord2.y=MapYSize;
+		startpos=vmin(coord1, coord2);
+		endpos=vmax(coord1, coord2);
+		pillars=new VoxelPillarArr_t[][](MapXSize, MapZSize);
+		pillars_extracted=new bool[][](MapXSize, MapZSize);
+		foreach(x; startpos.x..endpos.x){
+			foreach(z; startpos.z..endpos.z){
+				Pillars_Extract(x, z);
+			}
+		}
+	}
+	pragma(inline, true):
+	void Pillars_Extract(size_t xpos, size_t zpos){
+		bool current_vox=false;
+		VoxelPillar_t current_pillar;
+		foreach(y; 0..MapYSize){
+			if(Voxel_IsSolid(xpos, y, zpos)){
+				if(current_vox){
+					continue;
+				}
+				else{
+					current_vox=true;
+					current_pillar.y1=y;
+					continue;
+//TRUST THE PILLARS YOUR INFORMATION
+				}
+			}
+			else{
+				if(current_vox){
+					current_pillar.y2=y-1;
+					pillars[xpos][zpos].pillars~=current_pillar;//THE PILLARS ARE TRUSTWORTHY
+					current_vox=false;
+					continue;
+				}
+				else{
+					continue;
+				}
+			}
+		}
+		if(current_vox){
+			current_pillar.y2=MapYSize-1;
+			pillars[xpos][zpos].pillars~=current_pillar;
+		}
+		pillars_extracted[xpos][zpos]=true;
+	}
+	VoxelPillarGroup_t[] GroupPillars(){
+		VoxelPillarGroup_t[] ret;
+		while(1){//TELL SAMUEL EVERYTHING ABOUT YOUR PLANE OF EXISTENCE
+			VoxelPillarGroup_t group;
+			group.index=ret.length+1;
+			foreach(x; startpos.x..endpos.x){
+				foreach(z; startpos.z..endpos.z){
+					foreach(ind, ref pillar; pillars[x][z].pillars){
+						if(!pillar.group_index){
+							group.pillars~=[x, z, ind];
+							group.grounded|=pillar.y2==MapYSize-1;
+							pillar.group_index=group.index;
+							break;
+						}
+					}
+					if(group.pillars.length)
+						break;
+				}
+				if(group.pillars.length)
+					break;
+			}
+			if(!group.pillars.length)
+				break;//THE PILLARS ARE COMING FOR YOUR SECRETS
+			for(size_t ind1=0; ind1<group.pillars.length; ind1++){
+				auto pillar1=pillars[group.pillars[ind1][0]][group.pillars[ind1][1]].pillars[group.pillars[ind1][2]];
+				foreach(nearby_pos_ind, nearby_pos; [[-1, 0], [1, 0], [0, -1], [0, 1]]){
+					if((!nearby_pos_ind && !group.pillars[ind1][0]) || (nearby_pos_ind==1 && group.pillars[ind1][0]==MapXSize-1)){
+						group.grounded=true;
+						continue;
+					}
+					if((nearby_pos_ind==2 && !group.pillars[ind1][1]) || (nearby_pos_ind==3 && group.pillars[ind1][1]==MapZSize-1)){
+						group.grounded=true;
+						continue;
+					}
+					size_t pillar_xpos=group.pillars[ind1][0]+nearby_pos[0], pillar_zpos=group.pillars[ind1][1]+nearby_pos[1];
+					if(group.grounded && (pillar_xpos<startpos.x || pillar_xpos>endpos.x || pillar_zpos<startpos.z || pillar_zpos>startpos.z))
+						continue;
+					if(!pillars_extracted[pillar_xpos][pillar_zpos]){
+						Pillars_Extract(pillar_xpos, pillar_zpos);
+					}
+					foreach(ind2, ref pillar2; pillars[pillar_xpos][pillar_zpos].pillars){
+						if(pillar2.group_index!=group.index && !(pillar2.y2<pillar1.y1) && !(pillar2.y1>pillar1.y2)){
+							if(pillar2.group_index){
+								if(ret[pillar2.group_index-1].grounded)
+									group.grounded=true;
+							}
+							else{
+								group.pillars~=[pillar_xpos, pillar_zpos, ind2];
+								pillar2.group_index=group.index;
+							}
+							group.grounded|=pillar2.y2==MapYSize-1;
+							if(group.grounded)
+								break;
+						}
+					}
+					if(group.grounded)
+						break;
+				}
+				if(group.grounded)
+					break;
+			}//THE PILLARS TRANSCEND INFORMATION
+			ret~=group;
+		}
+		return ret;
+	}
+	void CheckFloatingGroups(VoxelPillarGroup_t[] groups){
+		foreach(group; groups){
+			if(group.grounded)
+				continue;
+			foreach(pillar; group.pillars){
+				foreach(y; pillars[pillar[0]][pillar[1]].pillars[pillar[2]].y1..pillars[pillar[0]][pillar[1]].pillars[pillar[2]].y2+1){
+					Break_Block!(false, true)(pillar[0], y, pillar[1]);
+				}
+			}
+		}
+	}
+}
+
+void FloatingBlocks_Detect(uVector3_t coord1, uVector3_t coord2){
+	auto slice=VoxelPillarSlice_t(coord1, coord2+1);
+	slice.CheckFloatingGroups(slice.GroupPillars());
+}
+
+//Works perfectly, but lags cause wrong targetting
+/*
+void _FloatingBlocks_Detect(iVector3_t coord1, iVector3_t coord2){
+	uVector3_t chunk_size=coord2-coord1;
+	FloatingBlockPillarArr_t[][] pillars=new FloatingBlockPillarArr_t[][](chunk_size.x, chunk_size.z);
+	FloatingBlockPillar_t current_pillar;
+	size_t pillar_count=0;
+	size_t grounded_pillars_count=0;
+	foreach(x; coord1.x..coord2.x){
+		foreach(z; coord1.z..coord2.z){
+			bool current_vox=false;
+			foreach(y; 0..MapYSize){
+				if(Voxel_IsSolid(x, y, z)){
+					if(current_vox){
+						continue;
+					}
+					else{
+						current_vox=true;
+						current_pillar.y1=y;
+						continue;
+					}
+				}
+				else{
+					if(current_vox){
+						current_pillar.y2=y-1;
+						pillars[x-coord1.x][z-coord1.z]~=current_pillar;
+						current_vox=false;
+						continue;
+					}
+					else{
+						continue;
+					}
+				}
+			}
+			if(current_vox){
+				current_pillar.y2=coord2.y-1;
+			}
+			current_pillar.grounded=true;
+			pillars[x-coord1.x][z-coord1.z]~=current_pillar;
+			current_pillar.grounded=false;
+			pillar_count+=pillars[x-coord1.x][z-coord1.z].length;
+		}
+	}
+	size_t[3][] grounded_pillars;
+	foreach(size_t x; coord1.x..coord2.x){
+		foreach(size_t z; coord1.z..coord2.z){
+			foreach(size_t ind, pillar; pillars[x-coord1.x][z-coord1.z]){
+				if(!pillar.grounded)
+					continue;
+				grounded_pillars~=[x-coord1.x, z-coord1.z, ind];
+			}
+		}
+	}
+	for(size_t i=0; i<grounded_pillars.length; i++){
+		auto pillar=pillars[grounded_pillars[i][0]][grounded_pillars[i][1]][grounded_pillars[i][2]];
+		immutable pos_add=[[-1, 0], [1, 0], [0, -1], [0, 1]];
+		foreach(ind, nearby_coord; pos_add){
+			if((!grounded_pillars[i][0] && !ind) || (grounded_pillars[i][0]>=chunk_size.x-1 && ind==1))
+				continue;
+			if((!grounded_pillars[i][1] && ind==2) || (grounded_pillars[i][1]>=chunk_size.z-1 && ind==3))
+				continue;
+			size_t x=grounded_pillars[i][0]+nearby_coord[0], z=grounded_pillars[i][1]+nearby_coord[1];
+			foreach(size_t ind2, ref pillar2; pillars[x][z]){
+				if(!pillar2.grounded && !(pillar2.y2<pillar.y1) && !(pillar2.y1>pillar.y2)){
+					pillar2.grounded=true;
+					grounded_pillars~=[x, z, ind2];
+				}
+			}
+		}
+	}
+	if(grounded_pillars.length==pillar_count)
+		return;
+	size_t[3][] ungrounded_pillars;
+	foreach(size_t x; coord1.x..coord2.x){
+		foreach(size_t z; coord1.z..coord2.z){
+			foreach(size_t ind, pillar; pillars[x-coord1.x][z-coord1.z]){
+				if(!pillar.grounded){
+					ungrounded_pillars~=[x-coord1.x, z-coord1.z, ind];
+					if(x==coord1.x || x==coord2.x || z==coord1.z || z==coord2.z){
+						if(pow(coord2.x-coord1.x, 2)+pow(coord2.z-coord1.z, 2)<128*128+128*128)
+							return FloatingBlocks_Detect(coord1-16, coord2+16);
+						return;
+					}
+				}
+			}
+		}
+	}
+	//uint[3][] debris_blocks;
+	foreach(pillar_pos; ungrounded_pillars){
+		auto pillar=pillars[pillar_pos[0]][pillar_pos[1]][pillar_pos[2]];
+		foreach(y; pillar.y1..pillar.y2+1){
+			//debris_blocks~=[pillar_pos[0]+coord1.x, y, pillar_pos[1]+coord1.z];
+			//Voxel_Remove(pillar_pos[0]+coord1.x, y, pillar_pos[1]+coord1.z);
+			Break_Block!(false, true)(pillar_pos[0]+coord1.x, y, pillar_pos[1]+coord1.z);
+		}
+	}
+	//Blocks_ToDebris(debris_blocks);
+}
+*/

@@ -48,12 +48,11 @@ Follow the compile steps for your choosen renderer module and procede here after
 #### On Linux/any POSIX-compliant OSes
 1. If you are using Debian or Ubuntu and don't have these installed already:
 	```
-	sudo apt-get install libsdl2-dev libenet-dev git -y
+	sudo apt-get install libsdl2-dev libsdl2-image-dev libpng-dev libjpeg-dev libtiff-dev libenet-dev zlib1g-dev libvorbis-dev libopenal-dev git -y
 	```
-	If not, install SDL2, ENet and git the way you would do it on your OS.
+	If not, install the dev libraries of SDL2, SDL2_image, libpng, libjpeg, libtiff, ENet, zlib vorbis, OpenAL and git the way you would do it on your OS.
 	
 	(You can get the Voxlap renderer with ./setup_voxlap_renderer)
-	(It is not legal to distribute VoxelWar with the voxlap renderer, use it only for private purposes)
 
 2. Open a terminal in this directory and write
 
@@ -61,40 +60,39 @@ Follow the compile steps for your choosen renderer module and procede here after
 	./configure
 	```
 
-	to download derelict files
-
-	```
-	./compile-derelict
-	```
-
-	to compile the derelict files into a compact .a file
+	to download some files from external sources
 
 	```
 	make
 	```
 
-	to compile the source (instead of "compile_***", use the name of the corresponding renderer compilation script)
+	to compile the source (the make script supports several different compilers, "make ll" will compile with LLVM's LTO, which produces the fastest code of all)
 
 
 #### On Windows
 
-1. Put SDL2.dll and ENet.dll into the directory
+1. Put required DLLs into the directory (libenet.dll, libpng16-16.dll, pthreadGC2.dll, vorbis.dll, zlib1.dll, libgcc_s_dw2-1.dll, libslang.dll, SDL2.dll, vorbisenc.dll, libjpeg-9.dll, 
+libtiff-5.dll, SDL2_image.dll, vorbisfile.dll)
 
-2. Download the contents of:
+2. Run:
 
 	```
 	http://github.com/DerelictOrg/DerelictSDL2
 
 	http://github.com/DerelictOrg/DerelictENet
 
-	http://github.com/DerelictOrg/DerelictUtil
+	http://github.com/DerelictOrg/DerelictAL
+
+	http://github.com/DerelictOrg/DerelictOgg
+
+	http://github.com/DerelictOrg/DerelictVorbis
 	```
 
 3. Create a directory called "derelict" here.
 
 4. Paste the contents of the derelict directories from the repositories from 2.
 
-	(sdl2, enet, util)
+	(sdl2, enet, openal, vorbis, ogg, util)
 
 5. Run compile.bat
 
@@ -104,16 +102,16 @@ lecom - main programming
 
 Chameleon - actually rather contributed assets to the server IIRC
 
-bytebit - his own OpenGL renderer, a small amount of physics code (player physics, AABB code)
+bytebit - his own (outdated but possibly still working) OpenGL renderer, a small amount of physics code (player physics, AABB code)
 
 longbyte - for being a very convincing guy (you know what I'm referring to ;) )
 
 
 ## Notes
 
-The "derelict/" folder contains D bindings to ENet, SDL2, libogg and Vorbis. This is not the usual way of using derelict, but *DUB* is a nightmare to use and We would rather not rely on such kinds of packaging programs.
+The "derelict/" folder, when set up, contains D bindings to ENet, SDL2, libogg and Vorbis. This is not the usual way of using derelict, but *DUB* is a nightmare to use and We would rather not rely on such kinds of packaging programs.
 
-This software runs way faster on other systems than on windows because of compiler issues arising from stubborn D devs who keep insisting on using microsoft development software above all.
+This software runs way faster on other systems than on windows because of compiler issues arising from stubborn D devs who keep insisting on using microsoft development software above all (and some crappy 30 years old MS-DOS linker written in ASM).
 
 ## Licensing
 

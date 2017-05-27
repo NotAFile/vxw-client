@@ -363,7 +363,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			}
 			case BlockBreakPacketID:{
 				auto packet=UnpackPacketToStruct!(BlockBreakPacketLayout)(PacketData);
-				Break_Block(packet.player_id, packet.break_type, packet.x, packet.y, packet.z);
+				Player_BreakBlock(packet.player_id, packet.break_type, packet.x, packet.y, packet.z);
 				break;
 			}
 			case SetPlayerColorPacketID:{

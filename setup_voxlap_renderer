@@ -1,7 +1,5 @@
 #!/bin/bash
 git clone http://github.com/LeComm/vxwclient-voxlap-renderer
 cd vxwclient-voxlap-renderer
-./compile_gcc_opt
 ln Makefile ..
 cd ..
-rm -rf vxwclient-voxlap-renderer
