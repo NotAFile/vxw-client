@@ -815,7 +815,7 @@ void Render_Screen(){
 				auto dist=plr.CameraPos-Players[LocalPlayerID].CameraPos;
 				if(dist.dot(Players[LocalPlayerID].dir)/dist.length>1.0-0.004/pow(dist.length, 0.5)){
 					auto scrpos=Project2D(plr.CameraPos+Vector3_t(0.0, -.5, 0.0));
-					Render_Text_Line(scrpos[0]-plr.name.length*FontWidth/16/2, scrpos[1]-FontHeight/16,
+					Render_Text_Line(to!uint(scrpos[0]-plr.name.length*FontWidth/16/2), to!uint(scrpos[1]-FontHeight/16),
 					Teams[plr.team].icolor|0xff000000, plr.name, font_texture, FontWidth, FontHeight, LetterPadding);
 				}
 			}

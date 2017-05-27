@@ -171,10 +171,15 @@ struct PlayerPositionPacketLayout{
 }
 immutable PacketID_t PlayerPositionPacketID=15;
 
+enum WorldPhysicsPacketFlags{
+	FallingBlocks=(1<<0)
+}
+
 //NOTE: Importance is meh, once we will have a scripted engine instead of hardcoded one,
 //we can remove this
 struct WorldPhysicsPacketLayout{
 	float g, airfriction, groundfriction, waterfriction, crouchfriction, player_jumppower, player_walkspeed, player_sprintspeed, world_speed;
+	ubyte flags;
 }
 immutable PacketID_t WorldPhysicsPacketID=16;
 

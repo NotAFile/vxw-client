@@ -1403,8 +1403,10 @@ void Break_Block(alias check_floating=true, alias create_particles=true)(uint xp
 	}
 	Voxel_Remove(xpos, ypos, zpos);
 	//EVERYONE TO HIS STARTING POSITION, FLOATING BLOCK DETECTION INCOMING
-	static if(check_floating)
-		FloatingBlockScan_Blocks~=uVector3_t(xpos, ypos, zpos);
+	static if(check_floating){
+		if(FloatingBlockDetection_Enabled)
+			FloatingBlockScan_Blocks~=uVector3_t(xpos, ypos, zpos);
+	}
 }
 
 struct RCRay_t{
@@ -1825,6 +1827,8 @@ void On_Map_Loaded(){
 	Set_Sun(Vector3_t(MapXSize, MapYSize, MapZSize)/2.0+Vector3_t(60.0, 15.0, 0.0).RotationAsDirection(), 1.0);
 }
 
+bool FloatingBlockDetection_Enabled=true;
+
 //PySnip approach - a kind of 3D flood fill, and then see if it hits the ground or not (not used, and not recommended either)
 //(works well for single voxels but a killer for large holes)
 uVector3_t[] FloatingBlockDetectionSingle(T=uint)(Vector_t!(3, T) starting_coords) if(isIntegral!T){
@@ -1874,7 +1878,7 @@ uVector3_t[] FloatingBlockDetectionSingle(T=uint)(Vector_t!(3, T) starting_coord
 
 struct VoxelPillar_t{
 	uint y1, y2;
-	uint group_index;
+	size_t group_index;
 }
 
 struct VoxelPillarArr_t{
@@ -1883,7 +1887,7 @@ struct VoxelPillarArr_t{
 }
 
 struct VoxelPillarGroup_t{
-	uint index;
+	size_t index;
 	size_t[3][] pillars;
 	bool grounded;
 }
@@ -1904,7 +1908,6 @@ struct VoxelPillarSlice_t{
 			}
 		}
 	}
-	pragma(inline, true):
 	void Pillars_Extract(size_t xpos, size_t zpos){
 		bool current_vox=false;
 		VoxelPillar_t current_pillar;
@@ -2009,7 +2012,7 @@ struct VoxelPillarSlice_t{
 				continue;
 			foreach(pillar; group.pillars){
 				foreach(y; pillars[pillar[0]][pillar[1]].pillars[pillar[2]].y1..pillars[pillar[0]][pillar[1]].pillars[pillar[2]].y2+1){
-					Break_Block!(false, true)(pillar[0], y, pillar[1]);
+					Break_Block!(false, true)(cast(uint)pillar[0], y, cast(uint)pillar[1]);
 				}
 			}
 		}

@@ -283,6 +283,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				CrouchFriction=packet.crouchfriction;
 				PlayerJumpPower=packet.player_jumppower; PlayerWalkSpeed=packet.player_walkspeed; PlayerSprintSpeed=packet.player_sprintspeed;
 				WorldSpeedRatio=packet.world_speed;
+				FloatingBlockDetection_Enabled=packet.flags&WorldPhysicsPacketFlags.FallingBlocks;
 				break;
 			}
 			case MenuElementPacketID:{
