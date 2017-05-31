@@ -101,7 +101,8 @@ immutable SettingsMenu_ConfigEntries=[
 	SettingsMenuEntry_t("k", "draw_arms", "bool", "toggles rendering first-person mode arms", 0.0, float.infinity, "true"),
 	SettingsMenuEntry_t("b", "render_threads", "string", "Sets the amount of rendering threads (experimental, better don't touch and leave at 1)",
 	0.0, float.infinity, "1"),
-	SettingsMenuEntry_t("y", "chat_lines_amount", "uint", "Sets the amount of chat lines shown", 0, float.infinity, "8", 1)
+	SettingsMenuEntry_t("y", "chat_lines_amount", "uint", "Sets the amount of chat lines shown", 0, float.infinity, "8", 1),
+	SettingsMenuEntry_t("m", "mouse_accuracy", "float", "Sets mouse accuracy", 0.0, float.infinity, "0.075", .005)
 ];
 
 void SettingsMenu_ChangeEntry(float val){
@@ -420,7 +421,7 @@ void Check_Input(){
 						break;
 					}
 					case SDLK_m:{
-						if(!TypingChat){
+						if(!TypingChat && !SettingsMenu_Enable && !ServerMessage_Enable && !NoobMessage_Enable){
 							Render_MiniMap=!Render_MiniMap;
 							if(Render_MiniMap)
 								Update_MiniMap();
@@ -490,6 +491,16 @@ void Check_Input(){
 							NoobMessage_Enable=false;
 							SettingsMenu_Enable=false;
 						}
+						break;
+					}
+					case SDLK_F9:{
+						auto f=File("./chatlog.txt", "a");
+						foreach_reverse(line; ChatText){
+							if(line.length){
+								f.write(line); f.write("\n");
+							}
+						}
+						f.close();
 						break;
 					}
 					case SDLK_F10:{

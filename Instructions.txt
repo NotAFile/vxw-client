@@ -22,6 +22,7 @@ Typical commands:
 	ping = Displays your ping value; the lower your ping value, the less laggy your game is
 	switch = Takes you to the spawn menu (team/item selection)
 If you have no idea at all, just type "/help" into the chat.
-F1 = toggle in-game instructions
+F1 = toggle in-game instructions (but better read Instructions.txt)
 F2 = toggle server message (only if available for the current server)
+F9 = save the currently visible chat lines (lines that disappear are gone, sorry) into ./chatlog.txt
 Alt + F4 = toggle in-game settings (or alternatively press F10)

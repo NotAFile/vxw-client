@@ -70,3 +70,13 @@ template AliasSeq(TList...)
 {
     alias AliasSeq = TList;
 }
+
+template TemplateOf(alias T : Base!Args, alias Base, Args...)
+{
+    alias TemplateOf = Base;
+}
+
+template TemplateOf(T : Base!Args, alias Base, Args...)
+{
+    alias TemplateOf = Base;
+}

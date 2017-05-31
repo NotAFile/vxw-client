@@ -26,13 +26,13 @@ alias uVector3_t=Vector_t!(3, uint);
 alias iVector3_t=Vector_t!(3, int);
 
 string __mixin_NearestFloatType(T)(){
-	static if(is(T==float) || is(T==double))
+	static if(is(T==float) || is(T==double) || is(T==real))
 		return T.stringof;
 	return "float";
 }
 
 bool isFloat(T)(){
-	return is(T==float) || is(T==double);
+	return is(T==float) || is(T==double) || is(T==real);
 }
 
 template VectorTypeOf(VectorType){
@@ -45,7 +45,17 @@ template VectorTypeOf(VectorType){
 }
 
 template isVector_t(T){
-	immutable bool is_vec=__traits(hasMember, T, "x") && __traits(hasMember, T, "y") && __traits(hasMember, T, "z");
+	static if(!is(T==void)){
+		static if(__traits(compiles, TemplateOf!T)){
+			immutable bool is_vec=__traits(isSame, TemplateOf!T, Vector_t);
+		}
+		else{
+			immutable bool is_vec=false;
+		}
+	}
+	else{
+		immutable bool is_vec=false;
+	}
 	alias isVector_t=is_vec;
 }
 
@@ -119,16 +129,6 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 	alias __element_t=element_t;
 	alias __this_type=Vector_t!(dim, element_t);
 	mixin("alias __float_type="~__mixin_NearestFloatType!element_t()~";");
-	const @property typeof(x) length(){
-		return vector_length();
-	}
-	@property void length(element_t newlength){
-		this=this*newlength/vector_length();
-	}
-	const @property typeof(x) sqlength(){
-		return vector_sqlength();
-	}
-    alias opDollar=length;
 	this(Vector_t vec){
 		this=vec;
 	}
@@ -138,26 +138,35 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 	this(T)(T val) if(__traits(isScalar, val)){
 		elements[0..dim]=cast(element_t)val;
 	}
+	this(T)(Vector_t!(dim, T) val){
+		static if(is(T==element_t)){
+			elements[0..$]=val.elements[0..$];
+		}
+		else{
+			foreach(immutable size_t ind, immutable el; val.elements)
+				elements[ind]=cast(element_t)el;
+		}
+	}
 	static if(dim!=3){
 		this(element_t[dim] initelements...){
 			elements[]=initelements[];
 		}
-		this(T)(T val) if(isVectorLike!T){
+		this(T)(T val) if(isVectorLike!T && !isVector_t!T){
 			this.elements[0..$]=val.elements[0..$];
 		}
 		this(Args...)(Args args) if(args.length==dim){
-			foreach(i; 0..dim)
-				this.elements[i]=cast(element_t)args[i];
+			foreach(immutable ind, el; args)
+				this.elements[ind]=cast(element_t)el;
 		}
 	}
 	else{
-	//Optimized version for fast Vector3_t
-	this(T1, T2, T3)(T1 ix, T2 iy, T3 iz){
-		x=cast(typeof(x))ix; y=cast(typeof(y))iy; z=cast(typeof(z))iz;
-	}
-	this(T)(T val) if(isVectorLike!T){
-		x=cast(typeof(x))val.x; y=cast(typeof(y))val.y; z=cast(typeof(z))val.z;
-	}
+		//Optimized version for fast Vector3_t
+		this(T1, T2, T3)(T1 ix, T2 iy, T3 iz){
+			x=cast(typeof(x))ix; y=cast(typeof(y))iy; z=cast(typeof(z))iz;
+		}
+		this(T)(T val) if(isVectorLike!T && !isVector_t!T){
+			x=cast(typeof(x))val.x; y=cast(typeof(y))val.y; z=cast(typeof(z))val.z;
+		}
 	}
 	void opIndexAssign(T)(element_t val, T ind){
 		elements[ind]=val;
@@ -175,10 +184,7 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		mixin("ret.elements[]"~op~"=arg[];");
 		return ret;
 	}
-	const __this_type opBinary(string op, T)(T arg) if(isVector_t!T){
-		static assert(arg.__dim==dim);
-		//Apparently I have to pass some CT arguments, or else this function will get evaluated in runtime or sth
-		//(in any case not passing any CT arguments, will make this lag)
+	const __this_type opBinary(string op, T)(Vector_t!(dim, T) arg){
 		string __mixin_code(alias _dim, alias _op)(){
 			string ret;
 			foreach(i; 0.._dim){
@@ -196,7 +202,8 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		}
 		else{
 			__this_type ret;
-			mixin("ret.elements=elements[]"~op~"arg;");
+			foreach(ind; 0..dim)
+				mixin("ret.elements[ind]=elements[ind]"~op~"arg;");
 			return ret;
 		}
 	}
@@ -226,36 +233,51 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		assert(1);
 	}
 	
-	const element_t vector_length(){
-		static if(dim==3){
-			return cast(element_t)std.math.sqrt(cast(__float_type)(x*x+y*y+z*z));
+	static if(isFloat!element_t){
+		const @property typeof(x) length(){
+			return vector_length();
 		}
-		else
-		static if(dim==4){
-			return cast(element_t)std.math.sqrt(cast(__float_type)(x*x+y*y+z*z+w*w));
+		@property void length(element_t newlength){
+			this=this*newlength/vector_length();
 		}
-		else{
-			element_t ret=0.0;
-			foreach(el; elements)
-				ret+=el*el;
-			return sqrt(ret);
+		const @property typeof(x) sqlength(){
+			return vector_sqlength();
 		}
-	}
-	
-	const element_t vector_sqlength(){
-		static if(dim==3){
-			return x*x+y*y+z*z;
+		alias opDollar=length;
+		const element_t vector_length(){
+			static if(dim==3){
+				return cast(element_t)std.math.sqrt(cast(__float_type)(x*x+y*y+z*z));
+			}
+			else
+			static if(dim==4){
+				return cast(element_t)std.math.sqrt(cast(__float_type)(x*x+y*y+z*z+w*w));
+			}
+			else{
+				element_t ret=cast(element_t)0.0;
+				foreach(el; elements)
+					ret+=el*el;
+				return sqrt(ret);
+			}
 		}
-		else
-		static if(dim==4){
-			return x*x+y*y+z*z+w*w;
+		
+		const element_t vector_sqlength(){
+			static if(dim==3){
+				return x*x+y*y+z*z;
+			}
+			else
+			static if(dim==4){
+				return x*x+y*y+z*z+w*w;
+			}
+			else{
+				element_t ret=cast(element_t)0.0;
+				foreach(el; elements)
+					ret+=el*el;
+				return ret;
+			}
 		}
-		else{
-			element_t ret=0.0;
-			foreach(el; elements)
-				ret+=el*el;
-			return ret;
-		}
+		__this_type normal(){if(this.length)return (this/this.length); return __this_type(0.0);}
+		//DEPR3CATED
+		__this_type abs(){return this.normal();}
 	}
 	
 	static if(dim==3){
@@ -294,10 +316,6 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 		return __this_type(std.math.sgn(x), std.math.sgn(y), std.math.sgn(z));
 	}
 }
-	
-	__this_type normal(){if(this.length)return (this/this.length); return __this_type(0.0);}
-	//DEPR3ATED
-	__this_type abs(){return this.normal();}
 	__this_type inv(){
 		__this_type ret;
 		ret.elements[]=(cast(element_t)1.0)/this.elements[];
@@ -428,6 +446,18 @@ nothrow pure struct Vector_t(alias dim=3, element_t=float){
 	}
 	@safe const nothrow size_t toHash(){
 		return typeid(elements).getHash(&elements);
+	}
+	const vmin(T)(Vector_t!(dim, T) val){
+		Vector_t!(dim, element_t) ret;
+		foreach(immutable ind, el; val.elements)
+			ret.elements[ind]=std.algorithm.min(el, elements[ind]);
+		return ret;
+	}
+	const vmax(T)(Vector_t!(dim, T) val){
+		Vector_t!(dim, element_t) ret;
+		foreach(immutable ind, el; val.elements)
+			ret.elements[ind]=std.algorithm.max(el, elements[ind]);
+		return ret;
 	}
 }
 

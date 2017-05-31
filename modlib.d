@@ -5,7 +5,6 @@ import std.file;
 import std.path;
 import std.array;
 import std.string;
-import std.digest.crc;
 import std.algorithm;
 import std.conv;
 import gfx;
@@ -326,12 +325,18 @@ struct ModFile_t{
 					data.length=cast(uint)lfsize;
 					size=cast(uint)lfsize;
 					f.rawRead(data);
-					CRC32 context=makeDigest!CRC32();
-					context.put(data);
-					ubyte[4] hashbuf=context.finish();
-					//RIP crc32Of() (used to work, great random number generator now)
-					//ubyte[4] hashbuf=crc32Of(data);
-					hash=*(cast(uint*)hashbuf.ptr);
+					static if(0){
+						import std.digest.crc;
+						CRC32 context=makeDigest!CRC32();
+						context.put(data);
+						ubyte[4] hashbuf=context.finish();
+						//RIP crc32Of() (used to work, great random number generator now)
+						//ubyte[4] hashbuf=crc32Of(data);
+						hash=*(cast(uint*)hashbuf.ptr);
+					}
+					else{
+						hash=0;
+					}
 					Loading_Finished();
 					loaded_file=true;
 				}

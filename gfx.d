@@ -645,7 +645,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 		params.sort!("a.dst>b.dst");
 		for(uint i=0; i<params.length; i++){
 			DrawSmokeCircleParams *p=&params[i];
-			Renderer_DrawSmokeCircle(p.xpos, p.ypos, p.zpos, p.size, p.color, p.alpha, p.dst);
+			Renderer_DrawSmokeCircle(p.xpos, p.ypos, p.zpos, p.size, p.color, p.alpha, (Vector_t!(3, real)(p.xpos, p.ypos, p.zpos)-CameraPos).length);
 		}
 		params.length=0;
 		while(SmokeParticles.length){
@@ -828,7 +828,7 @@ void Render_Screen(){
 	}
 	Render_HUD();
 	immutable ubyte minimap_alpha=210;
-	if(Render_MiniMap && Joined_Game()){
+	if(Render_MiniMap && Joined_Game() && !SettingsMenu_Enable && !ServerMessage_Enable && !NoobMessage_Enable){
 		if(MiniMap_SurfaceChanged)
 			Renderer_UploadToTexture(minimap_srfc, minimap_texture);
 		SDL_Rect minimap_rect;
@@ -1388,7 +1388,7 @@ Debris_t Blocks_ToDebris(uint[3][] input_blocks){
 		}
 	}
 	auto middle_vec=Vector_t!(4, uint)(((iVector3_t(maxval)-minval)/2+minval).elements~0);
-	Debris_t d=Debris_t(Vector3_t(middle_vec), blocks);
+	Debris_t d=Debris_t(Vector3_t(middle_vec.elements[0..3]), blocks);
 	d.obj.rot.y=270.0;
 	d.timer=.0001;
 	d.split_counter=0;
