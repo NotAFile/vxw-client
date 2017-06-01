@@ -1099,13 +1099,19 @@ struct Item_t{
 	Vector3_t bullet_exit_pos(){
 		return spr.RelativeCoordinates_To_AbsoluteCoordinates!float(Vector3_t(.5, 0.0, 0.0));
 	}
-	Sprite_t spr(){
+	const Sprite_t spr(){
 		if(equipped!=VoidPlayerID){
-			return Get_Player_Attached_Sprites(equipped)[0];
+			auto plr_sprites=Get_Player_Attached_Sprites(equipped);
+			if(plr_sprites.length)
+				return plr_sprites[0];
+			return Sprite_Void();
 		}
 		final switch(container_type){
 			case ItemContainerType_t.Player:{
-				return Get_Player_Attached_Sprites(container_plr)[0];
+				auto plr_sprites=Get_Player_Attached_Sprites(container_plr);
+				if(plr_sprites.length)
+					return plr_sprites[0];
+				return Sprite_Void();
 			}
 			case ItemContainerType_t.Object:{
 				return Objects[container_obj].toSprite();

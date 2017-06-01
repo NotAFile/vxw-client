@@ -429,8 +429,16 @@ void Check_Input(){
 						break;
 					}
 					case SDLK_c:{
-						if(TypingChat && (KeyState[SDL_SCANCODE_LCTRL] || KeyState[SDL_SCANCODE_RCTRL])){
-							SDL_SetClipboardText(toStringz(CurrentChatLine));
+						if(KeyState[SDL_SCANCODE_LCTRL] || KeyState[SDL_SCANCODE_RCTRL]){
+							if(TypingChat){
+								SDL_SetClipboardText(toStringz(CurrentChatLine));
+							}
+							else{
+								foreach(line; ChatText){
+									if(line.length)
+										SDL_SetClipboardText(toStringz(line));
+								}
+							}
 						}
 						break;
 					}

@@ -325,7 +325,7 @@ struct ModFile_t{
 					data.length=cast(uint)lfsize;
 					size=cast(uint)lfsize;
 					f.rawRead(data);
-					static if(0){
+					static if(1){
 						import std.digest.crc;
 						CRC32 context=makeDigest!CRC32();
 						context.put(data);

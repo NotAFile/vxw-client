@@ -26,3 +26,5 @@ F1 = toggle in-game instructions (but better read Instructions.txt)
 F2 = toggle server message (only if available for the current server)
 F9 = save the currently visible chat lines (lines that disappear are gone, sorry) into ./chatlog.txt
 Alt + F4 = toggle in-game settings (or alternatively press F10)
+CTRL+C copies the entire typed chat line if typing into chat, or the first non-empty line of your chat box if not typing
+CTRL+V pastes into the chat line if typing chat

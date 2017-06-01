@@ -94,7 +94,7 @@ void Init_Gfx(){
 	DerelictSDL2.load();
 	DerelictSDL2Image.load();
 	if(SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO | SDL_INIT_EVENTS))
-		writeflnlog("[WARNING] SDL2 didn't initialize properly: %s", SDL_GetError());
+		writeflnlog("[WARNING] SDL2 didn't initialize properly: %s", fromStringz(SDL_GetError()));
 	if(IMG_Init(IMG_INIT_PNG)!=IMG_INIT_PNG)
 		writeflnerr("SDL2 IMG doesn't support PNG: %s", IMG_GetError());
 	SDL_SetHintWithPriority(toStringz("SDL_HINT_WINDOWS_NO_CLOSE_ON_ALT_F4"), toStringz("1"), SDL_HINT_OVERRIDE);
@@ -611,6 +611,8 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 		immutable SmokeParticleAlphaDecay=(1.0f*.99f)/SmokeParticleSizeIncrease;
 		immutable DenseSmokeParticleSizeIncrease=1.0f+WorldSpeed*.01f/SmokeAmount*Renderer_SmokeRenderSpeed*3.7;
 		immutable DenseSmokeParticleAlphaDecay=(1.0f*.99f)/DenseSmokeParticleSizeIncrease;
+		immutable SmokeRiseSpeed=.001f*WorldSpeed*30.0f, SmokeWiggleSpeed=.0000001f*WorldSpeed*30.0f;
+		immutable SmokeFriction=1.0f/(1.0f/.96f+WorldSpeed*30.0/10000.0f);
 		foreach(ref p; SmokeParticles){
 			if(!p.alpha)
 				continue;
@@ -623,13 +625,13 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 				else{
 					p.size*=DenseSmokeParticleSizeIncrease; p.alpha*=DenseSmokeParticleAlphaDecay;
 				}
-				if(p.alpha<1.0f/256.0f)
-					p.alpha=0f;
+				if(p.alpha<5.0f/256.0f)
+					p.alpha=0.0f;
 				if(p.size>p.remove_size)
-					p.alpha=0f;
-				p.vel+=RandomVector()*.00001f*p.size;	
-				p.vel.y-=.001;
-				p.vel*=.96f;
+					p.alpha=0.0f;
+				p.vel+=RandomVector()*SmokeWiggleSpeed*p.size;	
+				p.vel.y-=SmokeRiseSpeed;
+				p.vel*=SmokeFriction;
 			}
 			float dst;
 			signed_register_t scrx, scry;
@@ -645,7 +647,7 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 		params.sort!("a.dst>b.dst");
 		for(uint i=0; i<params.length; i++){
 			DrawSmokeCircleParams *p=&params[i];
-			Renderer_DrawSmokeCircle(p.xpos, p.ypos, p.zpos, p.size, p.color, p.alpha, (Vector_t!(3, real)(p.xpos, p.ypos, p.zpos)-CameraPos).length);
+			Renderer_DrawSmokeCircle(p.xpos, p.ypos, p.zpos, p.size, p.color, to!ubyte(p.alpha), (Vector_t!(3, real)(p.xpos, p.ypos, p.zpos)-CameraPos).length);
 		}
 		params.length=0;
 		while(SmokeParticles.length){
@@ -1864,4 +1866,10 @@ struct Sprite_t{
 		auto edges=this.Edge_Vectors!T();
 		return edges[0]+edges[1]*coord.x+edges[2]*coord.y+edges[3]*coord.z;
 	}
+}
+
+Sprite_t Sprite_Void(){
+	Sprite_t ret;
+	ret.model=null;
+	return ret;
 }
