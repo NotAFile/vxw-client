@@ -4,8 +4,7 @@ version(LDC){
 version(GNU){
 	import gdc_stdlib;
 }
-import derelict.sdl2.sdl;
-import derelict.sdl2.image;
+import sdl2;
 import std.conv;
 import std.exception;
 import std.math;

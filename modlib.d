@@ -1,5 +1,4 @@
-import derelict.sdl2.sdl;
-import derelict.sdl2.image;
+import sdl2;
 import std.stdio;
 import std.file;
 import std.path;

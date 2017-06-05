@@ -1,9 +1,7 @@
 #!/bin/bash
 #Using Derelict SDL 2.0.2 now, because a 2.0.3 branch doesn't exist and
 #not all systems have updated to 2.0.4 yet (especially Linux package repos)
-git clone https://github.com/DerelictOrg/DerelictSDL2 --branch 2.0.2
-mv ./DerelictSDL2/source/derelict .
-rm -r ./DerelictSDL2 --interactive=never
+git clone https://github.com/LeComm/SDLang2
 git clone https://github.com/DerelictOrg/DerelictENet
 mv ./DerelictENet/source/derelict/enet ./derelict
 rm -r ./DerelictENet --interactive=never
@@ -11,6 +9,9 @@ git clone https://github.com/DerelictOrg/DerelictAL
 mv ./DerelictAL/source/derelict/openal ./derelict
 rm -r ./DerelictAL --interactive=never
 git clone https://github.com/DerelictOrg/DerelictUtil
+cd DerelictUtil
+#git checkout d655a6e2110140e799697a4913c152f6ef1f8ff6
+cd ..
 mv ./DerelictUtil/source/derelict/util ./derelict
 rm -r ./DerelictUtil --interactive=never
 git clone https://github.com/DerelictOrg/Derelictvorbis

@@ -1,4 +1,4 @@
-import derelict.sdl2.sdl;
+import sdl2;
 import std.stdio;
 import std.string;
 import std.conv;
@@ -133,8 +133,8 @@ void UnInit_Game(){
 }
 
 bool got_sigsegv=false;
-version(DigitalMars){
-	extern(C) @nogc @system nothrow void SignalHandler(int signum){
+version(GNU){
+	extern(C) @system nothrow void SignalHandler(int signum){
 		if(signum==SIGSEGV && !got_sigsegv){
 			got_sigsegv=true;
 			SDL_SetRelativeMouseMode(SDL_FALSE);
@@ -143,7 +143,7 @@ version(DigitalMars){
 	}
 }
 else{
-	extern(C) @system nothrow void SignalHandler(int signum){
+	extern(C) @nogc @system nothrow void SignalHandler(int signum){
 		if(signum==SIGSEGV && !got_sigsegv){
 			got_sigsegv=true;
 			SDL_SetRelativeMouseMode(SDL_FALSE);

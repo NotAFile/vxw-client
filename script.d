@@ -7,7 +7,7 @@ version(GNU){
 version(DMD){
 	import std.meta;
 }
-import derelict.sdl2.sdl;
+import sdl2;
 import core.stdc.stdlib;
 import slang;
 import misc;

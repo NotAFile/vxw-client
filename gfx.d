@@ -4,8 +4,7 @@ version(LDC){
 version(GNU){
 	import gdc_stdlib;
 }
-import derelict.sdl2.sdl;
-import derelict.sdl2.image;
+import sdl2;
 import std.math;
 import std.format;
 import std.algorithm;
@@ -91,8 +90,6 @@ Model_t *ProtocolBuiltin_BlockBuildWireframe;
 float SmokeAmount;
 
 void Init_Gfx(){
-	DerelictSDL2.load();
-	DerelictSDL2Image.load();
 	if(SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO | SDL_INIT_EVENTS))
 		writeflnlog("[WARNING] SDL2 didn't initialize properly: %s", fromStringz(SDL_GetError()));
 	if(IMG_Init(IMG_INIT_PNG)!=IMG_INIT_PNG)
@@ -100,8 +97,9 @@ void Init_Gfx(){
 	SDL_SetHintWithPriority(toStringz("SDL_HINT_WINDOWS_NO_CLOSE_ON_ALT_F4"), toStringz("1"), SDL_HINT_OVERRIDE);
 	Renderer_Init();
 	WindowXSize=Config_Read!uint("resolution_x"); WindowYSize=Config_Read!uint("resolution_y");
-	scrn_window=SDL_CreateWindow("Voxelwar", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WindowXSize, WindowYSize, Renderer_WindowFlags
-	| SDL_WINDOW_RESIZABLE | (Config_Read!bool("fullscreen")!=0 ? SDL_WINDOW_FULLSCREEN : 0));
+	SDL_WindowFlags window_flags=cast(SDL_WindowFlags)
+	(Renderer_WindowFlags | SDL_WINDOW_RESIZABLE | (Config_Read!bool("fullscreen")!=0 ? SDL_WINDOW_FULLSCREEN : 0));
+	scrn_window=SDL_CreateWindow("Voxelwar", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WindowXSize, WindowYSize, window_flags);
 	Change_Resolution(WindowXSize, WindowYSize);
 	{
 		SDL_Surface *font_surface=SDL_LoadBMP("./Ressources/Default/Font.png");

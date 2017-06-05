@@ -4,7 +4,7 @@ version(LDC){
 version(GNU){
 	import gdc_stdlib;
 }
-import derelict.sdl2.sdl;
+import sdl2;
 import std.string;
 import std.algorithm;
 import std.conv;
@@ -300,7 +300,7 @@ void Init_UI(){
 	ChatText.length=Config_Read!size_t("chat_lines_amount"); ChatColors.length=ChatText.length;
 	ubyte *kbstate;
 	int kbstatesize;
-	kbstate=SDL_GetKeyboardState(&kbstatesize);
+	kbstate=cast(ubyte*)SDL_GetKeyboardState(&kbstatesize);
 	KeyState=cast(ubyte[])kbstate[0..kbstatesize];
 	Set_Menu_Mode(false);
 }

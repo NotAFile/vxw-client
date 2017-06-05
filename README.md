@@ -81,24 +81,28 @@ libtiff-5.dll, SDL2_image.dll, vorbisfile.dll)
 2. Run:
 
 	```
-	http://github.com/DerelictOrg/DerelictSDL2
 
-	http://github.com/DerelictOrg/DerelictENet
+	git clone http://github.com/DerelictOrg/DerelictENet
 
-	http://github.com/DerelictOrg/DerelictAL
+	git clone http://github.com/DerelictOrg/DerelictAL
 
-	http://github.com/DerelictOrg/DerelictOgg
+	git clone http://github.com/DerelictOrg/DerelictOgg
 
-	http://github.com/DerelictOrg/DerelictVorbis
+	git clone http://github.com/DerelictOrg/DerelictVorbis
 	```
 
 3. Create a directory called "derelict" here.
 
 4. Paste the contents of the derelict directories from the repositories from 2.
 
-	(sdl2, enet, openal, vorbis, ogg, util)
+	(net, openal, vorbis, ogg, util)
 
-5. Run compile.bat
+5. Run:
+	```
+	git clone https://github.com/LeComm/SDLang2
+	```
+
+6. Run compile.bat
 
 CREDITS:
 
@@ -115,7 +119,7 @@ iCherry - helping me porting Voxlap to 64 bit
 
 ## Notes
 
-The "derelict/" folder, when set up, contains D bindings to ENet, SDL2, libogg and Vorbis. This is not the usual way of using derelict, but *DUB* is a nightmare to use and We would rather not rely on such kinds of packaging programs.
+The "derelict/" folder, when set up, contains D bindings to ENet, libogg and Vorbis. This is not the usual way of using derelict, but *DUB* is a nightmare to use and We would rather not rely on such kinds of packaging programs. I actually made my own bindings for SDL2 because derelict breaks all of my stuff on a regular basis (due to API changes) and I couldn't stand having to fix the SDL2 part all the time.
 
 Official compiled versions of this software run way faster on other systems than on windows because of compiler issues arising from stubborn D devs who keep insisting on using microsoft development software above all (and some crappy 30 years old MS-DOS linker written in ASM).
 

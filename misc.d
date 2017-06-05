@@ -1,4 +1,4 @@
-import derelict.sdl2.sdl;
+import sdl2;
 import std.stdio;
 import std.traits;
 import std.algorithm;

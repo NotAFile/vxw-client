@@ -14,13 +14,6 @@ double uniform01(){
 	return uniform!"[)"(0.0, 1.0);
 }
 
-T[] dup(T)(T[] arr){
-	T[] ret;
-	ret.length=arr.length;
-	ret[]=arr[];
-	return ret;
-}
-
 template Parameters(alias func){
 	alias ParameterTypeTuple!(func) Parameters;
 }

@@ -6,7 +6,7 @@ version(LDC){
 version(GNU){
 	import gdc_stdlib;
 }
-import derelict.sdl2.sdl;
+import sdl2;
 import std.conv;
 import std.math;
 import std.random;
