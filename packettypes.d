@@ -213,6 +213,10 @@ struct PlayerHitPacketLayout{
 }
 immutable PacketID_t PlayerHitPacketID=20;
 
+enum ItemTypeFlags : ubyte{
+	Weapon=1<<0, RepeatedUse=1<<1, ShowPalette=1<<2, ColorMod=1<<3, AltAni=1<<4
+};
+
 enum{
 	ITEMTYPE_FLAGS_WEAPON=(1<<0), ITEMTYPE_FLAGS_REPEATEDUSE=(1<<1), ITEMTYPE_FLAGS_SHOWPALETTE=(1<<2), ITEMTYPE_FLAGS_COLORMOD=(1<<3)
 };
@@ -229,7 +233,7 @@ struct ItemTypePacketLayout{
 	short use_range;
 	float power;
 	float cooling;
-	ubyte typeflags;
+	ItemTypeFlags typeflags;
 	ModelID_t model_id;
 	ModelID_t bullet_model_id;
 	SoundID_t use_sound_id;

@@ -318,8 +318,6 @@ void Set_Menu_Mode(bool mode){
 	Menu_Mode=mode;
 }
 
-uint PrevKeyPresses=0;
-
 void Chat_StartTyping(){
 	if(JoinedGamePhase>=JoinedGameMaxPhases){
 		TypingChat=true;
@@ -644,25 +642,33 @@ void Check_Input(){
 	if(!TypingChat){
 		QuitGame|=cast(bool)KeyState[SDL_SCANCODE_ESCAPE];
 		if(!LoadingMap){
+			static uint PrevKeyPresses;
 			ushort KeyPresses=0;
-			uint[2][] KeyBits=[[SDL_SCANCODE_S, 0], [SDL_SCANCODE_W, 1], [SDL_SCANCODE_A, 2], [SDL_SCANCODE_D, 3],
-			[SDL_SCANCODE_SPACE, 4], [SDL_SCANCODE_LCTRL, 5], [SDL_SCANCODE_E, 6], [SDL_SCANCODE_LEFT, 7], [SDL_SCANCODE_RIGHT, 8],
-			[SDL_SCANCODE_DOWN, 9], [SDL_SCANCODE_UP, 10], [SDL_SCANCODE_LSHIFT, 11]];
-			foreach(kb; KeyBits)
-				KeyPresses|=(1<<kb[1])*(cast(int)(cast(bool)KeyState[kb[0]]));
+			struct KeyTableEntry{
+				SDL_Scancode scancode;
+				ubyte bit;
+				string plr_obj_member;
+			}
+			immutable KeyTableEntry[] KeyTable=[
+				{SDL_SCANCODE_S, 0, "Go_Back"}, {SDL_SCANCODE_W, 1, "Go_Forwards"}, {SDL_SCANCODE_A, 2, "Go_Left"}, {SDL_SCANCODE_D, 3, "Go_Right"},
+				{SDL_SCANCODE_SPACE, 4, "Jump"}, {SDL_SCANCODE_LCTRL, 5, "Set_Crouch"}, {SDL_SCANCODE_E, 6, "Use_Object"},
+				{SDL_SCANCODE_Q, 7, "Carry_Object"}, {SDL_SCANCODE_LSHIFT, 8, "Sprint"}
+			];
+			foreach(key; KeyTable)
+				KeyPresses|=(1<<key.bit)*(KeyState[key.scancode]!=0);
 			if(KeyPresses!=PrevKeyPresses){
 				Send_Key_Presses(KeyPresses);
 				PrevKeyPresses=KeyPresses;
 				if(Joined_Game()){
+					immutable string __plr_key_assign_mixin(){
+						string ret;
+						foreach(key; KeyTable){
+							ret~="plr."~key.plr_obj_member~"=cast(bool)(KeyPresses&(1<<"~to!string(key.bit)~"));";
+						}
+						return ret;
+					}
 					Player_t *plr=&Players[LocalPlayerID];
-					plr.Go_Back=cast(bool)(KeyPresses&1);
-					plr.Go_Forwards=cast(bool)(KeyPresses&2);
-					plr.Go_Left=cast(bool)(KeyPresses&4);
-					plr.Go_Right=cast(bool)(KeyPresses&8);
-					plr.Jump=cast(bool)(KeyPresses&16);
-					plr.Set_Crouch(cast(bool)(KeyPresses&32));
-					plr.Use_Object=cast(bool)(KeyPresses&64);
-					plr.Sprint=cast(bool)(KeyPresses&2048);
+					mixin(__plr_key_assign_mixin);
 					plr.KeysChanged=true;
 				}
 			}
@@ -954,6 +960,7 @@ void ClientConfig_Load(){
 		ClientConfig["mouse_accuracy"]="0.075";
 		ClientConfig["last_addr"]="localhost";
 		ClientConfig["last_port"]="32887";
+		ClientConfig["smoke_circle_hwaccel"]="false";
 		foreach(immutable entry; SettingsMenu_ConfigEntries){
 			ClientConfig[entry.entry]=entry.default_val;
 		}

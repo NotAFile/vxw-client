@@ -1100,12 +1100,13 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 			auto model_offset=(spr.model.pivot.filter!(true, true, true))*spr.density;
 			target_item_offset=Vector3_t(10.0*spr.density.z, 0.0, model_offset.y);
 		}
-		else
-		if(plr.left_click && !item_is_gun){
-			target_item_offset=Vector3_t(1.2, 0.0, .9);
-		}
 		else{
-			target_item_offset=Vector3_t(.7, -.4, .45);
+			if(plr.left_click && !item_is_gun){
+				target_item_offset=Vector3_t(1.2, 0.0, .9);
+			}
+			else{
+				target_item_offset=Vector3_t(.7, -.4, .45);
+			}
 		}
 	}
 	else{

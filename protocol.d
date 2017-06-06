@@ -25,6 +25,8 @@ version(DMD){
 	import std.meta;
 }
 
+immutable Protocol_Version=9;
+
 uint Server_Ping_Delay=0;
 uint Ping_Overall_Delay=0;
 uint Ping_LastSent=0;
@@ -45,8 +47,6 @@ uint ModFileBytes=0;
 ubyte[] CurrentLoadingMap;
 ubyte MapEncoding;
 uint MapXSize, MapYSize, MapZSize;
-
-uint Protocol_Version=8;
 
 uint JoinedGameMaxPhases=4;
 uint JoinedGamePhase=0;
@@ -318,10 +318,11 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				type.recoil_ym=packet.recoil_ym;
 				type.block_damage=packet.block_damage;
 				type.use_range=packet.use_range;
-				type.is_weapon=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_WEAPON);
-				type.repeated_use=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_REPEATEDUSE);
-				type.show_palette=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_SHOWPALETTE);
-				type.color_mod=cast(bool)(packet.typeflags&ITEMTYPE_FLAGS_COLORMOD);
+				type.is_weapon=cast(bool)(packet.typeflags&ItemTypeFlags.Weapon);
+				type.repeated_use=cast(bool)(packet.typeflags&ItemTypeFlags.RepeatedUse);
+				type.show_palette=cast(bool)(packet.typeflags&ItemTypeFlags.ShowPalette);
+				type.color_mod=cast(bool)(packet.typeflags&ItemTypeFlags.ColorMod);
+				type.alt_use=cast(bool)(packet.typeflags&ItemTypeFlags.AltAni);
 				type.power=packet.power; type.cooling=packet.cooling;
 				type.model_id=packet.model_id;
 				if(packet.bullet_model_id!=VoidModelID){

@@ -279,7 +279,7 @@ struct Player_t{
 	TeamID_t team;
 	bool Go_Forwards, Go_Back, Go_Left, Go_Right;
 	bool Jump, LastJump, Crouch, TryUnCrouch, Sprint;
-	bool Use_Object;
+	bool Use_Object, Carry_Object;
 	bool KeysChanged;
 	bool[3] CollidingSides;
 	Vector3_t ColVel;
@@ -386,11 +386,15 @@ struct Player_t{
 					Update_Position_Data();
 				}
 			}
-			if(left_click){
-				if(player_id!=LocalPlayerID || !Menu_Mode)
-					Use_Item();
-			}
 			if(equipped_item){
+				if(left_click && (player_id!=LocalPlayerID || !Menu_Mode)){
+					Use_Item();
+				}
+				else{
+					if(right_click && (player_id!=LocalPlayerID || !Menu_Mode) && ItemTypes[equipped_item.type].alt_use){
+						Use_Item!(true)();
+					}
+				}
 				if(PreciseClock_ToMSecs(PreciseClock())-equipped_item.use_timer>ItemTypes[equipped_item.type].use_delay){
 					equipped_item.last_recoil=0.0;
 				}
@@ -627,7 +631,7 @@ struct Player_t{
 			}
 		}
 	}
-	void Use_Item(){
+	void Use_Item(alias alt_use=false)(){
 		if(!equipped_item)
 			return;
 		auto current_tick=PreciseClock_ToMSecs(PreciseClock());
@@ -641,144 +645,150 @@ struct Player_t{
 			Update_Rotation_Data(true);
 		}
 		current_item.use_timer=current_tick;
+		immutable bullet_exit_pos=current_item.bullet_exit_pos;
 		
-		Vector3_t usepos, usedir;
-		if((player_id==LocalPlayerID && LocalPlayerScoping())){
-			auto scp=Get_Player_Scope(player_id);
-			usepos=scp.pos;
-			usedir=scp.rot.RotationAsDirection();
-		}
-		else{
-			usepos=CameraPos();
-			usedir=dir;
-		}
-		if(current_item.container_type!=ItemContainerType_t.Player){
-			usepos=Objects[current_item.container_obj].pos;
-		}
-		Vector3_t spreadeddir;
-		float spreadfactor=itemtype.spread_c+itemtype.spread_m*uniform01()*(1.0+pow(current_item.heat, 2.0));
-		spreadeddir=usedir*(1.0-spreadfactor)+Vector3_t(uniform01(), uniform01(), uniform01()).abs()*spreadfactor;
-
-		float block_hit_dist=10e99;
-		Vector3_t block_hit_pos;
-		Vector3_t block_build_pos;
-		
-		if(itemtype.block_damage){
-			short range=itemtype.use_range;
-			if(range<0)
-				range=cast(short)Current_Visibility_Range;
-			auto rcp=RayCast(usepos, spreadeddir, range);
-			if(rcp.collside && Valid_Coord(rcp)){
-				block_hit_dist=rcp.colldist;
-				block_hit_pos=Vector3_t(rcp.x, rcp.y, rcp.z);
-				block_build_pos=Vector3_t(rcp.x, rcp.y, rcp.z)-spreadeddir.sgn().filter(rcp.collside==1, rcp.collside==2, rcp.collside==3);
+		static if(!alt_use){
+			Vector3_t usepos, usedir;
+			if((player_id==LocalPlayerID && LocalPlayerScoping())){
+				auto scp=Get_Player_Scope(player_id);
+				usepos=scp.pos;
+				usedir=scp.rot.RotationAsDirection();
 			}
-		}
-		float player_hit_dist=10e99;
-		PlayerID_t player_hit_id;
-		ubyte player_hit_sprite;
-		if(itemtype.is_weapon){
-			bool hit_player=false;
-			Vector3_t LastHitPos;
-			ubyte LastHitSpriteIndex;
-			PlayerID_t LastHitPlayer;
-			float LastHitDist=block_hit_dist;
-			if(Config_Read!bool("gun_flashes") && itemtype.Is_Gun())
-				Renderer_AddFlash(usepos, 4.0, 1.0);
-			foreach(PlayerID_t pid, const plr; Players){
-				if(pid==player_id)
-					continue;
-				if(!plr.Spawned || !plr.InGame)
-					continue;
-				if((pos-plr.pos).length>(min(Current_Visibility_Range, block_hit_dist)+5))
-					continue;
-				Sprite_t[] sprites=Get_Player_Sprites(pid);
-				foreach(ubyte spindex, ref spr; sprites){
-					Vector3_t vxpos; ModelVoxel_t *vx;
-					if(SpriteHitScan(spr, usepos, spreadeddir, vxpos, vx)){
-						if(player_id==LocalPlayerID){
-							hit_player=true;
-							float hitdist=(vxpos-usepos).length;
-							if(hitdist<LastHitDist){
-								LastHitPos=vxpos;
-								LastHitSpriteIndex=spindex;
-								LastHitPlayer=pid;
-								LastHitDist=hitdist;
+			else{
+				usepos=CameraPos();
+				usedir=dir;
+			}
+			if(current_item.container_type!=ItemContainerType_t.Player){
+				usepos=Objects[current_item.container_obj].pos;
+			}
+			Vector3_t spreadeddir;
+			float spreadfactor=itemtype.spread_c+itemtype.spread_m*uniform01()*(1.0+pow(current_item.heat, 2.0));
+			spreadeddir=usedir*(1.0-spreadfactor)+Vector3_t(uniform01(), uniform01(), uniform01()).abs()*spreadfactor;
+	
+			float block_hit_dist=10e99;
+			Vector3_t block_hit_pos;
+			Vector3_t block_build_pos;
+		
+			if(itemtype.block_damage){
+				short range=itemtype.use_range;
+				if(range<0)
+					range=cast(short)Current_Visibility_Range;
+				auto rcp=RayCast(usepos, spreadeddir, range);
+				if(rcp.collside && Valid_Coord(rcp)){
+					block_hit_dist=rcp.colldist;
+					block_hit_pos=Vector3_t(rcp.x, rcp.y, rcp.z);
+					block_build_pos=Vector3_t(rcp.x, rcp.y, rcp.z)-spreadeddir.sgn().filter(rcp.collside==1, rcp.collside==2, rcp.collside==3);
+				}
+			}
+			float player_hit_dist=10e99;
+			PlayerID_t player_hit_id;
+			ubyte player_hit_sprite;
+			if(itemtype.is_weapon){
+				bool hit_player=false;
+				Vector3_t LastHitPos;
+				ubyte LastHitSpriteIndex;
+				PlayerID_t LastHitPlayer;
+				float LastHitDist=block_hit_dist;
+				if(Config_Read!bool("gun_flashes") && itemtype.Is_Gun())
+					Renderer_AddFlash(usepos, 4.0, 1.0);
+				foreach(PlayerID_t pid, const plr; Players){
+					if(pid==player_id)
+						continue;
+					if(!plr.Spawned || !plr.InGame)
+						continue;
+					if((pos-plr.pos).length>(min(Current_Visibility_Range, block_hit_dist)+5))
+						continue;
+					Sprite_t[] sprites=Get_Player_Sprites(pid);
+					foreach(ubyte spindex, ref spr; sprites){
+						Vector3_t vxpos; ModelVoxel_t *vx;
+						if(SpriteHitScan(spr, usepos, spreadeddir, vxpos, vx)){
+							if(player_id==LocalPlayerID){
+								hit_player=true;
+								float hitdist=(vxpos-usepos).length;
+								if(hitdist<LastHitDist){
+									LastHitPos=vxpos;
+									LastHitSpriteIndex=spindex;
+									LastHitPlayer=pid;
+									LastHitDist=hitdist;
+								}
 							}
+							Create_Particles(vxpos, Vector3_t(0.0), 0.0, .05, 3, [0x00ff0000], .2);
 						}
-						Create_Particles(vxpos, Vector3_t(0.0), 0.0, .05, 3, [0x00ff0000], .2);
 					}
 				}
-			}
-			if(hit_player){
-				player_hit_dist=LastHitDist;
-				player_hit_id=LastHitPlayer;
-				player_hit_sprite=LastHitSpriteIndex;
-			}
-		}
-		float object_hit_dist=10e99;
-		ushort object_hit_id;
-		ModelVoxel_t *object_hit_vx;
-		Vector3_t object_hit_pos;
-		if(itemtype.is_weapon){
-			bool hit_object=false;
-			float LastHitDist=10e99;
-			ushort LastHitID;
-			foreach(obj_id; Hittable_Objects){
-				Object_t *obj=&Objects[obj_id];
-				if(!obj.visible)
-					continue;
-				ModelVoxel_t *vx;
-				Vector3_t hit_pos;
-				if(SpriteHitScan(obj.toSprite(), usepos, spreadeddir, hit_pos, vx)){
-					float vxdist=(hit_pos-usepos).length;
-					if(vxdist<LastHitDist){
-						hit_object=true;
-						object_hit_pos=hit_pos;
-						LastHitDist=vxdist;
-						LastHitID=cast(ushort)obj_id;
-						object_hit_vx=vx;
-					}
+				if(hit_player){
+					player_hit_dist=LastHitDist;
+					player_hit_id=LastHitPlayer;
+					player_hit_sprite=LastHitSpriteIndex;
 				}
 			}
-			if(hit_object){
-				object_hit_dist=LastHitDist;
-				object_hit_id=LastHitID;
+			float object_hit_dist=10e99;
+			ushort object_hit_id;
+			ModelVoxel_t *object_hit_vx;
+			Vector3_t object_hit_pos;
+			if(itemtype.is_weapon){
+				bool hit_object=false;
+				float LastHitDist=10e99;
+				ushort LastHitID;
+				foreach(obj_id; Hittable_Objects){
+					Object_t *obj=&Objects[obj_id];
+					if(!obj.visible)
+						continue;
+					ModelVoxel_t *vx;
+					Vector3_t hit_pos;
+					if(SpriteHitScan(obj.toSprite(), usepos, spreadeddir, hit_pos, vx)){
+						float vxdist=(hit_pos-usepos).length;
+						if(vxdist<LastHitDist){
+							hit_object=true;
+							object_hit_pos=hit_pos;
+							LastHitDist=vxdist;
+							LastHitID=cast(ushort)obj_id;
+							object_hit_vx=vx;
+						}
+					}
+				}
+				if(hit_object){
+					object_hit_dist=LastHitDist;
+					object_hit_id=LastHitID;
+				}
+			}
+			real MinHitDist;
+			if(block_hit_dist<player_hit_dist && block_hit_dist<object_hit_dist){
+				MinHitDist=block_hit_dist;
+				uint dmgx=touint(block_hit_pos.x), dmgy=touint(block_hit_pos.y), dmgz=touint(block_hit_pos.z);
+				if(itemtype.Is_Gun()){
+					Vector3_t particle_pos=usepos+spreadeddir*block_hit_dist;
+					Damage_Block(player_id, dmgx, dmgy, dmgz, itemtype.block_damage, &particle_pos);
+				}
+				else{
+					Damage_Block(player_id, dmgx, dmgy, dmgz, itemtype.block_damage, null);
+				}
+			}
+			if(player_hit_dist<block_hit_dist && player_hit_dist<object_hit_dist){
+				MinHitDist=player_hit_dist;
+				PlayerHitPacketLayout packet;
+				packet.player_id=player_hit_id;
+				packet.hit_sprite=player_hit_sprite;
+				Send_Packet(PlayerHitPacketID, packet);
+			}
+			if(object_hit_dist<player_hit_dist && object_hit_dist<block_hit_dist){
+				MinHitDist=object_hit_dist;
+				if(Objects[object_hit_id].enable_bullet_holes)
+					Objects[object_hit_id].Damage(usepos+spreadeddir*(object_hit_dist-.1));
+				else
+				if(Objects[object_hit_id].modify_model)
+					object_hit_vx.color=0;
+				if(Objects[object_hit_id].send_hits){
+					ObjectHitPacketLayout packet;
+					packet.object_index=object_hit_id;
+					Send_Packet(ObjectHitPacketID, packet);
+				}
 			}
 			if(itemtype.Is_Gun()){
 				/*immutable bullet_exit_pos=usepos+spreadeddir*Mod_Models[ItemTypes[equipped_item.type].model_id].size.z
 				*Get_Player_Attached_Sprites(player_id)[0].density.z;*/
-				immutable bullet_exit_pos=current_item.bullet_exit_pos;
+				Bullet_Shoot(bullet_exit_pos+Vector3_t(-.04, .04, 0.0).rotate(spreadeddir.RotationAsDirection), spreadeddir*200.0, MinHitDist, &itemtype.bullet_sprite);
 				Create_Smoke(bullet_exit_pos, 2.0*itemtype.power, 0xff808080, 2.0*sqrt(itemtype.power), .1, .1, spreadeddir*.1*sqrt(itemtype.power));
-				Bullet_Shoot(bullet_exit_pos+Vector3_t(-.04, .04, 0.0).rotate(spreadeddir.RotationAsDirection), spreadeddir*200.0, LastHitDist, &itemtype.bullet_sprite);
-			}
-		}
-		if(block_hit_dist<player_hit_dist && block_hit_dist<object_hit_dist){
-			uint dmgx=touint(block_hit_pos.x), dmgy=touint(block_hit_pos.y), dmgz=touint(block_hit_pos.z);
-			if(itemtype.Is_Gun()){
-				Vector3_t particle_pos=usepos+spreadeddir*block_hit_dist;
-				Damage_Block(player_id, dmgx, dmgy, dmgz, itemtype.block_damage, &particle_pos);
-			}
-			else{
-				Damage_Block(player_id, dmgx, dmgy, dmgz, itemtype.block_damage, null);
-			}
-		}
-		if(player_hit_dist<block_hit_dist && player_hit_dist<object_hit_dist){
-			PlayerHitPacketLayout packet;
-			packet.player_id=player_hit_id;
-			packet.hit_sprite=player_hit_sprite;
-			Send_Packet(PlayerHitPacketID, packet);
-		}
-		if(object_hit_dist<player_hit_dist && object_hit_dist<block_hit_dist){
-			if(Objects[object_hit_id].enable_bullet_holes)
-				Objects[object_hit_id].Damage(usepos+spreadeddir*(object_hit_dist-.1));
-			else
-			if(Objects[object_hit_id].modify_model)
-				object_hit_vx.color=0;
-			if(Objects[object_hit_id].send_hits){
-				ObjectHitPacketLayout packet;
-				packet.object_index=object_hit_id;
-				Send_Packet(ObjectHitPacketID, packet);
 			}
 		}
 		if(itemtype.repeated_use)
@@ -802,8 +812,9 @@ struct Player_t{
 		if(itemtype.use_sound_id!=VoidSoundID){
 			sndsource.Play_Sound(Mod_Sounds[itemtype.use_sound_id]);
 		}
-		if(itemtype.Is_Gun)
+		if(itemtype.Is_Gun){
 			current_item.heat+=itemtype.power;
+		}
 	}
 	void Switch_Item(ItemID_t item_id){
 		if(equipped_item)
@@ -1024,7 +1035,7 @@ struct ItemType_t{
 	ubyte index;
 	uint use_delay;
 	uint maxamount1, maxamount2;
-	bool is_weapon, repeated_use, show_palette, color_mod;
+	bool is_weapon, repeated_use, show_palette, color_mod, alt_use;
 	ubyte block_damage;
 	short use_range;
 	float spread_c, spread_m;
@@ -1037,6 +1048,9 @@ struct ItemType_t{
 	Sprite_t bullet_sprite;
 	bool Is_Gun(){
 		return is_weapon && maxamount1 && bullet_sprite.model!=null;
+	}
+	bool Alt_Use(){
+		return alt_use;
 	}
 }
 ItemType_t[] ItemTypes;
