@@ -13,6 +13,7 @@ import std.conv;
 import std.random;
 import std.traits;
 import std.string;
+import std.variant;
 import main;
 import renderer;
 import renderer_templates;
@@ -53,8 +54,6 @@ uint WindowXSize, WindowYSize;
 auto CameraRot=Vector_t!(3, real)(0.0, 0.0, 0.0), CameraPos=Vector3_t(0.0, 0.0, 0.0);
 auto MouseRot=Vector_t!(3, real)(0.0, -90.0, 0.0);
 float X_FOV=90.0, Y_FOV=90.0;
-
-float[3][ParticleSizeTypes] ParticleSizeRatios;
 
 Model_t*[] Mod_Models;
 RendererTexture_t[] Mod_Pictures;
@@ -130,18 +129,24 @@ void Change_Resolution(uint newxsize, uint newysize){
 		ProtocolBuiltin_AmmoCounterBG.AdjustToScreen();
 	if(ProtocolBuiltin_AmmoCounterBullet)
 		ProtocolBuiltin_AmmoCounterBullet.AdjustToScreen();
-	ParticleSizeRatios=[
-		ParticleSizeTypes.Normal: [.1, .1, .1],
-		ParticleSizeTypes.BlockDamageParticle: [.05, .05, .05],
-		ParticleSizeTypes.DamagedObjectParticle: [.1, .1, .1],
-		ParticleSizeTypes.BlockBreakParticle: [.25, .25, .25]
+	enum ParticleSizeRatios=[
+		ParticleSizeTypes.BlockDamageParticle: fVector3_t(.05, .05, .05),
+		ParticleSizeTypes.DamagedObjectParticle: fVector3_t(.1, .1, .1),
 	];
 	foreach(sizetype; EnumMembers!ParticleSizeTypes){
-		RendererParticleSize_t[3] pixelsize=Renderer_GetParticleSize(ParticleSizeRatios[sizetype][0], ParticleSizeRatios[sizetype][1], ParticleSizeRatios[sizetype][2]);
-		ParticleSizes[sizetype]=ParticleSize_t();
-		ParticleSizes[sizetype].w=pixelsize[0]; ParticleSizes[sizetype].h=pixelsize[1]; ParticleSizes[sizetype].l=pixelsize[2];
+		ParticleSizes[sizetype]=Vector_t!(3, RendererParticleSize_t)(Renderer_GetParticleSize(ParticleSizeRatios[sizetype]));
 	}
+	foreach(ref ptcls; ParticleCategories)
+		ptcls.size=Renderer_GetParticleSize(ptcls.ParticleType.size);
 }
+
+enum ParticleSizeTypes{
+	BlockDamageParticle, DamagedObjectParticle
+}
+
+alias ParticleSize_t=Vector_t!(3, RendererParticleSize_t);
+
+ParticleSize_t[ParticleSizeTypes] ParticleSizes;
 
 SDL_Surface *MapLoadingSrfc;
 RendererTexture_t MapLoadingTex;
@@ -396,15 +401,65 @@ void Render_Text_Line(TC, TL, TS)(uint xpos, uint ypos, TC coloring, TL text, Re
 	}
 }
 
-enum ParticleSizeTypes{
-	Normal=0, BlockDamageParticle=1, DamagedObjectParticle=2, BlockBreakParticle=3
+auto Render_Text(uint x, uint y, string text, Variant[string] opt_args=null){
+	return Render_Text(SDL_Rect(x, y, ScreenXSize-x, ScreenYSize-y), text, opt_args);
 }
 
-struct ParticleSize_t{
-	RendererParticleSize_t w, h, l;
+uint[2] Render_Text(SDL_Rect dstrect, string text, Variant[string] opt_args=null){
+	auto font=OptionalArguments_Read!RendererTexture_t(opt_args, "font", font_texture);
+	auto texsize=Renderer_TextureSize(font);
+	SDL_Rect letter_src_rect=SDL_Rect(0, 0, OptionalArguments_Read!uint(opt_args, "src_w", FontWidth/16),
+	OptionalArguments_Read!uint(opt_args, "src_h", FontHeight/16));
+	SDL_Rect letter_dst_rect=SDL_Rect(dstrect.x, dstrect.y, 
+	OptionalArguments_Read!uint(opt_args, "dst_w", letter_src_rect.w), OptionalArguments_Read!uint(opt_args, "dst_h", letter_src_rect.h));
+	immutable src_y_padding=OptionalArguments_Read!uint(opt_args, "src_y_padding", 0);
+	immutable src_x_padding=OptionalArguments_Read!uint(opt_args, "src_x_padding", 0);
+	immutable coloring=OptionalArguments_Read!Variant(opt_args, "color", Variant(Font_SpecialColor));
+	immutable auto_line_break=OptionalArguments_Read!bool(opt_args, "auto_line_break", true);
+	foreach(immutable letter_ind, immutable letter; text){
+		uint col;
+		if(coloring.type==typeid(uint)){
+			col=coloring.get!(uint);
+		}
+		else{
+			col=coloring[letter_ind].get!(uint);
+		}
+		ubyte[3] cmod;
+		immutable bgcol=0xff0000a0;
+		if(col==Font_SpecialColor){
+			cmod=[(bgcol>>16)&255, (bgcol>>8)&255, bgcol&255];
+			cmod[]=~cmod[];
+		}
+		else{
+			cmod=[cast(ubyte)((col>>16)&255),cast(ubyte)((col>>8)&255),cast(ubyte)(col&255)];
+		}
+		bool letter_processed=false;
+		switch(letter){
+			case '\n':letter_dst_rect.x=dstrect.x; letter_dst_rect.y+=letter_dst_rect.h-src_y_padding; letter_processed=true; break;
+			case '\t':letter_dst_rect.x+=letter_dst_rect.w*5; letter_processed=true; break;
+			default:break;
+		}
+		if(letter_processed)
+			continue;
+		letter_src_rect.x=(letter%16)*letter_src_rect.w;
+		letter_src_rect.y=(letter/16)*letter_src_rect.h;
+		if(col==Font_SpecialColor)
+			Renderer_FillRect2D(&letter_dst_rect, bgcol);
+		Renderer_Blit2D(font, &texsize, &letter_dst_rect, cast(ubyte)(col>>24), &cmod, &letter_src_rect);
+		letter_dst_rect.x+=letter_dst_rect.w-src_x_padding;
+		if(letter_dst_rect.x>=dstrect.w){
+			if(auto_line_break){
+				letter_dst_rect.x=dstrect.x;
+				letter_dst_rect.y+=letter_dst_rect.h-src_y_padding;
+			}
+			else{
+				break;
+			}
+				
+		}
+	}
+	return [cast(uint)letter_dst_rect.x, cast(uint)letter_dst_rect.y];
 }
-
-ParticleSize_t[ParticleSizeTypes] ParticleSizes;
 
 void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 	Renderer_DrawVoxels();
@@ -416,10 +471,13 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 			ItemType_t *type = &ItemTypes[Players[LocalPlayerID].equipped_item.type];
 			if(type.use_range){
 				auto rc=RayCast(CameraPos, Players[LocalPlayerID].dir, ItemTypes[Players[LocalPlayerID].equipped_item.type].use_range);
-				if(rc.colldist<=type.use_range && rc.collside){
+				auto collside=rc.collside;
+				if(collside==2 && Players[LocalPlayerID].dir.y>0.0 && rc.y<=0)
+					collside=0;
+				if(rc.colldist<=type.use_range && collside){
 					Sprite_t spr;
 					spr.rhe=0.0; spr.rti=0.0; spr.rst=0.0;
-					Vector3_t wfpos=Vector3_t(rc.x, rc.y, rc.z)-Players[LocalPlayerID].dir.sgn().filter(rc.collside==1, rc.collside==2, rc.collside==3)+.5;
+					Vector3_t wfpos=Vector3_t(rc.x, rc.y, rc.z)-Players[LocalPlayerID].dir.sgn().filter(collside==1, collside==2, collside==3)+.5;
 					spr.xpos=wfpos.x; spr.ypos=wfpos.y; spr.zpos=wfpos.z;
 					spr.xdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.xsize; spr.ydensity=1.0/ProtocolBuiltin_BlockBuildWireframe.ysize;
 					spr.zdensity=1.0/ProtocolBuiltin_BlockBuildWireframe.zsize;
@@ -432,84 +490,30 @@ void Render_World(alias UpdateGfx=true)(bool Render_Cursor){
 		}
 	}
 	
-	RendererParticleSize_t particle_w=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].h,
-	particle_l=ParticleSizes[ParticleSizeTypes.BlockDamageParticle].l;
-	foreach(ref bdmg; BlockDamage){
-		foreach(ref prtcl; bdmg.particles){
-			Renderer_Draw3DParticle!(true)(prtcl.x, prtcl.y, prtcl.z, particle_w, particle_h, particle_l, prtcl.col);
+	{
+		immutable particle_size=ParticleSizes[ParticleSizeTypes.BlockDamageParticle];
+		foreach(ref bdmg; BlockDamage){
+			foreach(ref prtcl; bdmg.particles){
+				Renderer_Draw3DParticle!(true)(prtcl.x, prtcl.y, prtcl.z, particle_size.x, particle_size.y, particle_size.z, prtcl.col);
+			}
 		}
 	}
-	particle_w=ParticleSizes[ParticleSizeTypes.DamagedObjectParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.DamagedObjectParticle].h,
-	particle_l=ParticleSizes[ParticleSizeTypes.DamagedObjectParticle].l;
-	foreach(ref dmgobj_id; DamagedObjects){
-		Object_t *dmgobj=&Objects[dmgobj_id];
-		foreach(ref prtcl; dmgobj.particles){
-			Renderer_Draw3DParticle!(true)(prtcl.x, prtcl.y, prtcl.z, particle_w, particle_h, particle_l, prtcl.col);
+	{
+		immutable particle_size=ParticleSizes[ParticleSizeTypes.DamagedObjectParticle];
+		foreach(ref dmgobj_id; DamagedObjects){
+			Object_t *dmgobj=&Objects[dmgobj_id];
+			foreach(ref prtcl; dmgobj.particles){
+				Renderer_Draw3DParticle!(true)(prtcl.x, prtcl.y, prtcl.z, particle_size.x, particle_size.y, particle_size.z, prtcl.col);
+			}
 		}
 	}
-	particle_w=ParticleSizes[ParticleSizeTypes.Normal].w, particle_h=ParticleSizes[ParticleSizeTypes.Normal].h,
-	particle_l=ParticleSizes[ParticleSizeTypes.Normal].l;
-	foreach(ref p; Particles){
-		if(!p.timer)
-			continue;
+	foreach(ref ptcls; ParticleCategories){
 		static if(UpdateGfx){
-			if(p.timer)
-				p.timer--;
-			Vector3_t newpos=p.pos+p.vel;
-			bool y_coll=false;
-			if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
-				bool in_solid=Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(p.pos.z));
-				if(Voxel_IsSolid(toint(newpos.x), toint(p.pos.y), toint(p.pos.z)))
-					p.vel.x=-p.vel.x;
-				if(Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(newpos.z)))
-					p.vel.z=-p.vel.z;
-				if(Voxel_IsSolid(toint(p.pos.x), toint(newpos.y), toint(p.pos.z))){
-					y_coll=true;
-					p.vel.y=-p.vel.y*.9;
-					p.vel*=.5;
-				}
-				else{
-					p.vel*=.5;
-				}
-				if(in_solid && (p.col&0xff000000)!=0xff000000){
-					p.timer=0;
-					continue;
-				}
-			}
-			else{
-				p.pos+=p.vel;
-			}
-			p.vel.y+=.005;
+			ptcls.RenderUpdate();
 		}
-		Renderer_Draw3DParticle(p.pos, particle_w, particle_h, particle_l, p.col);
-	}
-	particle_w=ParticleSizes[ParticleSizeTypes.BlockBreakParticle].w, particle_h=ParticleSizes[ParticleSizeTypes.BlockBreakParticle].h,
-	particle_l=ParticleSizes[ParticleSizeTypes.BlockBreakParticle].l;
-	foreach(ref p; BlockBreakParticles){
-		if(!p.timer)
-			continue;
-		static if(UpdateGfx){
-			if(p.timer)
-				p.timer--;
-			Vector3_t newpos=p.pos+p.vel;
-			bool y_coll=false;
-			if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
-				if(Voxel_IsSolid(toint(newpos.x), toint(p.pos.y), toint(p.pos.z)))
-					p.vel.x=-p.vel.x;
-				if(Voxel_IsSolid(toint(p.pos.x), toint(newpos.y), toint(p.pos.z))){
-					y_coll=true;
-					p.vel.y=-p.vel.y;
-				}
-				if(Voxel_IsSolid(toint(p.pos.x), toint(p.pos.y), toint(newpos.z)))
-					p.vel.z=-p.vel.z;
-				p.vel*=.3;
-			}
-			else{
-				p.pos+=p.vel;
-			}
-			p.vel.y+=.005;
+		else{
+			ptcls.Render();
 		}
-		Renderer_Draw3DParticle(p.pos, particle_w, particle_h, particle_l, p.col);
 	}
 	foreach(ref effect; ExplosionEffectSprites){
 		if(effect.size>=1.0)
@@ -828,7 +832,7 @@ void Render_Screen(){
 	}
 	Render_HUD();
 	immutable ubyte minimap_alpha=210;
-	if(Render_MiniMap && Joined_Game() && !SettingsMenu_Enable && !ServerMessage_Enable && !NoobMessage_Enable){
+	if(Render_MiniMap && Joined_Game() && Current_Screen_Overlay==ScreenOverlays.None){
 		if(MiniMap_SurfaceChanged)
 			Renderer_UploadToTexture(minimap_srfc, minimap_texture);
 		SDL_Rect minimap_rect;
@@ -1092,7 +1096,7 @@ Sprite_t[] Get_Player_Attached_Sprites(uint player_id){
 	auto current_tick=PreciseClock_ToMSecs(PreciseClock());
 	Item_t *item=plr.equipped_item;
 	spr.model=Mod_Models[ItemTypes[item.type].model_id];
-	spr.density=Vector3_t(player_id!=LocalPlayerID ? .03 : .04);
+	spr.density=Vector3_t(player_id!=LocalPlayerID ? .02 : .04);
 	bool item_is_gun=ItemTypes[item.type].Is_Gun();
 	Vector3_t target_item_offset;
 	if(player_id==LocalPlayerID){
@@ -1229,6 +1233,146 @@ Particle_t[] Particles;
 immutable float BlockBreakParticleSize=.3;
 Particle_t[] BlockBreakParticles;
 
+//ref _this in a struct member is slightly faster than passing a reference to an external function xP
+pragma(inline, true){
+	struct FireParticle_t{
+		enum fVector3_t size=fVector3_t(.75);
+		Vector3_t pos, vel;
+		uint col, timer;
+		enum mixin_InitIter="immutable WorldSpeed_FP=WorldSpeed*(1u<<20);";
+		enum mixin_Update="
+			particle.timer-=(particle.timer>=WorldSpeed_FP)*WorldSpeed_FP;
+			particle.pos+=RandomVector.filter!(1, 0, 1)*WorldSpeed*3.0;
+			immutable rnd=uniform01();
+			particle.pos.y-=(rnd*rnd)*WorldSpeed*4.0;
+			particle.pos+=particle.vel;
+			particle.vel*=.5;
+			if((Voxel_IsSolid(particle.pos) && particle.vel.abssum()<.05) || particle.timer<WorldSpeed_FP)
+				particle.timer=0;
+		";
+		enum mixin_Render="
+			immutable rendersize=[size[0]*particle.timer/(1u<<22), size[1]*particle.timer/(1u<<22), size[2]];
+			Renderer_Draw3DParticle(particle.pos, rendersize[0], rendersize[1], rendersize[2], particle.col);
+		";
+		static void Init(ref FireParticle_t _this, fVector3_t initpos, fVector3_t initvel, real timer_ratio, uint initcol){
+			_this.timer=to!uint(uniform(50, 200)*timer_ratio*(1u<<13));
+			_this.pos=initpos; _this.vel=initvel; _this.col=initcol;
+		}
+	}
+	//.25 for block break particles
+	struct DirtParticle_t{
+		enum fVector3_t size=fVector3_t(.1);
+		fVector3_t pos, vel;
+		uint col, timer;
+		enum mixin_InitIter="";
+		enum mixin_Update="
+			particle.timer--;
+			Vector3_t newpos=particle.pos+particle.vel;
+			bool y_coll=false;
+			if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
+				bool in_solid=Voxel_IsSolid(toint(particle.pos.x), toint(particle.pos.y), toint(particle.pos.z));
+				if(Voxel_IsSolid(toint(newpos.x), toint(particle.pos.y), toint(particle.pos.z)))
+					particle.vel.x=-particle.vel.x;
+				if(Voxel_IsSolid(toint(particle.pos.x), toint(particle.pos.y), toint(newpos.z)))
+					particle.vel.z=-particle.vel.z;
+				if(Voxel_IsSolid(toint(particle.pos.x), toint(newpos.y), toint(particle.pos.z))){
+					y_coll=true;
+					particle.vel.y=-particle.vel.y*.9;
+					particle.vel*=.5;
+				}
+				else{
+					particle.vel*=.5;
+				}
+				if(in_solid && (particle.col&0xff000000)!=0xff000000){
+					particle.timer=0;
+					return;
+				}
+			}
+			else{
+				particle.pos+=particle.vel;
+			}
+			particle.vel.y+=.005;
+		";
+		enum mixin_Render="
+			Renderer_Draw3DParticle(particle.pos, size[0], size[1], size[2], particle.col);
+		";
+	}
+	struct BlockBreakParticle_t{
+		enum fVector3_t size=fVector3_t(.25);
+		fVector3_t pos, vel;
+		uint col, timer;
+		enum mixin_InitIter="";
+		enum mixin_Update="
+			if(particle.timer)
+				particle.timer--;
+			Vector3_t newpos=particle.pos+particle.vel;
+			bool y_coll=false;
+			if(Voxel_IsSolid(toint(newpos.x), toint(newpos.y), toint(newpos.z))){
+				if(Voxel_IsSolid(toint(newpos.x), toint(particle.pos.y), toint(particle.pos.z)))
+					particle.vel.x=-particle.vel.x;
+				if(Voxel_IsSolid(toint(particle.pos.x), toint(newpos.y), toint(particle.pos.z))){
+					y_coll=true;
+					particle.vel.y=-particle.vel.y;
+				}
+				if(Voxel_IsSolid(toint(particle.pos.x), toint(particle.pos.y), toint(newpos.z)))
+					particle.vel.z=-particle.vel.z;
+				particle.vel*=.3;
+			}
+			else{
+				particle.pos+=particle.vel;
+			}
+			particle.vel.y+=.005;
+		";
+		enum mixin_Render="
+			Renderer_Draw3DParticle(particle.pos, size[0], size[1], size[2], particle.col);
+		";
+	}
+}
+
+struct ParticleCategory_t(P_Type){
+	alias ParticleType=P_Type;
+	P_Type[] particles;
+	RendererParticleSize_t[3] size;
+	void Iterate(alias render=true, alias update=true)(){
+		mixin(P_Type.mixin_InitIter);
+		foreach(ref particle; particles){
+			if(!particle.timer)
+				continue;
+			static if(render){
+				mixin(P_Type.mixin_Render);
+			}
+			static if(update){
+				mixin(P_Type.mixin_Update);
+			}
+		}
+		static if(update){
+			while(particles.length){
+				if(!particles[$-1].timer)
+					particles.length--;
+				else
+					break;
+			}
+		}
+	}
+	void RenderUpdate(){return Iterate!(true, true)();}
+	void Render(){return Iterate!(true, false)();}
+}
+
+import std.typetuple;
+alias ParticleTypes=TypeTuple!(ParticleCategory_t!FireParticle_t, ParticleCategory_t!DirtParticle_t, ParticleCategory_t!BlockBreakParticle_t);
+enum ParticleTypeIndexes{
+	Fire=0, Dirt=1, BrokenBlock=2
+}
+immutable(string) __mixin_particletypes_createarray(){
+	string ret="AliasSeq!(";
+	foreach(ind; 0..ParticleTypes.length){
+		ret~="ParticleTypes["~to!string(ind)~"],";
+	}
+	ret~=")";
+	return ret;
+}
+mixin(__mixin_particletypes_createarray()~" ParticleCategories;");
+
 struct SmokeParticle_t{
 	Vector3_t pos, vel;
 	float size;
@@ -1243,9 +1387,9 @@ SmokeParticle_t[] SmokeParticles;
 
 void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, uint amount, uint[] col, float timer_ratio=1.0){
 	amount=to!uint(amount*Config_Read!float("particles"));
-	uint old_size=cast(uint)Particles.length;
+	if(!amount)
+		return;
 	bool use_sent_cols=radius==0;
-	Particles.length+=amount;
 	uint[] colors;
 	pos.y+=.1;
 	if(radius){
@@ -1274,15 +1418,38 @@ void Create_Particles(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	}
 	col[]|=0xff000000;
 	colors[]|=0xff000000;
+	auto category=&ParticleCategories[ParticleTypeIndexes.Dirt];
+	uint old_size=cast(uint)category.particles.length;
+	category.particles.length+=amount;
 	for(uint i=old_size; i<old_size+amount; i++){
 		Vector3_t vspr=Vector3_t(spread*(uniform01()*2.0-1.0), spread*(uniform01()*2.0-1.0), spread*(uniform01()*2.0-1.0));
-		Particles[i].pos=pos;
-		Particles[i].vel=vel+vspr;
+		category.particles[i].pos=pos;
+		category.particles[i].vel=vel+vspr;
 		if((uniform(0, 2) || use_sent_cols) && col.length)
-			Particles[i].col=col[uniform(0, col.length)];
+			category.particles[i].col=col[uniform(0, col.length)];
 		else
-			Particles[i].col=colors[uniform(0, colors.length)];
-		Particles[i].timer=cast(uint)(uniform(300, 400)*timer_ratio);
+			category.particles[i].col=colors[uniform(0, colors.length)];
+		category.particles[i].timer=cast(uint)(uniform(300, 400)*timer_ratio);
+	}
+}
+
+void Create_FireParticles(Vector3_t pos, uint amount, Variant[string] opt_args=null){
+	amount=to!uint(amount*Config_Read!float("particles"));
+	auto category=&ParticleCategories[ParticleTypeIndexes.Fire];
+	uint[] col=OptionalArguments_Read(opt_args, "col", [0x00a08000u, 0x00ffff00u, 0x00ff8000u]);
+	real timer_ratio=OptionalArguments_Read(opt_args, "timer_ratio", 1.0);
+	real vel_spread=OptionalArguments_Read(opt_args, "vel_spread", 0.0);
+	fVector3_t vel=OptionalArguments_Read(opt_args, "vel", fVector3_t(0.0));
+	size_t old_size=category.particles.length;
+	category.particles.length+=amount;
+	enum jitter=64;
+	foreach(i; old_size..old_size+amount){
+		uint icol;
+		if(!uniform(0, 2))
+			icol=Calculate_Alpha(col[uniform(0, col.length)], 0, 255-cast(ubyte)uniform(0, jitter));
+		else
+			icol=Calculate_Alpha(col[uniform(0, col.length)], 0x00ffffff, 255-cast(ubyte)uniform(0, jitter));
+		category.particles[i].Init(category.particles[i], pos+RandomVector()*amount/800.0, vel+RandomVector()*vel_spread, timer_ratio, icol);
 	}
 }
 
@@ -1521,9 +1688,11 @@ void Create_Explosion(Vector3_t pos, Vector3_t vel, float radius, float spread, 
 	Create_Smoke(Vector3_t(pos.x, pos.y, pos.z), amount*.25, 0xff808080, radius);
 	Create_Particles(pos, vel, radius, spread, amount*7, [], 1.0/(1.0+amount*.001));
 	Create_Particles(pos, vel, 0, spread*3.0, amount*10, [0x00ffff00, 0x00ffa000], .05);
+	Create_FireParticles(pos, amount*5, ["vel_spread":Variant(spread)]);
 	if(Config_Read!bool("explosion_flashes"))
-		Renderer_AddFlash(pos, radius*1.5, 1.0);
+		Renderer_AddFlash(pos, radius*radius, 10.0);
 	//WIP (go cham!)
+	//Actually I think that shit is deprecated now with the fire particles engine
 	/*ExplosionSprite_t effect;
 	Model_t *model=new Model_t;
 	model.xsize=32; model.ysize=32; model.zsize=32;
@@ -1623,7 +1792,7 @@ bool Sprite_Visible(in Sprite_t spr){
 }
 
 uint Calculate_Alpha(uint c1, uint c2, ushort alpha){
-	ushort inv_alpha=255-to!ubyte(alpha);
+	ushort inv_alpha=256-to!ubyte(alpha);
 	return (((((c1>>24)&255)*alpha+((c2>>24)&255)*inv_alpha)>>8)<<24) | (((((c1>>16)&255)*alpha+((c2>>16)&255)*inv_alpha)>>8)<<16) |
 	(((((c1>>8)&255)*alpha+((c2>>8)&255)*inv_alpha)>>8)<<8) | (((c1&255)*alpha+(c2&255)*inv_alpha)>>8);
 }

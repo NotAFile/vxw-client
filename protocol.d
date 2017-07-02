@@ -72,6 +72,8 @@ void Send_Chat_Packet(string line){
 
 size_t[PacketID_t] IncomingPacket_Stats;
 size_t[PacketID_t] OutgoingPacket_Stats;
+size_t IncomingPacket_DataSize=0;
+size_t OutgoingPacket_DataSize=0;
 
 void On_Packet_Receive(ReceivedPacket_t recv_packet){
 	if(JoinedGamePhase>=JoinedGameMaxPhases){
@@ -83,6 +85,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 			writeflnlog("Received packet with ID %s", id);
 		}
 		IncomingPacket_Stats[id]+=recv_packet.data.length-1;
+		IncomingPacket_DataSize+=recv_packet.data.length;
 		switch(id){
 			case MapChangePacketID:{
 				auto packet=UnpackPacketToStruct!(MapChangePacketLayout)(PacketData);
@@ -436,7 +439,7 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				}
 				else{
 					if(Hittable_Objects.canFind(packet.obj_id))
-						Hittable_Objects.remove(packet.obj_id);
+						Hittable_Objects.remove(Hittable_Objects.countUntil(packet.obj_id));
 				}
 				obj.particles=[];
 				obj.color=packet.color;
@@ -741,6 +744,12 @@ void On_Packet_Receive(ReceivedPacket_t recv_packet){
 				Objects[packet.obj_id].Play(packet.snd_id, packet.flags&ProtocolPlaySoundFlags.Repeat);
 				break;
 			}
+			case SetObjectFirePacketID:{
+				auto packet=UnpackPacketToStruct!(SetObjectFirePacketLayout)(PacketData);
+				Objects[packet.obj_id].fire_amount=packet.amount;
+				Objects[packet.obj_id].fire_color=packet.color;
+				break;
+			}
 			default:{
 				writeflnlog("Invalid packet ID %d", id);
 				break;
@@ -780,6 +789,7 @@ void Send_Disconnect_Packet(){
 void Send_Packet(T)(PacketID_t id, T packet){
 	auto packetbytes=PackStructToPacket(packet);
 	OutgoingPacket_Stats[id]+=packetbytes.length;
+	OutgoingPacket_DataSize+=packetbytes.length;
 	Send_Data(id~packetbytes);
 }
 

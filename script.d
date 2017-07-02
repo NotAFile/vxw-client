@@ -212,13 +212,16 @@ void Push_DLang_Object(T)(T obj){
 	else static if(is(type==ubyte)){SLang_push_uchar(obj);}
 	else static if(is(type==byte)){SLang_push_char(obj);}
 	else static if(is(type==float)){SLang_push_float(obj);}
+	else static if(is(type==real) && real.sizeof==double.sizeof){SLang_push_double(obj);}
+	else static if(is(type==real) && real.sizeof!=double.sizeof){SLang_push_double(to!double(obj));}
 	else static if(is(type==ubyte[])){SLang_push_bstring(SLbstring_create(obj.ptr, cast(uint)obj.length));}
 	else static if(is(type==bool)){SLang_push_uchar(cast(ubyte)obj);}
-	//NOTE: It's a complicated situation with those vectors and arrays, since 
+	//NOTE: It's a complicated situation with those vectors and arrays
 	else static if(is(type==Vector_t!())){
-		SLindex_Type ind=obj.elements.length;
-		type.__element_t *elements=cast(type.__element_t*) malloc(type.__element_t.sizeof*type.__dim);
-		elements[0..type.__dim]=obj.elements;
+		SLindex_Type ind=obj.__dim;
+		//NOTE: either __dim or array.length, unsure what's best
+		type.__element_t *elements=cast(type.__element_t*) malloc(type.__element_t.sizeof*ind);
+		elements[0..ind]=obj.array[0..ind];
 		SLang_Array_Type *arr=SLang_create_array1(DLangType_To_SLangType!(typeof(type.x))(), 1, elements, &ind, 1, 1);
 		SLang_push_array(arr, 1);
 	}
@@ -234,15 +237,18 @@ void Push_DLang_Object(T)(T obj){
 			SLang_push_array(arr, 0);
 		}
 		else static if(is(type==Vector_t!()*)){
-			SLindex_Type ind=obj.elements.length;
-			SLang_Array_Type *arr=SLang_create_array1(DLangType_To_SLangType!(typeof(type.x))(), 0, obj.elements.ptr, &ind, 1, 1);
+			SLindex_Type ind=obj.__dim;
+			SLang_Array_Type *arr=SLang_create_array1(DLangType_To_SLangType!(typeof(type.x))(), 0, obj.array.ptr, &ind, 1, 1);
 			SLang_push_array(arr, 0);
 		}
 		else
 			return Push_DLang_Object(*obj);
 	}
-	else
-	static assert(0);
+	else{
+		pragma(msg, "Couldn't pick a corresponding S-Lang type for ", T.stringof);
+		pragma(msg, real.sizeof, " ", double.sizeof);
+		static assert(0);
+	}
 }
 
 void SLangObject_Push(void *obj, SLtype type){
@@ -468,7 +474,7 @@ void Script_OnFrame(){
 	foreach(ref scr; Loaded_Scripts){
 		if(!scr.call_on_frame)
 			continue;
-		scr.Call_Func("On_Frame_Update", delta_time);
+		scr.Call_Func("On_Frame_Update", Frame_DeltaTicks);
 	}
 }
 
@@ -476,7 +482,7 @@ void Script_OnMiniMapRender(){
 	foreach(ref scr; Loaded_Scripts){
 		if(!scr.call_on_minimap_render)
 			continue;
-		scr.Call_Func("On_Minimap_Render", delta_time);
+		scr.Call_Func("On_Minimap_Render", Frame_DeltaTicks);
 	}
 }
 
@@ -683,7 +689,12 @@ void ScrWorldLib_VisibilityRangeSet(){SLang_pop_uint(&Base_Visibility_Range);}
 void ScrWorldLib_VoxelDel(){
 	uint x, y, z;
 	SLang_pop_uint(&x); SLang_pop_uint(&y); SLang_pop_uint(&z);
-	Break_Block!(false, false)(x, y, z);
+	if(Valid_Coord(x, y, z) && Voxel_IsSolid(x, y, z)){
+		Break_Block!(false, false)(x, y, z);
+	}
+	else{
+		writeflnlog("ERROR: Attempted to break block at (%s|%s|%s)", x, y, z);
+	}
 }
 
 void ScrVecLib_RotationAsDirection(SLang_Array_Type *vec){

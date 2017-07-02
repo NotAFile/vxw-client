@@ -33,17 +33,9 @@ Coming soon:
 
 # Compiling
 
-If you haven't already installed DMD or GDC/LDC (improve your framerate), you can download the latest version here:
+If you haven't already installed either DMD or GDC/LDC (improve your framerate) or any other Dlang compiler, you can download the latest version here:
 
 http://dlang.org/download.html
-
-You need at least one renderer module.
-
-There are two right now, first the software based voxlap renderer and a much newer OpenGL renderer which might be faster on new and is slower on old hardware.
-- *Voxlap*: http://github.com/LeComm/aofclient-voxlap-renderer
-- *OpenGL*: http://github.com/xtreme8000/aof-opengl
-
-Follow the compile steps for your choosen renderer module and procede here after you've copied the renderer's ```renderer.d``` file here as well as other required library files.
 
 #### On Linux/any POSIX-compliant OSes
 1. If you are using Debian or Ubuntu and don't have these installed already:
@@ -56,21 +48,22 @@ Follow the compile steps for your choosen renderer module and procede here after
 	```
 	./setup_voxlap_renderer
 	```
+There's also http://github.com/xtreme8000/aof-opengl, but might not work anymore and it needs to be set up manually
 
-3. Open a terminal in this directory and write
+3. To set up all the dependencies, do:
 
 	```
 	./configure
 	```
 
-	to download some files from external sources, and
+4. To finally make the project, do:
 
 	```
 	make
 	```
 
-	to compile the source into a binary
-	(btw the make script supports several different compilers; "make ll" will compile with LLVM's LTO stuff, which produces the fastest code of all)
+	to compile the source into a binary (will be output into the file "main")
+	(btw the make script supports the ldc and gdc compilers; "make ll" will compile with LLVM's LTO stuff, which produces the fastest code of all)
 
 
 #### On Windows
@@ -78,31 +71,18 @@ Follow the compile steps for your choosen renderer module and procede here after
 1. Put required DLLs into the directory (libenet.dll, libpng16-16.dll, pthreadGC2.dll, vorbis.dll, zlib1.dll, libgcc_s_dw2-1.dll, libslang.dll, SDL2.dll, vorbisenc.dll, libjpeg-9.dll, 
 libtiff-5.dll, SDL2_image.dll, vorbisfile.dll)
 
-2. Run:
+2. Create a directory called "derelict" here.
 
-	```
-
-	git clone http://github.com/DerelictOrg/DerelictENet
-
-	git clone http://github.com/DerelictOrg/DerelictAL
-
-	git clone http://github.com/DerelictOrg/DerelictOgg
-
-	git clone http://github.com/DerelictOrg/DerelictVorbis
-	```
-
-3. Create a directory called "derelict" here.
-
-4. Paste the contents of the derelict directories from the repositories from 2.
+3. Paste the contents of the derelict directories from the repositories from 2.
 
 	(net, openal, vorbis, ogg, util)
 
-5. Run:
+4. Run:
 	```
 	git clone https://github.com/LeComm/SDLang2
 	```
 
-6. Run compile.bat
+5. Run compile.bat
 
 CREDITS:
 
@@ -120,6 +100,7 @@ iCherry - helping me porting Voxlap to 64 bit
 ## Notes
 
 The "derelict/" folder, when set up, contains D bindings to ENet, libogg and Vorbis. This is not the usual way of using derelict, but *DUB* is a nightmare to use and We would rather not rely on such kinds of packaging programs. I actually made my own bindings for SDL2 because derelict breaks all of my stuff on a regular basis (due to API changes) and I couldn't stand having to fix the SDL2 part all the time.
+If you somehow acquired this software by means other than `git clone`, you also need DerelictENet, DerelictAL, DerelictUtil, Derelictvorbis and DerelictOgg from github (or somehow get them via Dlang's DUB package manager).
 
 Official compiled versions of this software run way faster on other systems than on windows because of compiler issues arising from stubborn D devs who keep insisting on using microsoft development software above all (and some crappy 30 years old MS-DOS linker written in ASM).
 

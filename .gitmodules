@@ -1,0 +1,18 @@
+[submodule "SDLang2"]
+	path = SDLang2
+	url = https://github.com/LeComm/SDLang2
+[submodule "DerelictENet"]
+	path = DerelictENet
+	url = https://github.com/DerelictOrg/DerelictENet
+[submodule "DerelictAL"]
+	path = DerelictAL
+	url = https://github.com/DerelictOrg/DerelictAL
+[submodule "DerelictUtil"]
+	path = DerelictUtil
+	url = https://github.com/DerelictOrg/DerelictUtil
+[submodule "Derelictvorbis"]
+	path = Derelictvorbis
+	url = https://github.com/DerelictOrg/Derelictvorbis
+[submodule "DerelictOgg"]
+	path = DerelictOgg
+	url = https://github.com/DerelictOrg/DerelictOgg

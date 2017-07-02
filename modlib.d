@@ -56,7 +56,7 @@ Model_t *Model_FromKV6(ubyte[] data, string filename){
 	for(uint z=0; z<model.zsize; z++)
 		for(uint x=0; x<model.xsize; x++)
 			ylength[x][z]=(cast(ushort[])data[xlength_end_ind..$])[z+model.zsize*x];
-	if(data.length>=ylength_end_ind){
+	if(data.length>=ylength_end_ind+4){
 		if(data[ylength_end_ind..ylength_end_ind+4]=="SPal"){
 			writeflnlog("Note: File %s contains a useless suggested palette block (SLAB6)", filename);
 		}
@@ -325,13 +325,26 @@ struct ModFile_t{
 					size=cast(uint)lfsize;
 					f.rawRead(data);
 					static if(1){
-						import std.digest.crc;
-						CRC32 context=makeDigest!CRC32();
-						context.put(data);
-						ubyte[4] hashbuf=context.finish();
-						//RIP crc32Of() (used to work, great random number generator now)
-						//ubyte[4] hashbuf=crc32Of(data);
-						hash=*(cast(uint*)hashbuf.ptr);
+						static if(1){
+							import std.digest.crc;
+							CRC32 context=makeDigest!CRC32();
+							context.put(data);
+							ubyte[4] hashbuf=context.finish();
+							//RIP crc32Of() (used to work, great random number generator now)
+							//ubyte[4] hashbuf=crc32Of(data);
+							hash=*(cast(uint*)hashbuf.ptr);
+						else{
+							import std.digest.md;
+							MD5 md;
+							md.start();
+							md.put(data);
+							auto hashbuf=md.finish();
+							uint hash=0;
+							pragma(msg, hashbuf.length);
+							foreach(i; 0..4){
+								hash|=(hashbuf[0+i*4]^hashbuf[1+i*4]^hashbuf[2+i*4]^hashbuf[3+i*4])<<(i*8);
+							}
+						}
 					}
 					else{
 						hash=0;

@@ -10,6 +10,7 @@ THE BASICS:
 
 
 E = Use Object (e.g. go to a mortar and hold E while using it if your server has them)
+Q = Push Nearby Object
 -/+ = Change Framerate
 Left CTRL and -/+ = Change Renderer Quality
 Enter = Start Typing Chat / Submit Chat Message

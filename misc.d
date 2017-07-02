@@ -5,6 +5,7 @@ import std.algorithm;
 import std.system;
 import std.math;
 import std.conv;
+import std.variant;
 import core.time;
 import std.datetime;
 import core.thread;
@@ -224,4 +225,12 @@ T bitwise_min(T)(T x, T y){
 //Hoping that someday, I will find some fast and somewhat reliable int sqrt function
 TR int_sqrt(TI, TR=TI)(TI val){
 	return cast(TR)sqrt(cast(double)val);
+}
+
+T OptionalArguments_Read(T)(Variant[string] args, string key, T default_val){
+	if(args==null)
+		return default_val;
+	if(key in args)
+		return args[key].get!T();
+	return default_val;
 }

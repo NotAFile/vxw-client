@@ -12,6 +12,7 @@ import std.math;
 import std.random;
 import std.algorithm;
 import std.traits;
+import std.variant;
 import packettypes;
 import vector;
 import renderer;
@@ -43,11 +44,11 @@ immutable float Player_Stand_Size=2.8;
 immutable float Player_Stand_Size_Eye=2.3;
 immutable float Player_Crouch_Size=1.8;
 immutable float Player_Crouch_Size_Eye=1.3;
-immutable float Crouch_Height_Change_Speed = 0.375; //in secounds
+immutable float Crouch_Height_Change_Speed = 0.375; //in seconds
 
 Vector3_t Wind_Direction;
 
-immutable uint ticks_ps = 60;
+immutable uint PhysicsTicksPerSecond=60;
 
 void Init_World(){
 }
@@ -83,7 +84,7 @@ struct AABB_t {
 	}
 	
 	this(T1, T2)(T1 vec1, T2 vec2){
-		static if(isVectorLike!T1 && isVectorLike!T2){
+		static if(isVector3Like!T1 && isVector3Like!T2){
 			minvec=Vector3_t(min(vec1.x, vec2.x), min(vec1.y, vec2.y), min(vec1.z, vec2.z));
 			maxvec=Vector3_t(max(vec1.x, vec2.x), max(vec1.y, vec2.y), max(vec1.z, vec2.z));
 		}
@@ -324,10 +325,12 @@ struct Player_t{
 		current_item_offset=Vector3_t(0.0);
 		score=0; gmscore=0;
 		Walk_Forwards_Timer=0.0; Walk_Sidewards_Timer=0.0;
-		if(items.length)
-			equipped_item=&items[0];
-		else
-			equipped_item=null;
+		if(equipped_item){
+			Switch_Item(VoidItemID);
+		}
+		if(items.length){
+			Switch_Item(0);
+		}
 	}
 	Team_t *Get_Team(){
 		if(team==255)
@@ -377,7 +380,7 @@ struct Player_t{
 	//Code by ByteBit (edited by lecom)
 	void Update(float dt=WorldSpeed){
 		if(Spawned){
-			uint ticks_should_have = cast(uint)floor((PreciseClock_ToMSecs(PreciseClock())-physics_start)/1000.0F*ticks_ps);
+			uint ticks_should_have = cast(uint)floor((PreciseClock_ToMSecs(PreciseClock())-physics_start)/1000.0F*PhysicsTicksPerSecond);
 			if(ticks<ticks_should_have) {
 				while(ticks<ticks_should_have) {
 					Update_Physics();
@@ -454,7 +457,7 @@ struct Player_t{
 	//Code by ByteBit (edited by lecom)
 	void Update_Physics() {
 		Vector3_t prev_pos=CameraPos();
-		float dt = 1.0F/(cast(float)ticks_ps);
+		float dt = 1.0F/(cast(float)PhysicsTicksPerSecond)*2.0;
 		AABB_t player_aabb;
 		
 		if(Crouch && TryUnCrouch) {
@@ -470,7 +473,7 @@ struct Player_t{
 				}
 			}
 		}
-		
+
 		crouch_offset += ((Crouch && crouch_offset<0.0)?dt/Crouch_Height_Change_Speed:0.0) + ((!Crouch && crouch_offset>-1.0)?-dt/Crouch_Height_Change_Speed:0.0);
 		
 		player_aabb.set_size(0.75F,Crouch?Player_Crouch_Size:Player_Stand_Size,0.75F);
@@ -478,7 +481,8 @@ struct Player_t{
 		player_aabb.set_bottom_center(pos.x,pos.y+vel.y*dt,pos.z);
 		if(!player_aabb.intersection_terrain!true()) {
 			pos.y += vel.y*dt;
-			vel.y += dt*Gravity*2.0F;
+			vel.y += dt*Gravity; /*This one is what breaks a realistic physx system, so we just let it like this,
+			make the rest slowmo, and set the engine to increase the time constant*/
 		} else {
 			vel.y = 0.0F;
 		}
@@ -496,7 +500,7 @@ struct Player_t{
 					sndsource.Play_Sound(Mod_Sounds[ProtocolBuiltin_StepSound]);
 				debug{
 					if(d>0.0F) {
-						printf("Fall distance: %f\n",d);
+						writeflnlog("Fall distance: %f\n",d);
 					}
 				}
 			}
@@ -510,18 +514,17 @@ struct Player_t{
 				LastJump = false;
 			}
 		}
-		
-		float max_speed = 7.5F;
-		if(airborne) {
-			max_speed *= 0.2F;
-		} else {
-			if(Crouch) {
-				max_speed *= 0.3F;
-			} else {
-				if(Sprint) {
-					max_speed *= 1.3F;
-				}
-			}
+		float max_speed;
+		if(!airborne){
+			if(Sprint && !Crouch)
+				max_speed=PlayerSprintSpeed;
+			else
+				max_speed=PlayerWalkSpeed;
+			if(Crouch)
+				max_speed*=.3f;
+		}
+		else{
+			max_speed=.5f;
 		}
 		
 		float l2 = sqrt(dir.x*dir.x+dir.z*dir.z);
@@ -547,25 +550,30 @@ struct Player_t{
 				z += d_x2;
 			}
 		}
-		
-		x *= 30.0F*dt;
-		z *= 30.0F*dt;
 		if((Go_Forwards || Go_Back) && (Go_Left || Go_Right)) {
-			x *= 1.4142F;
-			z *= 1.4142F;
+			x /= 1.4142F;
+			z /= 1.4142F;
 		}
+
+		vel.x+=x*dt*3.0*max_speed;
+		vel.z+=z*dt*3.0*max_speed;
 		
-		if((vel.x+x)*(vel.x+x)+(vel.z+z)*(vel.z+z)<=max_speed*max_speed) {
-			vel.x += x;
-			vel.z += z;
-		}
 		
-		if(vel.x*vel.x+vel.z*vel.z<0.02F) {
+		if(vel.x*vel.x+vel.z*vel.z<0.0001F) {
 			vel.x = vel.z = 0.0F;
 		}
 		
+		//9.0
+		vel/=1.0+dt*(airborne ? AirFriction : (Crouch ? CrouchFriction : (In_Water ? WaterFriction : GroundFriction)))*10.0;
 		
-		if(vel.x*vel.x+vel.z*vel.z>0.0F) {
+		
+/*float AirFriction=.24;
+float GroundFriction=2.0;
+float WaterFriction=2.5;
+float CrouchFriction=5.0;*/
+		
+		
+		/*if(vel.x*vel.x+vel.z*vel.z>0.0F) {
 			float l = sqrt(vel.x*vel.x+vel.z*vel.z);
 			float d_x = vel.x/l;
 			float d_z = vel.z/l;
@@ -576,7 +584,7 @@ struct Player_t{
 				vel.x -= 2.0F*Gravity*d_x*dt/(airborne?4:1);
 				vel.z -= 2.0F*Gravity*d_z*dt/(airborne?4:1);
 			}
-		}
+		}*/
 		
 		bool blocked_in_x = false, blocked_in_z = false;
 		
@@ -658,7 +666,7 @@ struct Player_t{
 				usepos=CameraPos();
 				usedir=dir;
 			}
-			if(current_item.container_type!=ItemContainerType_t.Player){
+			if(current_item.container_type==ItemContainerType_t.Object){
 				usepos=Objects[current_item.container_obj].pos;
 			}
 			Vector3_t spreadeddir;
@@ -787,8 +795,9 @@ struct Player_t{
 			if(itemtype.Is_Gun()){
 				/*immutable bullet_exit_pos=usepos+spreadeddir*Mod_Models[ItemTypes[equipped_item.type].model_id].size.z
 				*Get_Player_Attached_Sprites(player_id)[0].density.z;*/
-				Bullet_Shoot(bullet_exit_pos+Vector3_t(-.04, .04, 0.0).rotate(spreadeddir.RotationAsDirection), spreadeddir*200.0, MinHitDist, &itemtype.bullet_sprite);
+				Bullet_Shoot(bullet_exit_pos+Vector3_t(-.04, .04, 0.0).rotate(spreadeddir.DirectionAsRotation), spreadeddir*200.0, MinHitDist, &itemtype.bullet_sprite);
 				Create_Smoke(bullet_exit_pos, 2.0*itemtype.power, 0xff808080, 2.0*sqrt(itemtype.power), .1, .1, spreadeddir*.1*sqrt(itemtype.power));
+				Create_FireParticles(bullet_exit_pos, cast(uint)(30.0*itemtype.power), ["vel":Variant(spreadeddir*.2), "vel_spread":Variant(.001)]);
 			}
 		}
 		if(itemtype.repeated_use)
@@ -1028,9 +1037,6 @@ void Init_Team(string name, TeamID_t team_id, uint color, bool playing){
 	team.Init(name, team_id, color, playing);
 }
 
-float WorldSpeed=1.0;
-uint Last_Tick;
-
 struct ItemType_t{
 	ubyte index;
 	uint use_delay;
@@ -1089,7 +1095,7 @@ struct Item_t{
 		equipped=VoidPlayerID;
 	}
 	bool Can_Use(){
-		if(Reloading || (!amount1 && ItemTypes[type].maxamount1) || !Use_Ready())
+		if(Reloading || (!amount1 && ItemTypes[type].maxamount1 && equipped==LocalPlayerID) || !Use_Ready())
 			return false;
 		return true;
 	}
@@ -1144,16 +1150,17 @@ struct Item_t{
 	}
 }
 
-float delta_time;
+real WorldSpeed=1.0, Frame_DeltaTicks=1.0;
 size_t __Block_Damage_Check_Index=0;
 immutable uint __Block_Damage_ChecksPerFrame=32;
 immutable uint __BlockDamage_HealDelay=1000*5;
 immutable ubyte __BlockDamage_HealAmount=16;
 void Update_World(){
 	uint Current_Tick=PreciseClock_ToMSecs(PreciseClock());
+	static uint Last_Tick;
 	if(Last_Tick){
-		delta_time=tofloat(Current_Tick-Last_Tick)/1000.0;
-		WorldSpeed=delta_time*WorldSpeedRatio;
+		Frame_DeltaTicks=(Current_Tick-Last_Tick)/1000.0;
+		WorldSpeed=(Current_Tick-Last_Tick)*WorldSpeedRatio/1000.0;
 	}
 	else{
 		WorldSpeed=(1.0/30.0)*WorldSpeedRatio;
@@ -1225,21 +1232,23 @@ struct DamageParticle_t{
 	}
 	uint col;
 	void Init(uint ix, uint iy, uint iz, uint icol, uint[] free_sides){
-		float vx=tofloat(ix)+.5, vy=tofloat(iy)+.5, vz=tofloat(iz)+.5;
-		/*uint side=uniform(0, 3);
-		float sidesgn=tofloat(toint(uniform(0, 2))*2-1)*.5;*/
-		uint side=free_sides[uniform(0, free_sides.length)];
-		x=vx+uniform01()-.5;
-		y=vy+uniform01()-.5;
-		z=vz+uniform01()-.5;
-		switch(side){
-			case 0: x=vx+.5; break;
-			case 1: x=vx-.5; break;
-			case 2: y=vy+.5; break;
-			case 3: y=vy-.5; break;
-			case 4: z=vz+.5; break;
-			case 5: z=vz-.5; break;
-			default:break;
+		if(free_sides.length){
+			float vx=tofloat(ix)+.5, vy=tofloat(iy)+.5, vz=tofloat(iz)+.5;
+			/*uint side=uniform(0, 3);
+			float sidesgn=tofloat(toint(uniform(0, 2))*2-1)*.5;*/
+			uint side=free_sides[uniform(0, free_sides.length)];
+			x=vx+uniform01()-.5;
+			y=vy+uniform01()-.5;
+			z=vz+uniform01()-.5;
+			switch(side){
+				case 0: x=vx+.5; break;
+				case 1: x=vx-.5; break;
+				case 2: y=vy+.5; break;
+				case 3: y=vy-.5; break;
+				case 4: z=vz+.5; break;
+				case 5: z=vz-.5; break;
+				default:break;
+			}
 		}
 		col=icol|0xff000000;
 	}
@@ -1405,18 +1414,22 @@ void Break_Block(alias check_floating=true, alias create_particles=true)(uint xp
 	static if(create_particles){
 		uint col=Voxel_GetColor(xpos, ypos, zpos);
 		uint x, y, z;
-		uint particle_amount=touint(1.0/BlockBreakParticleSize*.5)/(2-block_was_damaged)+1;
+		uint particle_amount=to!uint(((1.0/BlockBreakParticleSize*.5)/(2-block_was_damaged)+1)*Config_Read!float("particles"));
+		auto category=&ParticleCategories[ParticleTypeIndexes.BrokenBlock];
+		size_t old_size=category.particles.length;
+		category.particles.length+=particle_amount*particle_amount*particle_amount;
+		size_t s_ctr=old_size;
 		for(x=0; x<particle_amount; x++){
 			for(y=0; y<particle_amount; y++){
 				for(z=0; z<particle_amount; z++){
-					BlockBreakParticles.length++;
-					Particle_t *p=&BlockBreakParticles[$-1];
+					BlockBreakParticle_t *p=&category.particles[s_ctr];
 					p.vel=Vector3_t(uniform01()*(uniform(0, 2)?1.0:-1.0)*.075, 0.0, uniform01()*(uniform(0, 2)?1.0:-1.0)*.075);
-					p.pos=Vector3_t(to!float(xpos)+to!float(x)*BlockBreakParticleSize,
-					to!float(ypos)+to!float(y)*BlockBreakParticleSize,
-					to!float(zpos)+to!float(z)*BlockBreakParticleSize)+RandomVector()*.3;
+					p.pos=Vector3_t(to!float(xpos)+to!float(x)*p.size[0],
+					to!float(ypos)+to!float(y)*p.size[1],
+					to!float(zpos)+to!float(z)*p.size[2])+RandomVector()*.3;
 					p.col=col;
 					p.timer=uniform(550, 650);
+					s_ctr++;
 				}
 			}
 		}
@@ -1433,7 +1446,7 @@ struct RCRay_t{
 	int rayx, rayy, rayz;
 	int dstx, dsty, dstz;
 	int xdsgn, ydsgn, zdsgn;
-	uint opxd, opyd, opzd;
+	int opxd, opyd, opzd;
 	Vector3_t pos, dir, invdir;
 	float maxlength;
 	bool hit;
@@ -1487,7 +1500,20 @@ struct RCRay_t{
 				break;
 			}
 			loops--;
-			hit=!Valid_Coord(rayx, rayy, rayz) || Voxel_IsSolid(rayx, rayy, rayz);
+			if(Valid_Coord(rayx, rayy, rayz)){
+				hit=Voxel_IsSolid(rayx, rayy, rayz);
+			}
+			else{
+				if(rayx<0 || rayz<0 || rayx>=MapXSize || rayz>=MapZSize || (rayy>=cast(int)MapYSize && rayy>=0)){
+					hit=1;
+				}
+				else{
+					if(dir.y<=0.0){
+						hit=1;
+						lastdist=typeof(lastdist).max;
+					}
+				}
+			}
 			static if(!until_hit)
 				break;
 		}
@@ -1518,7 +1544,7 @@ string __StructDefToString(T)(){
 	alias st_types=Fields!T;
 	alias st_names=FieldNameTuple!T;
 	foreach(uint i, name; st_names){
-		ret~=TypeName!(st_types[i])()~" "~name~";";
+		ret~=st_types[i].stringof~" "~name~";";
 	}
 	return ret;
 }
@@ -1542,6 +1568,8 @@ struct Object_t{
 	}
 	float smoke_amount;
 	uint smoke_color;
+	float fire_amount;
+	uint fire_color;
 	DamageParticle_t[] particles;
 	
 	Item_t *item;
@@ -1559,7 +1587,7 @@ struct Object_t{
 		physics_mode=ObjectPhysicsMode.Standard;
 		acl=Vector3_t(0.0);
 		obj=PhysicalObject_t([Vector3_t(0.0, 0.0, 0.0)]);
-		smoke_amount=0.0;
+		smoke_amount=0.0; fire_amount=0.0;
 		attached_to_obj=VoidObjectID;
 		item=null;
 		sndsource=SoundSource_t(0);
@@ -1658,6 +1686,13 @@ struct Object_t{
 		if(smoke_amount){
 			Create_Smoke(pos, smoke_amount*dt, smoke_color, pow(smoke_amount, .75), .2, .75, vel*.01);
 		}
+		if(fire_amount){
+			auto fire_vel=vel*.01;
+			if(fire_color&0xff000000)
+				Create_FireParticles(pos, cast(uint)(fire_amount*dt*100.0), ["col":Variant(fire_color), "vel":Variant(fire_vel)]);
+			else
+				Create_FireParticles(pos, cast(uint)(fire_amount*dt*100.0), ["vel":Variant(fire_vel)]);
+		}
 		sndsource.SetPos(pos);
 		sndsource.SetVel(vel);
 		foreach(lsound; loop_sounds){
@@ -1705,7 +1740,7 @@ struct Object_t{
 			if(item.equipped!=VoidPlayerID)
 				return;
 		}
-		return obj.Render();
+		obj.Render();
 	}
 }
 

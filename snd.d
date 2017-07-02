@@ -348,7 +348,7 @@ void Sound_SetListenerOri(R)(R rot){
 	if(!Sound_Enabled)
 		return;
 	Vector3_t vec=(Vector3_t(rot)+Vector3_t(0.0, 180.0, 0.0)).RotationAsDirection().normal();
-	float[6] elements=vec.elements~[0.0f, -1.0f, 0.0f];
+	float[6] elements=vec~[0.0f, -1.0f, 0.0f];
 	alListenerfv(AL_ORIENTATION, elements.ptr);
 	if(__AlError("alListenerfv() for orientation"))
 		return;

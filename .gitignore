@@ -37,3 +37,9 @@ vxwclient-voxlap*
 *.s
 gmon.out
 .goutputstream*
+DerelictENet/
+DerelictAL/
+DerelictUtil/
+Derelictvorbis/
+DerelictOgg/
+

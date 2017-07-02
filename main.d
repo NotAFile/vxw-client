@@ -21,7 +21,7 @@ version(LDC){
 }
 
 version(OSX){
-	//Ew why would an intelligent being even use this shit
+	pragma(msg, "No. Just no.");
 	static assert(0);
 }
 
@@ -59,6 +59,7 @@ void main(string[] args){
 				writeflnlog("Or ./main to connect to the address with the nickname defined in config.txt (or default)");
 				writeflnlog("You can use DNS names without any protocol identifiers (without \"http://\" or \"https://\")");
 				UnInit_Game();
+				return;
 				break;
 			}
 		}
@@ -104,8 +105,6 @@ void main(string[] args){
 	}
 	Send_Disconnect_Packet();
 	UnInit_Game();
-	ClientConfig_Save();
-	SDL_Quit();
 }
 
 void __do_gc_collect(){
@@ -130,6 +129,8 @@ void UnInit_Game(){
 	UnInit_Gfx();
 	UnInit_Snd();
 	UnInit_Netcode();
+	ClientConfig_Save();
+	SDL_Quit();
 }
 
 bool got_sigsegv=false;

@@ -53,7 +53,11 @@ string LastSentLine="";
 bool Changed_Palette_Color=false;
 SDL_Surface *Palette_V_Colors, Palette_H_Colors;
 
-bool NoobMessage_Enable=false, ServerMessage_Enable=false, SettingsMenu_Enable=false;
+enum ScreenOverlays{
+	None, NoobMessage, ServerMessage, SettingsMenu, NetworkGraph
+}
+
+ScreenOverlays Current_Screen_Overlay;
 
 struct SettingsMenuEntry_t{
 	string key;
@@ -341,7 +345,7 @@ void Check_Input(){
 			}
 			case SDL_KEYDOWN:{
 				byte number_key_pressed=0;
-				if(!TypingChat && SettingsMenu_Enable){
+				if(!TypingChat && Current_Screen_Overlay==ScreenOverlays.SettingsMenu){
 					const char *ckeyname=SDL_GetScancodeName(SDL_GetScancodeFromKey(event.key.keysym.sym));
 					if(ckeyname){
 						string keyname=(cast(string)fromStringz(ckeyname)).toLower();
@@ -419,7 +423,7 @@ void Check_Input(){
 						break;
 					}
 					case SDLK_m:{
-						if(!TypingChat && !SettingsMenu_Enable && !ServerMessage_Enable && !NoobMessage_Enable){
+						if(!TypingChat && Current_Screen_Overlay==ScreenOverlays.None){
 							Render_MiniMap=!Render_MiniMap;
 							if(Render_MiniMap)
 								Update_MiniMap();
@@ -466,37 +470,42 @@ void Check_Input(){
 						break;
 					}
 					case SDLK_PLUS:{
-						if(!TypingChat && SettingsMenu_Enable){
+						if(!TypingChat && Current_Screen_Overlay==ScreenOverlays.SettingsMenu){
 							SettingsMenu_ChangeEntry(.5*(KeyState[SDL_SCANCODE_LCTRL] ? .5 : 1.0)*(KeyState[SDL_SCANCODE_LSHIFT] ? 2.0 : 1.0));
 						}
 						break;
 					}
 					case SDLK_MINUS:{
-						if(!TypingChat && SettingsMenu_Enable){
+						if(!TypingChat && Current_Screen_Overlay==ScreenOverlays.SettingsMenu){
 							SettingsMenu_ChangeEntry(-.5*(KeyState[SDL_SCANCODE_LCTRL] ? .5 : 1.0)*(KeyState[SDL_SCANCODE_LSHIFT] ? 2.0 : 1.0));
 						}
 						break;
 					}
 					case SDLK_F1:{
-						NoobMessage_Enable=!NoobMessage_Enable;
-						if(NoobMessage_Enable){
-							ServerMessage_Enable=false;
-							SettingsMenu_Enable=false;
-						}
+						if(Current_Screen_Overlay!=ScreenOverlays.NoobMessage)
+							Current_Screen_Overlay=ScreenOverlays.NoobMessage;
+						else
+							Current_Screen_Overlay=ScreenOverlays.None;
 						break;
 					}
 					case SDLK_F2:{
-						ServerMessage_Enable=!ServerMessage_Enable;
+						if(Current_Screen_Overlay!=ScreenOverlays.ServerMessage)
+							Current_Screen_Overlay=ScreenOverlays.ServerMessage;
+						else
+							Current_Screen_Overlay=ScreenOverlays.None;
 						if(ProtocolBuiltin_ServerMessageScript>=0){
-							if(ServerMessage_Enable)
+							if(Current_Screen_Overlay==ScreenOverlays.ServerMessage)
 								Loaded_Scripts[ProtocolBuiltin_ServerMessageScript].Call_Func("Show");
 							else
 								Loaded_Scripts[ProtocolBuiltin_ServerMessageScript].Call_Func("Hide");
 						}
-						if(ServerMessage_Enable){
-							NoobMessage_Enable=false;
-							SettingsMenu_Enable=false;
-						}
+						break;
+					}
+					case SDLK_F3:{
+						if(Current_Screen_Overlay!=ScreenOverlays.NetworkGraph)
+							Current_Screen_Overlay=ScreenOverlays.NetworkGraph;
+						else
+							Current_Screen_Overlay=ScreenOverlays.None;
 						break;
 					}
 					case SDLK_F9:{
@@ -510,7 +519,10 @@ void Check_Input(){
 						break;
 					}
 					case SDLK_F10:{
-						SettingsMenu_Enable=!SettingsMenu_Enable;
+						if(Current_Screen_Overlay!=ScreenOverlays.SettingsMenu)
+							Current_Screen_Overlay=ScreenOverlays.SettingsMenu;
+						else
+							Current_Screen_Overlay=ScreenOverlays.None;
 						break;
 					}
 					default:{break;}
@@ -630,13 +642,14 @@ void Check_Input(){
 		}
 	}
 	if(QuitEventReceived){
-		if(!KeyState[SDL_SCANCODE_LALT])
+		if(!KeyState[SDL_SCANCODE_LALT]){
 			QuitGame=true;
-		else
-			SettingsMenu_Enable=!SettingsMenu_Enable;
-		if(SettingsMenu_Enable){
-			ServerMessage_Enable=false;
-			NoobMessage_Enable=false;
+		}
+		else{
+			if(Current_Screen_Overlay!=ScreenOverlays.SettingsMenu)
+				Current_Screen_Overlay=ScreenOverlays.SettingsMenu;
+			else
+				Current_Screen_Overlay=ScreenOverlays.None;
 		}
 	}
 	if(!TypingChat){
@@ -827,6 +840,11 @@ void Render_HUD(){
 		}
 	}
 	Render_All_Text();
+	if(Current_Screen_Overlay==ScreenOverlays.NetworkGraph){
+		Render_Text(0, 0, format("Incoming packets: %s Total: %d/%dK/%dM Average: %fK/s\nOutgoing packets: %s Total: %d/%dK/%dM Average: %f K/s",
+		IncomingPacket_Stats, IncomingPacket_DataSize, IncomingPacket_DataSize/1024, IncomingPacket_DataSize/1024/1024, to!real(IncomingPacket_DataSize)*10e3/1024.0/max(1, SDL_GetTicks()),
+		OutgoingPacket_Stats, OutgoingPacket_DataSize, OutgoingPacket_DataSize/1024, OutgoingPacket_DataSize/1024/1024, to!real(OutgoingPacket_DataSize)*10e3/1024.0/max(1, SDL_GetTicks())));
+	}
 }
 
 float ChatLineBlinkSpeed=30.0;
@@ -877,7 +895,7 @@ void Render_All_Text(){
 				ypos+=to!float(Mod_Picture_Sizes[box.font_index][1]);
 		}
 	}
-	if(NoobMessage_Enable){
+	if(Current_Screen_Overlay==ScreenOverlays.NoobMessage){
 		if(!InstructionsFile_Contents.length){
 			import std.file;
 			InstructionsFile_Contents=readText("./Instructions.txt");
@@ -886,11 +904,11 @@ void Render_All_Text(){
 		}
 		Renderer_FillRect2D(null, 0xff00ffff);
 		string nick=JoinedGame ? Players[LocalPlayerID].name : Config_Read!string("nick");
-		Render_Text_Line(0, 0, Font_SpecialColor, "Welcome to VoxelWar version "~to!string(Protocol_Version)~", "~nick~"!
+		Render_Text_Line(0, 0, Font_SpecialColor, "Welcome to VoxelWar protocol version "~to!string(Protocol_Version)~", "~nick~"!
 Well, there's a short and simple instructions file, but why even bother reading that!1!1!111!!!1
 Anyways, here's the instructions:\n"~InstructionsFile_Contents, font_texture, FontWidth, FontHeight, LetterPadding);
 	}
-	if(SettingsMenu_Enable){
+	if(Current_Screen_Overlay==ScreenOverlays.SettingsMenu){
 		Renderer_FillRect2D(null, 0x80008080);
 		string[] settings_text;
 		settings_text.length=SettingsMenu_ConfigEntries.length+1;

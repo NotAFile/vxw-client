@@ -11,7 +11,7 @@ version(GNU){
 
 alias PlayerID_t=ubyte; immutable PlayerID_t VoidPlayerID=255;
 alias PacketID_t=ubyte;
-alias TeamID_t=ubyte;
+alias TeamID_t=ubyte; immutable TeamID_t VoidTeamID=255;
 alias ModelID_t=ubyte; immutable ModelID_t VoidModelID=255;
 alias SoundID_t=ubyte; immutable SoundID_t VoidSoundID=255;
 alias ObjectID_t=ushort; immutable ObjectID_t VoidObjectID=65535;
@@ -48,6 +48,7 @@ struct MapChangePacketLayout{
 	string mapname;
 }
 immutable PacketID_t MapChangePacketID=0;
+
 
 //NOTE: Importance approved
 struct MapChunkPacketLayout{
@@ -539,6 +540,14 @@ struct SetObjectSoundPacketLayout{
 }
 
 immutable PacketID_t SetObjectSoundPacketID=58;
+
+
+struct SetObjectFirePacketLayout{
+	ObjectID_t obj_id;
+	float amount;
+	uint color;
+}
+immutable PacketID_t SetObjectFirePacketID=59;
 
 //This is one of the reasons why I chose D. I can simply write functions which automatically
 //unpack received packets into structs and reverse byte order when needed (byte order is the reason why I can't simply lay struct ptrs over packets)
