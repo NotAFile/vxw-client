@@ -333,6 +333,7 @@ struct ModFile_t{
 							//RIP crc32Of() (used to work, great random number generator now)
 							//ubyte[4] hashbuf=crc32Of(data);
 							hash=*(cast(uint*)hashbuf.ptr);
+						}
 						else{
 							import std.digest.md;
 							MD5 md;

@@ -2,17 +2,17 @@
 	path = SDLang2
 	url = https://github.com/LeComm/SDLang2
 [submodule "DerelictENet"]
-	path = DerelictENet
+	path = derelict_stuff/DerelictENet
 	url = https://github.com/DerelictOrg/DerelictENet
 [submodule "DerelictAL"]
-	path = DerelictAL
+	path = derelict_stuff/DerelictAL
 	url = https://github.com/DerelictOrg/DerelictAL
 [submodule "DerelictUtil"]
-	path = DerelictUtil
+	path = derelict_stuff/DerelictUtil
 	url = https://github.com/DerelictOrg/DerelictUtil
 [submodule "Derelictvorbis"]
-	path = Derelictvorbis
+	path = derelict_stuff/Derelictvorbis
 	url = https://github.com/DerelictOrg/Derelictvorbis
 [submodule "DerelictOgg"]
-	path = DerelictOgg
+	path = derelict_stuff/DerelictOgg
 	url = https://github.com/DerelictOrg/DerelictOgg

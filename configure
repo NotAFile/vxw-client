@@ -1,16 +1,16 @@
 #!/bin/bash
-cp -r ./DerelictENet/source/derelict/enet ./derelict
-cp -r ./DerelictAL/source/derelict/openal ./derelict
-cd DerelictUtil
+cp -r ./derelict_stuff/DerelictENet/source/derelict/enet ./derelict
+cp -r ./derelict_stuff/DerelictAL/source/derelict/openal ./derelict
+cd ./derelict_stuff/DerelictUtil
 #git checkout d655a6e2110140e799697a4913c152f6ef1f8ff6
-cd ..
-cp -r ./DerelictUtil/source/derelict/util ./derelict
-cd Derelictvorbis
+cd ../..
+cp -r ./derelict_stuff/DerelictUtil/source/derelict/util ./derelict
+cd derelict_stuff/Derelictvorbis
 git checkout fc2a7be7b261121600027a9adbdf6c14c314c133
-cd ..
-cp -r ./Derelictvorbis/source/derelict/vorbis ./derelict
-cd DerelictOgg
+cd ../..
+cp -r ./derelict_stuff/Derelictvorbis/source/derelict/vorbis ./derelict
+cd ./derelict_stuff/DerelictOgg
 #Using slightly older version of DerelictOgg, since LDC and GDC have some troubles with wrong @nogc placement
 git checkout 09de27b4718c8887d0864099996dd69083caca4f
-cd ..
-cp -r ./DerelictOgg/source/derelict/ogg ./derelict
+cd ../..
+cp -r ./derelict_stuff/DerelictOgg/source/derelict/ogg ./derelict
