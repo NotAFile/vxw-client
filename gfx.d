@@ -1995,6 +1995,11 @@ struct Sprite_t{
 		motion_blur=0;
 	}
 	const nothrow Vector_t!(3, T)[4] Edge_Vectors(T=real)(){
+		if(!model){
+			try{writeflnlog("ERROR: NULL MODEL");}catch(Exception){}
+			return [Vector_t!(3, T)(pos), Vector_t!(3, T)(pos)+Vector_t!(3, T)(1.0),
+			Vector_t!(3, T)(pos)+Vector_t!(3, T)(1.0), Vector_t!(3, T)(pos)+Vector_t!(3, T)(1.0)];
+		}
 		immutable renderrot=Vector_t!(3, T)(rot.x, -(rot.y+90.0), -rot.z);
 		immutable minpos=(Vector_t!(3, T)(-model.pivot)*density).rotate_raw(renderrot)+pos;
 		return [minpos,

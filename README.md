@@ -84,9 +84,9 @@ libtiff-5.dll, SDL2_image.dll, vorbisfile.dll)
 
 5. Run compile.bat
 
-CREDITS:
+# CREDITS:
 
-lecom - main programming, all the half-assed assets (yea I'm not very good with paint)
+lecom - main programming, all the half-assed assets (yea I'm not very good with paint as you see)
 
 Chameleon - contributed assets to the server
 
@@ -103,6 +103,7 @@ The "derelict/" folder, when set up, contains D bindings to ENet, libogg and Vor
 If you somehow acquired this software by means other than `git clone`, you also need DerelictENet, DerelictAL, DerelictUtil, Derelictvorbis and DerelictOgg from github (or somehow get them via Dlang's DUB package manager).
 
 Official compiled versions of this software run way faster on other systems than on windows because of compiler issues arising from stubborn D devs who keep insisting on using microsoft development software above all (and some crappy 30 years old MS-DOS linker written in ASM).
+If you want to contribute, we actually mostly manage to get the job done, but improvements of the physics code and Voxlap renderer are always welcome.
 
 ## Licensing
 
