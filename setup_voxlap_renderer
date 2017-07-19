@@ -1,5 +1,5 @@
 #!/bin/bash
-git clone http://github.com/LeComm/vxwclient-voxlap-renderer
+git clone https://github.com/LeComm/vxwclient-voxlap-renderer
 cd vxwclient-voxlap-renderer
 ln Makefile ..
 cd ..
